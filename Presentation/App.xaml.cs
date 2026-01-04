@@ -1,11 +1,12 @@
 ﻿// Відповідає за старт застосунку, налаштування DI/логування та відкриття головного вікна через Host.
-using System.Windows;
 using Application.Abstractions;
 using Infrastructure.Capture;
+using Infrastructure.Parsing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Presentation.ViewModels;
+using System.Windows;
 
 namespace Presentation;
 
@@ -21,10 +22,13 @@ public partial class App : System.Windows.Application
             .ConfigureServices(services =>
             {
                 services.AddLogging(b => b.AddDebug().AddConsole());
-
+                
                 // Infrastructure
                 services.AddSingleton<ICaptureDeviceService, SharpPcapDeviceService>();
-
+                // Відповідає за реєстрацію сервісу захоплення пакетів
+                services.AddSingleton<IPacketCaptureService, SharpPcapCaptureService>();
+                // Відповідає за реєстрацію PacketDotNet парсера.
+                services.AddSingleton<IPacketParser, PacketDotNetParser>();
                 // ViewModels
                 services.AddSingleton<MainViewModel>();
 
