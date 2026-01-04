@@ -1,12 +1,10 @@
 ﻿// Відповідає за реальний парсинг пакетів через PacketDotNet (Ethernet/IP/TCP/UDP/ICMP/ARP)
-// та формування PacketInfo для UI.
+// та формування PacketInfo для UI (включаючи RawBytes і LinkLayerType для деталей).
 using Application.Abstractions;
 using Domain.Models;
 using PacketDotNet;
 using SharpPcap;
 using System.Net;
-using System.Net.NetworkInformation;
-using System.Text;
 
 namespace Infrastructure.Parsing;
 
@@ -14,7 +12,6 @@ public sealed class PacketDotNetParser : IPacketParser
 {
     public PacketInfo Parse(DateTime timestamp, int length, object rawCapture)
     {
-        // rawCapture очікуємо як SharpPcap.RawCapture
         if (rawCapture is not RawCapture raw)
         {
             return new PacketInfo
@@ -26,34 +23,71 @@ public sealed class PacketDotNetParser : IPacketParser
             };
         }
 
+        // Відповідає за збереження типу LinkLayer для коректного повторного парсингу в UI.
+        int linkLayerType = (int)raw.LinkLayerType;
+
+        // Відповідає за безпечне копіювання байтів пакета для деталей/hex/дерева.
+        // (Не використовуємо raw.Data напряму, щоб уникнути проблем з життєвим циклом буфера)
+        byte[] bytesCopy = raw.Data.ToArray();
+
+        // Локальна фабрика: щоб не дублювати RawBytes/LinkLayer у кожному return
+        PacketInfo Make(
+            string protocol,
+            string srcMac = "",
+            string dstMac = "",
+            string srcIp = "",
+            string dstIp = "",
+            int? srcPort = null,
+            int? dstPort = null,
+            string tcpFlags = "",
+            string info = "")
+        {
+            return new PacketInfo
+            {
+                Timestamp = timestamp,
+                Length = length,
+
+                SrcMac = srcMac,
+                DstMac = dstMac,
+                SrcIp = srcIp,
+                DstIp = dstIp,
+
+                Protocol = protocol,
+                SrcPort = srcPort,
+                DstPort = dstPort,
+
+                TcpFlags = tcpFlags,
+                Info = info,
+
+                RawBytes = bytesCopy,
+                LinkLayer = raw.LinkLayerType.ToString(),
+                LinkLayerType = linkLayerType
+            };
+        }
+
         try
         {
-            // Парсимо базовий пакет
-            var packet = Packet.ParsePacket(raw.LinkLayerType, raw.Data);
+            var packet = Packet.ParsePacket(raw.LinkLayerType, bytesCopy);
 
-            // Ethernet (якщо є)
             var eth = packet.Extract<EthernetPacket>();
-            var srcMac = eth?.SourceHardwareAddress?.ToString() ?? "";
-            var dstMac = eth?.DestinationHardwareAddress?.ToString() ?? "";
+            var srcMacStr = eth?.SourceHardwareAddress?.ToString() ?? "";
+            var dstMacStr = eth?.DestinationHardwareAddress?.ToString() ?? "";
 
             // ARP
             var arp = packet.Extract<ArpPacket>();
             if (arp is not null)
             {
-                return new PacketInfo
-                {
-                    Timestamp = timestamp,
-                    Length = length,
-                    SrcMac = srcMac,
-                    DstMac = dstMac,
-                    Protocol = "ARP",
-                    SrcIp = SafeIpToString(arp.SenderProtocolAddress),
-                    DstIp = SafeIpToString(arp.TargetProtocolAddress),
-                    Info = $"{arp.Operation} {SafeIpToString(arp.SenderProtocolAddress)} → {SafeIpToString(arp.TargetProtocolAddress)}"
-                };
+                return Make(
+                    protocol: "ARP",
+                    srcMac: srcMacStr,
+                    dstMac: dstMacStr,
+                    srcIp: SafeIpToString(arp.SenderProtocolAddress),
+                    dstIp: SafeIpToString(arp.TargetProtocolAddress),
+                    info: $"{arp.Operation} {SafeIpToString(arp.SenderProtocolAddress)} → {SafeIpToString(arp.TargetProtocolAddress)}"
+                );
             }
 
-            // IPv4/IPv6
+            // IP (v4/v6)
             var ip = packet.Extract<IPPacket>();
             var srcIpStr = ip is null ? "" : SafeIpToString(ip.SourceAddress);
             var dstIpStr = ip is null ? "" : SafeIpToString(ip.DestinationAddress);
@@ -65,20 +99,17 @@ public sealed class PacketDotNetParser : IPacketParser
                 var flags = TcpFlagsToString(tcp);
                 var info = BuildTcpInfo(tcp, srcIpStr, dstIpStr);
 
-                return new PacketInfo
-                {
-                    Timestamp = timestamp,
-                    Length = length,
-                    SrcMac = srcMac,
-                    DstMac = dstMac,
-                    SrcIp = srcIpStr,
-                    DstIp = dstIpStr,
-                    Protocol = "TCP",
-                    SrcPort = tcp.SourcePort,
-                    DstPort = tcp.DestinationPort,
-                    TcpFlags = flags,
-                    Info = info
-                };
+                return Make(
+                    protocol: "TCP",
+                    srcMac: srcMacStr,
+                    dstMac: dstMacStr,
+                    srcIp: srcIpStr,
+                    dstIp: dstIpStr,
+                    srcPort: tcp.SourcePort,
+                    dstPort: tcp.DestinationPort,
+                    tcpFlags: flags,
+                    info: info
+                );
             }
 
             // UDP
@@ -90,125 +121,95 @@ public sealed class PacketDotNetParser : IPacketParser
                     ? $"UDP {udp.SourcePort} → {udp.DestinationPort} Len={udp.PayloadData?.Length ?? 0}"
                     : $"{protoHint} UDP {udp.SourcePort} → {udp.DestinationPort} Len={udp.PayloadData?.Length ?? 0}";
 
-                return new PacketInfo
-                {
-                    Timestamp = timestamp,
-                    Length = length,
-                    SrcMac = srcMac,
-                    DstMac = dstMac,
-                    SrcIp = srcIpStr,
-                    DstIp = dstIpStr,
-                    Protocol = "UDP",
-                    SrcPort = udp.SourcePort,
-                    DstPort = udp.DestinationPort,
-                    Info = info
-                };
+                return Make(
+                    protocol: "UDP",
+                    srcMac: srcMacStr,
+                    dstMac: dstMacStr,
+                    srcIp: srcIpStr,
+                    dstIp: dstIpStr,
+                    srcPort: udp.SourcePort,
+                    dstPort: udp.DestinationPort,
+                    info: info
+                );
             }
 
-            // ICMPv4 / ICMPv6 (в PacketDotNet це різні типи)
+            // ICMPv4
             var icmp4 = packet.Extract<IcmpV4Packet>();
             if (icmp4 is not null)
             {
-                return new PacketInfo
-                {
-                    Timestamp = timestamp,
-                    Length = length,
-                    SrcMac = srcMac,
-                    DstMac = dstMac,
-                    SrcIp = srcIpStr,
-                    DstIp = dstIpStr,
-                    Protocol = "ICMPv4",
-                    Info = $"ICMPv4 Type={icmp4.TypeCode} Len={icmp4.PayloadData?.Length ?? 0}"
-                };
+                return Make(
+                    protocol: "ICMPv4",
+                    srcMac: srcMacStr,
+                    dstMac: dstMacStr,
+                    srcIp: srcIpStr,
+                    dstIp: dstIpStr,
+                    info: $"ICMPv4 Type={icmp4.TypeCode} Len={icmp4.PayloadData?.Length ?? 0}"
+                );
             }
 
+            // ICMPv6
             var icmp6 = packet.Extract<IcmpV6Packet>();
             if (icmp6 is not null)
             {
-                return new PacketInfo
-                {
-                    Timestamp = timestamp,
-                    Length = length,
-                    SrcMac = srcMac,
-                    DstMac = dstMac,
-                    SrcIp = srcIpStr,
-                    DstIp = dstIpStr,
-                    Protocol = "ICMPv6",
-                    Info = $"ICMPv6 Type={icmp6.Type} Code={icmp6.Code} Len={icmp6.PayloadData?.Length ?? 0}"
-                };
+                return Make(
+                    protocol: "ICMPv6",
+                    srcMac: srcMacStr,
+                    dstMac: dstMacStr,
+                    srcIp: srcIpStr,
+                    dstIp: dstIpStr,
+                    info: $"ICMPv6 Type={icmp6.Type} Code={icmp6.Code} Len={icmp6.PayloadData?.Length ?? 0}"
+                );
             }
 
-            // Якщо це не IP/ARP/ICMP/TCP/UDP — повертаємо те, що є
+            // Інше/невідоме
             var proto = ip is null ? (eth is null ? "UNKNOWN" : "ETH") : ip.Protocol.ToString();
-
-            return new PacketInfo
-            {
-                Timestamp = timestamp,
-                Length = length,
-                SrcMac = srcMac,
-                DstMac = dstMac,
-                SrcIp = srcIpStr,
-                DstIp = dstIpStr,
-                Protocol = proto,
-                Info = "Unclassified packet"
-            };
+            return Make(
+                protocol: proto,
+                srcMac: srcMacStr,
+                dstMac: dstMacStr,
+                srcIp: srcIpStr,
+                dstIp: dstIpStr,
+                info: "Unclassified packet"
+            );
         }
         catch (Exception ex)
         {
-            return new PacketInfo
-            {
-                Timestamp = timestamp,
-                Length = length,
-                Protocol = "ERROR",
-                Info = ex.Message
-            };
+            return Make(protocol: "ERROR", info: ex.Message);
         }
     }
 
     private static string SafeIpToString(IPAddress? ip) => ip?.ToString() ?? "";
 
+    // Відповідає за перетворення TCP flags у компактний рядок ("SYN, ACK, FIN")
     private static string TcpFlagsToString(TcpPacket tcp)
     {
-        var sb = new StringBuilder(32);
+        var flags = new List<string>(6);
 
-        void Add(string s)
-        {
-            if (sb.Length > 0)
-                sb.Append(", ");
-            sb.Append(s);
-        }
+        if (tcp.Synchronize) flags.Add("SYN");
+        if (tcp.Acknowledgment) flags.Add("ACK");
+        if (tcp.Finished) flags.Add("FIN");
+        if (tcp.Reset) flags.Add("RST");
+        if (tcp.Push) flags.Add("PSH");
+        if (tcp.Urgent) flags.Add("URG");
 
-        if (tcp.Synchronize) Add("SYN");
-        if (tcp.Acknowledgment) Add("ACK");
-        if (tcp.Finished) Add("FIN");
-        if (tcp.Reset) Add("RST");
-        if (tcp.Push) Add("PSH");
-        if (tcp.Urgent) Add("URG");
-
-        return sb.ToString();
+        return flags.Count == 0 ? "" : string.Join(", ", flags);
     }
-
 
     private static string BuildTcpInfo(TcpPacket tcp, string srcIp, string dstIp)
     {
-        // Мінімальний “Info”, схожий на Wireshark: напрямок + прапори + seq/ack
         var flags = TcpFlagsToString(tcp);
-        var seq = tcp.SequenceNumber;
-        var ack = tcp.AcknowledgmentNumber;
         var payloadLen = tcp.PayloadData?.Length ?? 0;
 
-        // Підказка для HTTP (дуже базово)
         var appHint = GuessTcpAppProtocol(tcp.SourcePort, tcp.DestinationPort);
 
         if (appHint is null)
-            return $"{srcIp}:{tcp.SourcePort} → {dstIp}:{tcp.DestinationPort} [{flags}] Seq={seq} Ack={ack} Len={payloadLen}";
+            return $"{srcIp}:{tcp.SourcePort} → {dstIp}:{tcp.DestinationPort} [{flags}] Len={payloadLen}";
 
         return $"{appHint} {srcIp}:{tcp.SourcePort} → {dstIp}:{tcp.DestinationPort} [{flags}] Len={payloadLen}";
     }
 
     private static string? GuessTcpAppProtocol(int srcPort, int dstPort)
     {
-        // Дуже прості евристики (потім можна зробити краще)
         if (srcPort == 80 || dstPort == 80) return "HTTP";
         if (srcPort == 443 || dstPort == 443) return "TLS";
         if (srcPort == 22 || dstPort == 22) return "SSH";

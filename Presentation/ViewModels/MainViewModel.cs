@@ -1,10 +1,13 @@
 ﻿// Відповідає за: прийом raw пакетів, парсинг через IPacketParser, батчинг і показ у DataGrid.
+using Application.Abstractions;
+using Domain.Models;
+using PacketDotNet;
+using Presentation.Helpers;
 using System.Collections.ObjectModel;
 using System.Threading.Channels;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
-using Application.Abstractions;
-using Domain.Models;
 
 namespace Presentation.ViewModels;
 
@@ -13,6 +16,42 @@ public sealed class MainViewModel : ViewModelBase
     private readonly ICaptureDeviceService _deviceService;
     private readonly IPacketCaptureService _captureService;
     private readonly IPacketParser _parser;
+    // Відповідає за вибраний пакет у таблиці (тригерить оновлення дерева протоколів і hex-дампу).
+    private PacketInfo? _selectedPacket;
+    public PacketInfo? SelectedPacket
+    {
+        get => _selectedPacket;
+        set
+        {
+            if (!Set(ref _selectedPacket, value))
+                return;
+
+            UpdateDetails(value);
+        }
+    }
+
+    // Відповідає за текстовий hex-дамп пакета для відображення у UI.
+    private string _hexDump = "";
+    public string HexDump
+    {
+        get => _hexDump;
+        set => Set(ref _hexDump, value);
+    }
+
+    // Відповідає за кореневий вузол дерева протоколів для вибраного пакета (відображається в TreeView).
+    private TreeViewItem? _protocolRoot;
+    public TreeViewItem? ProtocolRoot
+    {
+        get => _protocolRoot;
+        private set => Set(ref _protocolRoot, value);
+    }
+    // Відповідає за обраний діапазон байтів (start,length) у дереві деталей (Tag вузла).
+    private (int start, int length)? _selectedRange;
+    public (int start, int length)? SelectedRange
+    {
+        get => _selectedRange;
+        set => Set(ref _selectedRange, value);
+    }
 
     private readonly Channel<RawPacketCapturedEventArgs> _channel =
         Channel.CreateBounded<RawPacketCapturedEventArgs>(new BoundedChannelOptions(20_000)
@@ -147,5 +186,78 @@ public sealed class MainViewModel : ViewModelBase
             }
         }
         catch (OperationCanceledException) { }
+    }
+    // Відповідає за оновлення панелі деталей при виборі пакета.
+    // Відповідає за оновлення панелі деталей при виборі пакета: дерево протоколів + hex дамп.
+    // Відповідає за оновлення панелі деталей при виборі пакета: дерево протоколів + hex дамп.
+    private void UpdateDetails(PacketInfo? p)
+    {
+        // Очищення деталей
+        ProtocolRoot = null;
+        HexDump = "";
+
+        if (p is null || p.RawBytes is null || p.RawBytes.Length == 0)
+            return;
+
+        // Hex dump
+        HexDump = BuildHexDump(p.RawBytes, bytesPerLine: 16);
+
+        try
+        {
+            // Відповідає за коректний повторний парсинг пакета для побудови дерева.
+            // LinkLayerType зберігаємо як int у Domain, а тут приводимо до SharpPcap.LinkLayers.
+            var link = (LinkLayers)p.LinkLayerType;
+
+            // Парсимо пакет через PacketDotNet, використовуючи правильний LinkLayer.
+            var parsedPacket = Packet.ParsePacket(link, p.RawBytes);
+
+            // Будуємо дерево протоколів (PacketTreeBuilder.Build має приймати PacketInfo як row).
+            ProtocolRoot = PacketTreeBuilder.Build(parsedPacket, p);
+        }
+        catch (Exception ex)
+        {
+            // Якщо парсинг зламався — показуємо причину як дерево з одним вузлом
+            ProtocolRoot = new TreeViewItem { Header = $"Parse error: {ex.Message}" };
+        }
+    }
+
+
+    // Відповідає за генерацію hex-дампу (без кольорів, простий, але читабельний).
+    private static string BuildHexDump(byte[] data, int bytesPerLine)
+    {
+        if (data.Length == 0) return "";
+
+        var sb = new System.Text.StringBuilder(data.Length * 4);
+
+        for (int i = 0; i < data.Length; i += bytesPerLine)
+        {
+            sb.Append(i.ToString("X4"));
+            sb.Append(": ");
+
+            // hex
+            int lineEnd = Math.Min(i + bytesPerLine, data.Length);
+            for (int j = i; j < lineEnd; j++)
+            {
+                sb.Append(data[j].ToString("X2"));
+                sb.Append(' ');
+            }
+
+            // padding
+            for (int j = lineEnd; j < i + bytesPerLine; j++)
+                sb.Append("   ");
+
+            sb.Append(" |");
+
+            // ascii
+            for (int j = i; j < lineEnd; j++)
+            {
+                byte b = data[j];
+                sb.Append(b >= 32 && b <= 126 ? (char)b : '.');
+            }
+
+            sb.AppendLine("|");
+        }
+
+        return sb.ToString();
     }
 }

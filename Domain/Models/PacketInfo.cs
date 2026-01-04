@@ -22,4 +22,13 @@ public sealed class PacketInfo
 
     public string TcpFlags { get; init; } = "";   // "SYN, ACK" ...
     public string Info { get; init; } = "";       // короткий опис (DNS query / TCP handshake / etc.)
+
+    // Відповідає за збереження сирих даних пакета для детального перегляду (hex + дерево протоколів).
+    public byte[] RawBytes { get; init; } = Array.Empty<byte>();
+    public string LinkLayer { get; init; } = "";
+
+    // Відповідає за тип канального рівня (як int), щоб UI міг повторно парсити пакет через PacketDotNet.
+    public int LinkLayerType { get; init; }
+
+
 }

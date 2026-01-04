@@ -1,8 +1,11 @@
-﻿<!-- Відповідає за: вибір адаптера, введення BPF, Start/Stop, та таблицю захоплених подій -->
+﻿<!-- Відповідає за головне вікно: панель керування зверху та робочу область (таблиця + деталі) знизу -->
 <Window x:Class="Presentation.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="TrafficMonitor" Height="600" Width="1000">
+        Title="TrafficMonitor"
+        Height="650"
+        Width="1200">
+
     <Grid Margin="10">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -10,46 +13,116 @@
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
+        <!-- Відповідає за панель керування: вибір адаптера, BPF фільтр, Start/Stop, статус -->
         <StackPanel Orientation="Horizontal" Grid.Row="0" VerticalAlignment="Top">
             <ComboBox Width="420"
                       ItemsSource="{Binding Devices}"
                       SelectedItem="{Binding SelectedDevice}"
                       DisplayMemberPath="Name"/>
 
-            <TextBox Width="300" Margin="8,0,0,0"
+            <TextBox Width="320"
+                     Margin="8,0,0,0"
                      Text="{Binding BpfFilter}"
                      ToolTip="BPF filter (наприклад: tcp port 443)"/>
 
-            <Button Content="Start" Margin="8,0,0,0" Command="{Binding StartCommand}" />
-            <Button Content="Stop" Margin="8,0,0,0" Command="{Binding StopCommand}" />
+            <Button Content="Start"
+                    Margin="8,0,0,0"
+                    Padding="12,4"
+                    Command="{Binding StartCommand}" />
 
-            <TextBlock Margin="12,0,0,0" VerticalAlignment="Center"
+            <Button Content="Stop"
+                    Margin="8,0,0,0"
+                    Padding="12,4"
+                    Command="{Binding StopCommand}" />
+
+            <TextBlock Margin="12,0,0,0"
+                       VerticalAlignment="Center"
                        Text="{Binding StatusText}"/>
         </StackPanel>
 
-        <!-- Відповідає за таблицю подій захоплення, колонки задаємо вручну -->
-        <!-- Відповідає за відображення розпарсених пакетів (PacketInfo) -->
-        <DataGrid Grid.Row="2"
-          ItemsSource="{Binding Packets}"
-          IsReadOnly="True"
-          AutoGenerateColumns="False"
-          EnableRowVirtualization="True"
-          EnableColumnVirtualization="True"
-          VirtualizingPanel.IsVirtualizing="True"
-          VirtualizingPanel.VirtualizationMode="Recycling">
-            <DataGrid.Columns>
-                <DataGridTextColumn Header="Time" Binding="{Binding Timestamp, StringFormat=yyyy-MM-dd HH:mm:ss.fff}" Width="220"/>
-                <DataGridTextColumn Header="Src" Binding="{Binding SrcIp}" Width="190"/>
-                <DataGridTextColumn Header="Dst" Binding="{Binding DstIp}" Width="190"/>
-                <DataGridTextColumn Header="Proto" Binding="{Binding Protocol}" Width="90"/>
-                <DataGridTextColumn Header="SPort" Binding="{Binding SrcPort}" Width="70"/>
-                <DataGridTextColumn Header="DPort" Binding="{Binding DstPort}" Width="70"/>
-                <DataGridTextColumn Header="Len" Binding="{Binding Length}" Width="70"/>
-                <DataGridTextColumn Header="Flags" Binding="{Binding TcpFlags}" Width="110"/>
-                <DataGridTextColumn Header="Info" Binding="{Binding Info}" Width="*"/>
-            </DataGrid.Columns>
-        </DataGrid>
+        <!-- Відповідає за розкладку: зліва таблиця пакетів, справа деталі вибраного пакета -->
+        <Grid Grid.Row="2">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="2*"/>
+                <ColumnDefinition Width="10"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
 
+            <!-- Відповідає за таблицю розпарсених пакетів -->
+            <DataGrid Grid.Column="0"
+                      ItemsSource="{Binding Packets}"
+                      SelectedItem="{Binding SelectedPacket}"
+                      IsReadOnly="True"
+                      AutoGenerateColumns="False"
+                      EnableRowVirtualization="True"
+                      EnableColumnVirtualization="True"
+                      VirtualizingPanel.IsVirtualizing="True"
+                      VirtualizingPanel.VirtualizationMode="Recycling">
 
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="Time"
+                                        Binding="{Binding Timestamp, StringFormat=yyyy-MM-dd HH:mm:ss.fff}"
+                                        Width="110"/>
+                    <DataGridTextColumn Header="Src" Binding="{Binding SrcIp}" Width="100"/>
+                    <DataGridTextColumn Header="Dst" Binding="{Binding DstIp}" Width="100"/>
+                    <DataGridTextColumn Header="Proto" Binding="{Binding Protocol}" Width="40"/>
+                    <DataGridTextColumn Header="SPort" Binding="{Binding SrcPort}" Width="60"/>
+                    <DataGridTextColumn Header="DPort" Binding="{Binding DstPort}" Width="60"/>
+                    <DataGridTextColumn Header="Len" Binding="{Binding Length}" Width="70"/>
+                    <DataGridTextColumn Header="Flags" Binding="{Binding TcpFlags}" Width="110"/>
+                    <DataGridTextColumn Header="Info" Binding="{Binding Info}" Width="*"/>
+                </DataGrid.Columns>
+            </DataGrid>
+
+            <!-- Відповідає за зміну ширини між таблицею та панеллю деталей -->
+            <GridSplitter Grid.Column="1"
+                          Width="10"
+                          HorizontalAlignment="Stretch"
+                          VerticalAlignment="Stretch"/>
+
+            <!-- Відповідає за панель деталей вибраного пакета -->
+            <!-- Відповідає за панель деталей вибраного пакета у вигляді вкладок (Details/Hex) -->
+            <Grid Grid.Column="2">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <TextBlock Grid.Row="0"
+               FontWeight="Bold"
+               Text="Packet Details"
+               Margin="0,0,0,6"/>
+
+                <TabControl Grid.Row="1">
+                    <!-- Вкладка Details: дерево протоколів -->
+                    <TabItem Header="Details">
+                        <Grid Margin="8">
+                            <TreeView ItemsSource="{Binding ProtocolRoot.Items}">
+                                <!-- Кореневий заголовок -->
+                                <TreeView.Resources>
+                                    <!-- Відповідає за те, щоб TreeView показував Header для TreeViewItem -->
+                                    <HierarchicalDataTemplate DataType="{x:Type TreeViewItem}" ItemsSource="{Binding Items}">
+                                        <TextBlock Text="{Binding Header}" />
+                                    </HierarchicalDataTemplate>
+                                </TreeView.Resources>
+                            </TreeView>
+                        </Grid>
+                    </TabItem>
+
+                    <!-- Вкладка Hex: hex-дамп -->
+                    <TabItem Header="Hex">
+                        <Grid Margin="8">
+                            <TextBox Text="{Binding HexDump}"
+                         FontFamily="Consolas"
+                         IsReadOnly="True"
+                         TextWrapping="NoWrap"
+                         VerticalScrollBarVisibility="Auto"
+                         HorizontalScrollBarVisibility="Auto"/>
+                        </Grid>
+                    </TabItem>
+                </TabControl>
+            </Grid>
+
+        </Grid>
     </Grid>
 </Window>
