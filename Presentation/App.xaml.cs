@@ -1,5 +1,6 @@
 ﻿// Відповідає за старт застосунку, налаштування DI/логування та відкриття головного вікна через Host.
 using Application.Abstractions;
+using Infrastructure.Aggregation;
 using Infrastructure.Capture;
 using Infrastructure.Parsing;
 using Microsoft.Extensions.DependencyInjection;
@@ -31,6 +32,8 @@ public partial class App : System.Windows.Application
                 services.AddSingleton<IPacketParser, PacketDotNetParser>();
                 // ViewModels
                 services.AddSingleton<MainViewModel>();
+                // Відповідає за агрегацію потоків (Flows)
+                services.AddSingleton<IFlowAggregator, FlowAggregator>();
 
                 // Views
                 services.AddSingleton<MainWindow>(sp =>
