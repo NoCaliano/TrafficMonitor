@@ -38,6 +38,15 @@
             <TextBlock Margin="12,0,0,0"
                        VerticalAlignment="Center"
                        Text="{Binding StatusText}"/>
+            <TextBlock Margin="12,0,0,0"
+               VerticalAlignment="Center"
+               Foreground="DarkOrange"
+               Text="{Binding FlowFilterText}"/>
+
+            <Button Content="Clear Filter"
+                Margin="8,0,0,0"
+                Padding="10,4"
+                Command="{Binding ClearFlowFilterCommand}" />
         </StackPanel>
 
         <!-- Відповідає за розкладку: зліва Packets/Flows, справа деталі -->
@@ -49,11 +58,13 @@
             </Grid.ColumnDefinitions>
 
             <!-- Відповідає за вкладки зліва: Packets / Flows -->
-            <TabControl Grid.Column="0">
+            <TabControl Grid.Column="0"
+                SelectedIndex="{Binding LeftTabIndex}">
+
 
                 <!-- Packets -->
                 <TabItem Header="Packets">
-                    <DataGrid ItemsSource="{Binding Packets}"
+                    <DataGrid ItemsSource="{Binding PacketsView}"
                               SelectedItem="{Binding SelectedPacket}"
                               IsReadOnly="True"
                               AutoGenerateColumns="False"
@@ -88,7 +99,19 @@
                               EnableColumnVirtualization="True"
                               VirtualizingPanel.IsVirtualizing="True"
                               VirtualizingPanel.VirtualizationMode="Recycling">
-
+                        
+                        <DataGrid.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="Follow Flow"
+                                    Command="{Binding FollowFlowCommand}" />
+                                <MenuItem Header="Follow Flow (Both directions)"
+                                    Command="{Binding FollowFlowBothDirectionsCommand}" />
+                                <Separator/>
+                                  <MenuItem Header="Clear Flow Filter"
+                                    Command="{Binding ClearFlowFilterCommand}" />
+                            </ContextMenu>
+                        </DataGrid.ContextMenu>
+                        
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="Proto" Binding="{Binding Key.Protocol}" Width="60"/>
                             <DataGridTextColumn Header="Src" Binding="{Binding Key.SrcIp}" Width="160"/>

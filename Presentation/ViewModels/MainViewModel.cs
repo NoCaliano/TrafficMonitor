@@ -4,9 +4,14 @@ using Domain.Models;
 using PacketDotNet;
 using Presentation.Helpers;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Threading.Channels;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
+using System.Windows.Input;
+using System.ComponentModel;
+using System.Windows.Data;
 using System.Windows.Input;
 
 namespace Presentation.ViewModels;
@@ -45,8 +50,17 @@ public sealed class MainViewModel : ViewModelBase
     public FlowInfo? SelectedFlow
     {
         get => _selectedFlow;
-        set => Set(ref _selectedFlow, value);
+        set
+        {
+            if (!Set(ref _selectedFlow, value))
+                return;
+
+            // Відповідає за оновлення доступності Follow-команд при зміні вибору
+            RaiseCanExecuteChangedForFlowCommands();
+        }
     }
+
+
 
 
     // Відповідає за контекст правої панелі (або PacketInfo, або FlowInfo, або null).
@@ -126,6 +140,35 @@ public sealed class MainViewModel : ViewModelBase
     // Відповідає за список потоків для UI.
     public ObservableCollection<FlowInfo> Flows { get; } = new();
 
+    // Відповідає за відображення пакетів у DataGrid з можливістю фільтрації.
+    public ICollectionView PacketsView { get; }
+
+    // Відповідає за вибрану вкладку зліва (0 = Packets, 1 = Flows).
+    private int _leftTabIndex;
+    public int LeftTabIndex
+    {
+        get => _leftTabIndex;
+        set => Set(ref _leftTabIndex, value);
+    }
+
+    // Відповідає за активний ключ flow-фільтра.
+    private Domain.Models.FlowKey? _activeFlowFilter;
+
+    // Відповідає за режим: включати reverse (обидва напрямки) чи ні.
+    private bool _includeReverseFlow;
+
+    // Відповідає за текст, який показує активний фільтр у UI.
+    private string _flowFilterText = "";
+    public string FlowFilterText
+    {
+        get => _flowFilterText;
+        private set => Set(ref _flowFilterText, value);
+    }
+
+    // Відповідає за команди Follow Flow / Follow Both Directions / Clear.
+    public ICommand FollowFlowCommand { get; }
+    public ICommand FollowFlowBothDirectionsCommand { get; }
+    public ICommand ClearFlowFilterCommand { get; }
 
     public MainViewModel(
         ICaptureDeviceService deviceService,
@@ -148,6 +191,16 @@ public sealed class MainViewModel : ViewModelBase
         {
             _channel.Writer.TryWrite(args);
         };
+
+        // Відповідає за створення view для фільтрації пакетів.
+        PacketsView = CollectionViewSource.GetDefaultView(Packets);
+        PacketsView.Filter = _ => true;
+
+        // Відповідає за команди фільтрації по flow.
+        FollowFlowCommand = new RelayCommand(_ => ApplySelectedFlowFilter(includeReverse: false), _ => SelectedFlow is not null);
+        FollowFlowBothDirectionsCommand = new RelayCommand(_ => ApplySelectedFlowFilter(includeReverse: true), _ => SelectedFlow is not null);
+        ClearFlowFilterCommand = new RelayCommand(_ => ClearFlowFilter(), _ => _activeFlowFilter is not null);
+
     }
 
     private void LoadDevices()
@@ -171,6 +224,7 @@ public sealed class MainViewModel : ViewModelBase
         Packets.Clear();
         Flows.Clear();
         _flowAggregator.Reset();
+        ClearFlowFilter();
 
         // (не обов’язково, але логічно) скидаємо деталі вибраного пакета
         SelectedPacket = null;
@@ -361,5 +415,87 @@ public sealed class MainViewModel : ViewModelBase
         foreach (var f in byKey.Values)
             Flows.Add(f);
     }
+
+    // Відповідає за застосування flow-фільтра на основі SelectedFlow.
+    private void ApplySelectedFlowFilter(bool includeReverse)
+    {
+        if (SelectedFlow is null) return;
+
+        _activeFlowFilter = SelectedFlow.Key;
+        _includeReverseFlow = includeReverse;
+
+        FlowFilterText = includeReverse
+            ? $"Flow filter (both directions): {FormatFlow(_activeFlowFilter.Value)}"
+            : $"Flow filter: {FormatFlow(_activeFlowFilter.Value)}";
+
+        PacketsView.Filter = obj =>
+        {
+            if (obj is not PacketInfo p) return false;
+            return MatchesFlow(p, _activeFlowFilter.Value, _includeReverseFlow);
+        };
+
+        // Відповідає за перехід на вкладку Packets
+        LeftTabIndex = 0;
+
+        PacketsView.Refresh();
+
+        // Відповідає за оновлення доступності кнопок/меню
+        RaiseCanExecuteChangedForFlowCommands();
+    }
+
+
+    // Відповідає за скидання flow-фільтра (показати всі пакети).
+    private void ClearFlowFilter()
+    {
+        _activeFlowFilter = null;
+        _includeReverseFlow = false;
+
+        FlowFilterText = "";
+
+        PacketsView.Filter = _ => true;
+        PacketsView.Refresh();
+
+        // Відповідає за оновлення доступності кнопок/меню
+        RaiseCanExecuteChangedForFlowCommands();
+    }
+
+
+    // Відповідає за перевірку чи пакет належить flow (включно з reverse якщо треба).
+    private static bool MatchesFlow(PacketInfo p, Domain.Models.FlowKey key, bool includeReverse)
+    {
+        if (!string.Equals(p.Protocol, key.Protocol, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        bool direct =
+            p.SrcIp == key.SrcIp &&
+            p.DstIp == key.DstIp &&
+            p.SrcPort == key.SrcPort &&
+            p.DstPort == key.DstPort;
+
+        if (direct) return true;
+
+        if (!includeReverse) return false;
+
+        bool reverse =
+            p.SrcIp == key.DstIp &&
+            p.DstIp == key.SrcIp &&
+            p.SrcPort == key.DstPort &&
+            p.DstPort == key.SrcPort;
+
+        return reverse;
+    }
+
+    // Відповідає за красивий текст опису flow.
+    private static string FormatFlow(Domain.Models.FlowKey k)
+        => $"{k.Protocol} {k.SrcIp}:{k.SrcPort} → {k.DstIp}:{k.DstPort}";
+
+    // Відповідає за оновлення CanExecute у команд Follow/Clear flow.
+    private void RaiseCanExecuteChangedForFlowCommands()
+    {
+        (FollowFlowCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        (FollowFlowBothDirectionsCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        (ClearFlowFilterCommand as RelayCommand)?.RaiseCanExecuteChanged();
+    }
+
 
 }
