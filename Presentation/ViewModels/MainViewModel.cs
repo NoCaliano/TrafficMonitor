@@ -10,14 +10,13 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Input;
-using System.ComponentModel;
-using System.Windows.Data;
-using System.Windows.Input;
+
 
 namespace Presentation.ViewModels;
 
 public sealed class MainViewModel : ViewModelBase
 {
+
     private readonly ICaptureDeviceService _deviceService;
     private readonly IPacketCaptureService _captureService;
     private readonly IPacketParser _parser;
@@ -60,9 +59,6 @@ public sealed class MainViewModel : ViewModelBase
         }
     }
 
-
-
-
     // Відповідає за контекст правої панелі (або PacketInfo, або FlowInfo, або null).
     public object? DetailsContext => (object?)SelectedPacket ?? SelectedFlow;
 
@@ -71,6 +67,15 @@ public sealed class MainViewModel : ViewModelBase
                                  : SelectedFlow is not null ? "Flow Details"
                                  : "Details";
 
+    // Відповідає за Top Hosts у вкладці Stats.
+    public ObservableCollection<HostStatRow> TopHosts { get; } = new();
+
+    // Відповідає за Top Ports у вкладці Stats.
+    public ObservableCollection<PortStatRow> TopPorts { get; } = new();
+
+    // Відповідає за кількість рядків у статистиці.
+    public int StatsTopN { get; set; } = 25;
+
     // Відповідає за текстовий hex-дамп пакета для відображення у UI.
     private string _hexDump = "";
     public string HexDump
@@ -78,7 +83,6 @@ public sealed class MainViewModel : ViewModelBase
         get => _hexDump;
         set => Set(ref _hexDump, value);
     }
-
     // Відповідає за кореневий вузол дерева протоколів для вибраного пакета (відображається в TreeView).
     private TreeViewItem? _protocolRoot;
     public TreeViewItem? ProtocolRoot
@@ -93,7 +97,6 @@ public sealed class MainViewModel : ViewModelBase
         get => _selectedRange;
         set => Set(ref _selectedRange, value);
     }
-
     private readonly Channel<RawPacketCapturedEventArgs> _channel =
         Channel.CreateBounded<RawPacketCapturedEventArgs>(new BoundedChannelOptions(20_000)
         {
@@ -101,48 +104,37 @@ public sealed class MainViewModel : ViewModelBase
             SingleWriter = false,
             FullMode = BoundedChannelFullMode.DropOldest
         });
-
     private CancellationTokenSource? _captureCts;
     private Task? _uiReaderTask;
-
     public ObservableCollection<CaptureDeviceInfo> Devices { get; } = new();
-
     // Тепер тут PacketInfo
     public ObservableCollection<PacketInfo> Packets { get; } = new();
-
     private CaptureDeviceInfo? _selectedDevice;
     public CaptureDeviceInfo? SelectedDevice
     {
         get => _selectedDevice;
         set => Set(ref _selectedDevice, value);
     }
-
     private string? _bpfFilter;
     public string? BpfFilter
     {
         get => _bpfFilter;
         set => Set(ref _bpfFilter, value);
     }
-
     private string _statusText = "Idle";
     public string StatusText
     {
         get => _statusText;
         set => Set(ref _statusText, value);
     }
-
     public ICommand StartCommand { get; }
     public ICommand StopCommand { get; }
-
     // Відповідає за агрегатор потоків.
     private readonly IFlowAggregator _flowAggregator;
-
     // Відповідає за список потоків для UI.
     public ObservableCollection<FlowInfo> Flows { get; } = new();
-
     // Відповідає за відображення пакетів у DataGrid з можливістю фільтрації.
     public ICollectionView PacketsView { get; }
-
     // Відповідає за вибрану вкладку зліва (0 = Packets, 1 = Flows).
     private int _leftTabIndex;
     public int LeftTabIndex
@@ -202,7 +194,6 @@ public sealed class MainViewModel : ViewModelBase
         ClearFlowFilterCommand = new RelayCommand(_ => ClearFlowFilter(), _ => _activeFlowFilter is not null);
 
     }
-
     private void LoadDevices()
     {
         Devices.Clear();
@@ -238,8 +229,6 @@ public sealed class MainViewModel : ViewModelBase
 
         StatusText = "Capturing";
     }
-
-
     private async Task StopAsync(CancellationToken ct)
     {
         if (!_captureService.IsRunning) return;
@@ -262,8 +251,11 @@ public sealed class MainViewModel : ViewModelBase
     // агрегіруємо в flows, і раз на ~1с оновлюємо Flows у UI.
     private async Task RunUiBatchReaderAsync(CancellationToken ct)
     {
+        // Відповідає за батч з каналу (зменшує кількість викликів Dispatcher).
         var batch = new List<RawPacketCapturedEventArgs>(512);
-        var lastFlowsUiUpdate = DateTime.UtcNow;
+
+        // Відповідає за контроль частоти оновлення Flows/Stats у UI.
+        var lastFlowsUiUpdateUtc = DateTime.UtcNow;
 
         try
         {
@@ -271,45 +263,60 @@ public sealed class MainViewModel : ViewModelBase
             {
                 batch.Clear();
 
+                // Відповідає за зчитування пачки з каналу.
                 while (batch.Count < 512 && _channel.Reader.TryRead(out var item))
                     batch.Add(item);
 
-                // Парсимо в фоні
+                // Відповідає за парсинг пакетів у фоні.
                 var parsed = new List<PacketInfo>(batch.Count);
                 foreach (var e in batch)
                     parsed.Add(_parser.Parse(e.Timestamp, e.Length, e.RawCapture));
 
-                // Оновлюємо UI (Packets) пачкою
+                // Відповідає за агрегацію flows у фоні (поза UI потоком).
+                foreach (var p in parsed)
+                    _flowAggregator.Add(p);
+
+                // Відповідає за оновлення UI (Packets) пачкою.
                 await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
                 {
                     foreach (var p in parsed)
                         Packets.Add(p);
 
+                    // Відповідає за обмеження кількості рядків, щоб UI не "помер".
                     const int maxRows = 50_000;
                     while (Packets.Count > maxRows)
                         Packets.RemoveAt(0);
                 });
 
-                // Аггрегуємо flows (це НЕ UI, можна робити поза Dispatcher)
-                foreach (var p in parsed)
-                    _flowAggregator.Add(p);
-
-                // Раз на ~1 секунду оновлюємо Flows у UI
-                if ((DateTime.UtcNow - lastFlowsUiUpdate).TotalMilliseconds >= 1000)
+                // Відповідає за періодичне оновлення Flows + Stats (~1 раз/сек).
+                var nowUtc = DateTime.UtcNow;
+                if ((nowUtc - lastFlowsUiUpdateUtc).TotalMilliseconds >= 1000)
                 {
-                    lastFlowsUiUpdate = DateTime.UtcNow;
+                    lastFlowsUiUpdateUtc = nowUtc;
+
+                    // Відповідає за snapshot flows (поза UI).
+                    // Якщо хочеш більш "повну" статистику, підніми take (наприклад 2000).
                     var top = _flowAggregator.SnapshotTop(take: 500);
 
+                    // Відповідає за оновлення Flows + Stats в UI потоці одним заходом.
                     await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
                     {
                         UpdateFlows(top);
+
+                        // Відповідає за оновлення вкладки Stats (Top Hosts / Top Ports).
+                        UpdateStats(top);
                     });
                 }
 
-                await Task.Delay(200, ct);
+                // Відповідає за віддачу керування, щоб цикл не "зажимав" поток.
+                // Тут НЕ робимо Delay(200), щоб не гальмувати захоплення.
+                await Task.Yield();
             }
         }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException)
+        {
+            // ok
+        }
     }
 
     // Відповідає за оновлення панелі деталей при виборі пакета.
@@ -345,8 +352,6 @@ public sealed class MainViewModel : ViewModelBase
             ProtocolRoot = new TreeViewItem { Header = $"Parse error: {ex.Message}" };
         }
     }
-
-
     // Відповідає за генерацію hex-дампу (без кольорів, простий, але читабельний).
     private static string BuildHexDump(byte[] data, int bytesPerLine)
     {
@@ -385,7 +390,6 @@ public sealed class MainViewModel : ViewModelBase
 
         return sb.ToString();
     }
-
     // Відповідає за оновлення Flows без втрати SelectedFlow.
     private void UpdateFlows(IReadOnlyList<FlowInfo> snapshot)
     {
@@ -415,7 +419,6 @@ public sealed class MainViewModel : ViewModelBase
         foreach (var f in byKey.Values)
             Flows.Add(f);
     }
-
     // Відповідає за застосування flow-фільтра на основі SelectedFlow.
     private void ApplySelectedFlowFilter(bool includeReverse)
     {
@@ -442,8 +445,6 @@ public sealed class MainViewModel : ViewModelBase
         // Відповідає за оновлення доступності кнопок/меню
         RaiseCanExecuteChangedForFlowCommands();
     }
-
-
     // Відповідає за скидання flow-фільтра (показати всі пакети).
     private void ClearFlowFilter()
     {
@@ -458,8 +459,6 @@ public sealed class MainViewModel : ViewModelBase
         // Відповідає за оновлення доступності кнопок/меню
         RaiseCanExecuteChangedForFlowCommands();
     }
-
-
     // Відповідає за перевірку чи пакет належить flow (включно з reverse якщо треба).
     private static bool MatchesFlow(PacketInfo p, Domain.Models.FlowKey key, bool includeReverse)
     {
@@ -497,5 +496,136 @@ public sealed class MainViewModel : ViewModelBase
         (ClearFlowFilterCommand as RelayCommand)?.RaiseCanExecuteChanged();
     }
 
+    // Відповідає за оновлення статистики (Top Hosts / Top Ports) на основі snapshot flows.
+    private void UpdateStats(IReadOnlyList<Domain.Models.FlowInfo> flows)
+    {
+        // --- Top Hosts ---
+        // Ідея: для Outbound/Inbound беремо Remote endpoint (IP), для Unknown — DstIp.
+        var hostAgg = new Dictionary<string, (int flows, int packets, long bytes, DateTime lastSeen, string role)>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var f in flows)
+        {
+            string host;
+            string role;
+
+            if (!string.IsNullOrWhiteSpace(f.RemoteEndpoint))
+            {
+                // RemoteEndpoint має вигляд "ip:port" — беремо IP до двокрапки
+                var idx = f.RemoteEndpoint.LastIndexOf(':');
+                host = idx > 0 ? f.RemoteEndpoint[..idx] : f.RemoteEndpoint;
+                role = "Remote";
+            }
+            else
+            {
+                host = f.Key.DstIp;
+                role = "Unknown";
+            }
+
+            if (string.IsNullOrWhiteSpace(host))
+                continue;
+
+            if (!hostAgg.TryGetValue(host, out var a))
+                a = (0, 0, 0, DateTime.MinValue, role);
+
+            a.flows += 1;
+            a.packets += f.Packets;
+            a.bytes += f.Bytes;
+            if (f.LastSeen > a.lastSeen) a.lastSeen = f.LastSeen;
+
+            hostAgg[host] = a;
+        }
+
+        var topHosts = hostAgg
+            .Select(kv => new HostStatRow
+            {
+                Host = kv.Key,
+                Role = kv.Value.role,
+                Flows = kv.Value.flows,
+                Packets = kv.Value.packets,
+                Bytes = kv.Value.bytes,
+                LastSeen = kv.Value.lastSeen
+            })
+            .OrderByDescending(x => x.Bytes)
+            .Take(StatsTopN)
+            .ToList();
+
+        TopHosts.Clear();
+        foreach (var r in topHosts)
+            TopHosts.Add(r);
+
+        // --- Top Ports ---
+        // Ідея: беремо "сервісний" порт.
+        // Outbound -> dstPort (йдемо на сервіс), Inbound -> srcPort (від сервісу), Unknown -> dstPort.
+        var portAgg = new Dictionary<(string proto, int port), (int flows, int packets, long bytes, DateTime lastSeen)>();
+
+        foreach (var f in flows)
+        {
+            var proto = f.Key.Protocol ?? "";
+            int? port = null;
+
+            if (f.Direction == Domain.Models.FlowDirection.Outbound)
+                port = f.Key.DstPort;
+            else if (f.Direction == Domain.Models.FlowDirection.Inbound)
+                port = f.Key.SrcPort;
+            else
+                port = f.Key.DstPort;
+
+            if (port is null || port <= 0)
+                continue;
+
+            var key = (proto, port.Value);
+
+            if (!portAgg.TryGetValue(key, out var a))
+                a = (0, 0, 0, DateTime.MinValue);
+
+            a.flows += 1;
+            a.packets += f.Packets;
+            a.bytes += f.Bytes;
+            if (f.LastSeen > a.lastSeen) a.lastSeen = f.LastSeen;
+
+            portAgg[key] = a;
+        }
+
+        var topPorts = portAgg
+            .Select(kv => new PortStatRow
+            {
+                Protocol = kv.Key.proto,
+                Port = kv.Key.port,
+                Service = GuessService(kv.Key.proto, kv.Key.port),
+                Flows = kv.Value.flows,
+                Packets = kv.Value.packets,
+                Bytes = kv.Value.bytes,
+                LastSeen = kv.Value.lastSeen
+            })
+            .OrderByDescending(x => x.Bytes)
+            .Take(StatsTopN)
+            .ToList();
+
+        TopPorts.Clear();
+        foreach (var r in topPorts)
+            TopPorts.Add(r);
+    }
+
+    // Відповідає за просте визначення назви сервісу по порту (для читабельності).
+    private static string GuessService(string proto, int port)
+    {
+        // Мінімальна мапа — можна розширювати.
+        return (proto?.ToUpperInvariant(), port) switch
+        {
+            ("TCP", 80) => "HTTP",
+            ("TCP", 443) => "HTTPS",
+            ("UDP", 443) => "QUIC",
+            ("UDP", 53) => "DNS",
+            ("TCP", 53) => "DNS",
+            ("UDP", 123) => "NTP",
+            ("UDP", 1900) => "SSDP",
+            ("UDP", 5353) => "mDNS",
+            ("TCP", 22) => "SSH",
+            ("TCP", 25) => "SMTP",
+            ("TCP", 110) => "POP3",
+            ("TCP", 143) => "IMAP",
+            _ => ""
+        };
+    }
 
 }

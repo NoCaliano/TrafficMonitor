@@ -2,6 +2,7 @@
 using Application.Abstractions;
 using Infrastructure.Aggregation;
 using Infrastructure.Capture;
+using Infrastructure.Networking;
 using Infrastructure.Parsing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -34,7 +35,8 @@ public partial class App : System.Windows.Application
                 services.AddSingleton<MainViewModel>();
                 // Відповідає за агрегацію потоків (Flows)
                 services.AddSingleton<IFlowAggregator, FlowAggregator>();
-
+                // Відповідає за визначення локальних IP для Direction.
+                services.AddSingleton<ILocalAddressService, LocalAddressService>();
                 // Views
                 services.AddSingleton<MainWindow>(sp =>
                 {

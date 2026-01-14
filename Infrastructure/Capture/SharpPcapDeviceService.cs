@@ -1,6 +1,6 @@
 ﻿using Application.Abstractions;
 using SharpPcap;
-
+using Domain.Models;
 namespace Infrastructure.Capture;
 
 public sealed class SharpPcapDeviceService : ICaptureDeviceService

@@ -113,6 +113,7 @@
                         </DataGrid.ContextMenu>
                         
                         <DataGrid.Columns>
+                            <DataGridTextColumn Header="Dir" Binding="{Binding Dir}" Width="60"/>
                             <DataGridTextColumn Header="Proto" Binding="{Binding Key.Protocol}" Width="60"/>
                             <DataGridTextColumn Header="Src" Binding="{Binding Key.SrcIp}" Width="160"/>
                             <DataGridTextColumn Header="SPort" Binding="{Binding Key.SrcPort}" Width="60"/>
@@ -134,6 +135,62 @@
                         </DataGrid.Columns>
                     </DataGrid>
                 </TabItem>
+
+                <!-- Stats -->
+                <TabItem Header="Stats">
+                    <Grid Margin="6">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="10"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+
+                        <!-- Top Hosts -->
+                        <GroupBox Header="Top Hosts" Grid.Row="0">
+                            <DataGrid ItemsSource="{Binding TopHosts}"
+                                  IsReadOnly="True"
+                                  AutoGenerateColumns="False"
+                                  EnableRowVirtualization="True"
+                                  EnableColumnVirtualization="True"
+                                  VirtualizingPanel.IsVirtualizing="True"
+                                  VirtualizingPanel.VirtualizationMode="Recycling">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="Host" Binding="{Binding Host}" Width="*"/>
+                                    <DataGridTextColumn Header="Role" Binding="{Binding Role}" Width="80"/>
+                                    <DataGridTextColumn Header="Flows" Binding="{Binding Flows}" Width="80"/>
+                                    <DataGridTextColumn Header="Packets" Binding="{Binding Packets}" Width="90"/>
+                                    <DataGridTextColumn Header="Bytes" Binding="{Binding Bytes}" Width="110"/>
+                                    <DataGridTextColumn Header="Last" Binding="{Binding LastSeen, StringFormat=HH:mm:ss}" Width="90"/>
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </GroupBox>
+
+                        <GridSplitter Grid.Row="1" Height="10" HorizontalAlignment="Stretch"/>
+
+                        <!-- Top Ports -->
+                        <GroupBox Header="Top Ports" Grid.Row="2">
+                            <DataGrid ItemsSource="{Binding TopPorts}"
+                                  IsReadOnly="True"
+                                  AutoGenerateColumns="False"
+                                  EnableRowVirtualization="True"
+                                  EnableColumnVirtualization="True"
+                                  VirtualizingPanel.IsVirtualizing="True"
+                                  VirtualizingPanel.VirtualizationMode="Recycling">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="Proto" Binding="{Binding Protocol}" Width="70"/>
+                                    <DataGridTextColumn Header="Port" Binding="{Binding Port}" Width="70"/>
+                                    <DataGridTextColumn Header="Service" Binding="{Binding Service}" Width="110"/>
+                                    <DataGridTextColumn Header="Flows" Binding="{Binding Flows}" Width="80"/>
+                                    <DataGridTextColumn Header="Packets" Binding="{Binding Packets}" Width="90"/>
+                                    <DataGridTextColumn Header="Bytes" Binding="{Binding Bytes}" Width="110"/>
+                                    <DataGridTextColumn Header="Last" Binding="{Binding LastSeen, StringFormat=HH:mm:ss}" Width="90"/>
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </GroupBox>
+
+                    </Grid>
+                </TabItem>
+
 
             </TabControl>
 
@@ -187,6 +244,11 @@
                         <Grid Margin="8">
                             <!-- Відповідає за показ деталей вибраного flow; якщо SelectedFlow == null, буде просто пусто -->
                             <StackPanel DataContext="{Binding SelectedFlow}">
+                                <TextBlock Text="{Binding Dir, StringFormat=Direction: {0}}" />
+                                <TextBlock Text="{Binding LocalEndpoint, StringFormat=Local: {0}}" />
+                                <TextBlock Text="{Binding RemoteEndpoint, StringFormat=Remote: {0}}" />
+                                <Separator Margin="0,10,0,10"/>
+
                                 <TextBlock FontWeight="Bold"
                                            FontSize="14"
                                            Text="{Binding Key.Protocol}" />
