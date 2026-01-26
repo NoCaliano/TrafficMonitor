@@ -4,10 +4,16 @@ namespace Presentation.Models;
 public sealed class HostStatRow
 {
     public string Host { get; init; } = "";
-    public string Role { get; init; } = ""; // "Remote" / "Local" / "Unknown" (опційно)
+    public string Type { get; init; } = ""; // Unicast / Multicast / Broadcast
+    public string Role { get; init; } = ""; // Remote / Local / Unknown (опційно)
+
     public int Flows { get; init; }
     public int Packets { get; init; }
     public long Bytes { get; init; }
+
+    public long SentBytes { get; init; }
+    public long RecvBytes { get; init; }
+
     public DateTime LastSeen { get; init; }
 }
 
@@ -16,8 +22,13 @@ public sealed class PortStatRow
     public string Protocol { get; init; } = "";
     public int Port { get; init; }
     public string Service { get; init; } = "";
+
     public int Flows { get; init; }
     public int Packets { get; init; }
     public long Bytes { get; init; }
+
+    public long SentBytes { get; init; }
+    public long RecvBytes { get; init; }
+
     public DateTime LastSeen { get; init; }
 }

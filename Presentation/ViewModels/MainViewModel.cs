@@ -5,11 +5,14 @@ using PacketDotNet;
 using Presentation.Helpers;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Net;
+using System.Net.Sockets;
 using System.Threading.Channels;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Input;
+using Presentation.Models;
 
 
 namespace Presentation.ViewModels;
@@ -68,13 +71,39 @@ public sealed class MainViewModel : ViewModelBase
                                  : "Details";
 
     // Відповідає за Top Hosts у вкладці Stats.
-    public ObservableCollection<HostStatRow> TopHosts { get; } = new();
+    public ObservableCollection<Presentation.Models.HostStatRow> TopHosts { get; } = new();
 
     // Відповідає за Top Ports у вкладці Stats.
-    public ObservableCollection<PortStatRow> TopPorts { get; } = new();
+    public ObservableCollection<Presentation.Models.PortStatRow> TopPorts { get; } = new();
 
     // Відповідає за кількість рядків у статистиці.
-    public int StatsTopN { get; set; } = 25;
+    // Відповідає за кількість рядків у статистиці.
+    private int _statsTopN = 25;
+    public int StatsTopN
+    {
+        get => _statsTopN;
+        set
+        {
+            if (!Set(ref _statsTopN, value)) return;
+            _statsDirty = true;
+        }
+    }
+    // Відповідає за режим сортування у Stats.
+
+    private bool _hideMulticastBroadcast = true;
+    public bool HideMulticastBroadcast
+    {
+        get => _hideMulticastBroadcast;
+        set
+        {
+            if (!Set(ref _hideMulticastBroadcast, value)) return;
+            _statsDirty = true;
+        }
+    }
+
+    // Відповідає за "потрібно перерахувати Stats", щоб не перераховувати зайвий раз.
+    private volatile bool _statsDirty = true;
+
 
     // Відповідає за текстовий hex-дамп пакета для відображення у UI.
     private string _hexDump = "";
@@ -157,6 +186,8 @@ public sealed class MainViewModel : ViewModelBase
         private set => Set(ref _flowFilterText, value);
     }
 
+
+
     // Відповідає за команди Follow Flow / Follow Both Directions / Clear.
     public ICommand FollowFlowCommand { get; }
     public ICommand FollowFlowBothDirectionsCommand { get; }
@@ -189,7 +220,7 @@ public sealed class MainViewModel : ViewModelBase
         PacketsView.Filter = _ => true;
 
         // Відповідає за команди фільтрації по flow.
-        FollowFlowCommand = new RelayCommand(_ => ApplySelectedFlowFilter(includeReverse: false), _ => SelectedFlow is not null);
+        FollowFlowCommand = new RelayCommand(_ => ApplySelectedFlowFilter(includeReverse: true), _ => SelectedFlow is not null);
         FollowFlowBothDirectionsCommand = new RelayCommand(_ => ApplySelectedFlowFilter(includeReverse: true), _ => SelectedFlow is not null);
         ClearFlowFilterCommand = new RelayCommand(_ => ClearFlowFilter(), _ => _activeFlowFilter is not null);
 
@@ -215,6 +246,7 @@ public sealed class MainViewModel : ViewModelBase
         Packets.Clear();
         Flows.Clear();
         _flowAggregator.Reset();
+        _statsDirty = true;
         ClearFlowFilter();
 
         // (не обов’язково, але логічно) скидаємо деталі вибраного пакета
@@ -390,21 +422,41 @@ public sealed class MainViewModel : ViewModelBase
 
         return sb.ToString();
     }
-    // Відповідає за оновлення Flows без втрати SelectedFlow.
+    // Відповідає за оновлення Flows без втрати SelectedFlow + оновлення всіх полів FlowInfo (bi-directional).
     private void UpdateFlows(IReadOnlyList<FlowInfo> snapshot)
     {
         // Швидкий lookup по ключу
         var byKey = snapshot.ToDictionary(f => f.Key);
 
-        // 1. Оновляємо існуючі
+        // 1) Оновляємо існуючі
         foreach (var existing in Flows.ToList())
         {
             if (byKey.TryGetValue(existing.Key, out var fresh))
             {
+                // ---- totals ----
                 existing.Packets = fresh.Packets;
                 existing.Bytes = fresh.Bytes;
                 existing.FirstSeen = fresh.FirstSeen;
                 existing.LastSeen = fresh.LastSeen;
+
+                // ---- direction / local-remote ----
+                existing.Direction = fresh.Direction;
+                existing.LocalIp = fresh.LocalIp;
+                existing.LocalPort = fresh.LocalPort;
+                existing.RemoteIp = fresh.RemoteIp;
+                existing.RemotePort = fresh.RemotePort;
+
+                // ---- bi-directional counters ----
+                existing.PacketsAToB = fresh.PacketsAToB;
+                existing.BytesAToB = fresh.BytesAToB;
+                existing.PacketsBToA = fresh.PacketsBToA;
+                existing.BytesBToA = fresh.BytesBToA;
+
+                // ---- local sent/recv ----
+                existing.SentPackets = fresh.SentPackets;
+                existing.SentBytes = fresh.SentBytes;
+                existing.RecvPackets = fresh.RecvPackets;
+                existing.RecvBytes = fresh.RecvBytes;
 
                 byKey.Remove(existing.Key);
             }
@@ -415,10 +467,11 @@ public sealed class MainViewModel : ViewModelBase
             }
         }
 
-        // 2. Додаємо нові flows
+        // 2) Додаємо нові flows
         foreach (var f in byKey.Values)
             Flows.Add(f);
     }
+
     // Відповідає за застосування flow-фільтра на основі SelectedFlow.
     private void ApplySelectedFlowFilter(bool includeReverse)
     {
@@ -497,39 +550,41 @@ public sealed class MainViewModel : ViewModelBase
     }
 
     // Відповідає за оновлення статистики (Top Hosts / Top Ports) на основі snapshot flows.
+    // Відповідає за оновлення статистики (Top Hosts / Top Ports) на основі snapshot flows.
+    // Відповідає за оновлення статистики (Top Hosts / Top Ports) на основі snapshot flows.
     private void UpdateStats(IReadOnlyList<Domain.Models.FlowInfo> flows)
     {
-        // --- Top Hosts ---
-        // Ідея: для Outbound/Inbound беремо Remote endpoint (IP), для Unknown — DstIp.
-        var hostAgg = new Dictionary<string, (int flows, int packets, long bytes, DateTime lastSeen, string role)>(StringComparer.OrdinalIgnoreCase);
+        // Якщо налаштування не мінялись — можна не перераховувати
+        // (але якщо ти хочеш щоб Stats "живі" оновлювались постійно — прибери цей if)
+        if (!_statsDirty)
+            return;
+
+        // -------------------- Top Hosts --------------------
+        var hostAgg = new Dictionary<string, (int flows, int packets, long bytes, long sent, long recv, DateTime lastSeen, string role, string type)>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var f in flows)
         {
-            string host;
-            string role;
-
-            if (!string.IsNullOrWhiteSpace(f.RemoteEndpoint))
-            {
-                // RemoteEndpoint має вигляд "ip:port" — беремо IP до двокрапки
-                var idx = f.RemoteEndpoint.LastIndexOf(':');
-                host = idx > 0 ? f.RemoteEndpoint[..idx] : f.RemoteEndpoint;
-                role = "Remote";
-            }
-            else
-            {
-                host = f.Key.DstIp;
-                role = "Unknown";
-            }
+            string host = !string.IsNullOrWhiteSpace(f.RemoteIp)
+                ? f.RemoteIp
+                : (ExtractIp(f.RemoteEndpoint) != "" ? ExtractIp(f.RemoteEndpoint) : f.Key.DstIp);
 
             if (string.IsNullOrWhiteSpace(host))
                 continue;
 
+            var type = GetIpType(host);
+            if (HideMulticastBroadcast && (type == "Multicast" || type == "Broadcast"))
+                continue;
+
+            string role = !string.IsNullOrWhiteSpace(f.RemoteIp) ? "Remote" : "Unknown";
+
             if (!hostAgg.TryGetValue(host, out var a))
-                a = (0, 0, 0, DateTime.MinValue, role);
+                a = (0, 0, 0, 0, 0, DateTime.MinValue, role, type);
 
             a.flows += 1;
             a.packets += f.Packets;
             a.bytes += f.Bytes;
+            a.sent += f.SentBytes;
+            a.recv += f.RecvBytes;
             if (f.LastSeen > a.lastSeen) a.lastSeen = f.LastSeen;
 
             hostAgg[host] = a;
@@ -539,12 +594,16 @@ public sealed class MainViewModel : ViewModelBase
             .Select(kv => new HostStatRow
             {
                 Host = kv.Key,
+                Type = kv.Value.type,
                 Role = kv.Value.role,
                 Flows = kv.Value.flows,
                 Packets = kv.Value.packets,
                 Bytes = kv.Value.bytes,
+                SentBytes = kv.Value.sent,
+                RecvBytes = kv.Value.recv,
                 LastSeen = kv.Value.lastSeen
             })
+            // Відбір TopN робимо по Bytes (це не заважає DataGrid сортувати по кліку)
             .OrderByDescending(x => x.Bytes)
             .Take(StatsTopN)
             .ToList();
@@ -553,22 +612,13 @@ public sealed class MainViewModel : ViewModelBase
         foreach (var r in topHosts)
             TopHosts.Add(r);
 
-        // --- Top Ports ---
-        // Ідея: беремо "сервісний" порт.
-        // Outbound -> dstPort (йдемо на сервіс), Inbound -> srcPort (від сервісу), Unknown -> dstPort.
-        var portAgg = new Dictionary<(string proto, int port), (int flows, int packets, long bytes, DateTime lastSeen)>();
+        // -------------------- Top Ports --------------------
+        var portAgg = new Dictionary<(string proto, int port), (int flows, int packets, long bytes, long sent, long recv, DateTime lastSeen)>();
 
         foreach (var f in flows)
         {
-            var proto = f.Key.Protocol ?? "";
-            int? port = null;
-
-            if (f.Direction == Domain.Models.FlowDirection.Outbound)
-                port = f.Key.DstPort;
-            else if (f.Direction == Domain.Models.FlowDirection.Inbound)
-                port = f.Key.SrcPort;
-            else
-                port = f.Key.DstPort;
+            var proto = f.Protocol ?? "";
+            int? port = f.RemotePort ?? f.DstPort ?? f.Key.DstPort;
 
             if (port is null || port <= 0)
                 continue;
@@ -576,11 +626,13 @@ public sealed class MainViewModel : ViewModelBase
             var key = (proto, port.Value);
 
             if (!portAgg.TryGetValue(key, out var a))
-                a = (0, 0, 0, DateTime.MinValue);
+                a = (0, 0, 0, 0, 0, DateTime.MinValue);
 
             a.flows += 1;
             a.packets += f.Packets;
             a.bytes += f.Bytes;
+            a.sent += f.SentBytes;
+            a.recv += f.RecvBytes;
             if (f.LastSeen > a.lastSeen) a.lastSeen = f.LastSeen;
 
             portAgg[key] = a;
@@ -595,6 +647,8 @@ public sealed class MainViewModel : ViewModelBase
                 Flows = kv.Value.flows,
                 Packets = kv.Value.packets,
                 Bytes = kv.Value.bytes,
+                SentBytes = kv.Value.sent,
+                RecvBytes = kv.Value.recv,
                 LastSeen = kv.Value.lastSeen
             })
             .OrderByDescending(x => x.Bytes)
@@ -604,7 +658,11 @@ public sealed class MainViewModel : ViewModelBase
         TopPorts.Clear();
         foreach (var r in topPorts)
             TopPorts.Add(r);
+
+        _statsDirty = false;
     }
+
+
 
     // Відповідає за просте визначення назви сервісу по порту (для читабельності).
     private static string GuessService(string proto, int port)
@@ -627,5 +685,50 @@ public sealed class MainViewModel : ViewModelBase
             _ => ""
         };
     }
+
+    // Відповідає за визначення типу IP (Unicast/Multicast/Broadcast).
+    private static string GetIpType(string ip)
+    {
+        if (string.IsNullOrWhiteSpace(ip))
+            return "Unknown";
+
+        if (!IPAddress.TryParse(ip, out var addr))
+            return "Unknown";
+
+        var bytes = addr.GetAddressBytes();
+
+        // IPv4
+        if (addr.AddressFamily == AddressFamily.InterNetwork)
+        {
+            if (ip == "255.255.255.255")
+                return "Broadcast";
+
+            // 224.0.0.0/4 multicast
+            if (bytes[0] >= 224 && bytes[0] <= 239)
+                return "Multicast";
+
+            return "Unicast";
+        }
+
+        // IPv6 multicast ff00::/8
+        if (addr.AddressFamily == AddressFamily.InterNetworkV6)
+        {
+            if (bytes.Length > 0 && bytes[0] == 0xFF)
+                return "Multicast";
+
+            return "Unicast";
+        }
+
+        return "Unknown";
+    }
+
+    // Відповідає за витяг IP з endpoint виду "ip:port".
+    private static string ExtractIp(string endpoint)
+    {
+        if (string.IsNullOrWhiteSpace(endpoint)) return "";
+        int idx = endpoint.LastIndexOf(':');
+        return idx > 0 ? endpoint[..idx] : endpoint;
+    }
+
 
 }
