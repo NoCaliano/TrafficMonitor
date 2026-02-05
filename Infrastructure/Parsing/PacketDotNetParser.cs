@@ -12,11 +12,19 @@ public sealed class PacketDotNetParser : IPacketParser
 {
     public PacketInfo Parse(DateTime timestamp, int length, object rawCapture)
     {
+        // локальний час
+        var tsLocal = timestamp.Kind switch
+        {
+            DateTimeKind.Local => timestamp,
+            DateTimeKind.Utc => timestamp.ToLocalTime(),
+            _ => DateTime.SpecifyKind(timestamp, DateTimeKind.Utc).ToLocalTime() // Unspecified трактуємо як UTC
+        };
+
         if (rawCapture is not RawCapture raw)
         {
             return new PacketInfo
             {
-                Timestamp = timestamp,
+                Timestamp = tsLocal,
                 Length = length,
                 Protocol = "UNKNOWN",
                 Info = "RawCapture type mismatch"
@@ -44,7 +52,7 @@ public sealed class PacketDotNetParser : IPacketParser
         {
             return new PacketInfo
             {
-                Timestamp = timestamp,
+                Timestamp = tsLocal,
                 Length = length,
 
                 SrcMac = srcMac,

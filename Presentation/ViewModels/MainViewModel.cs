@@ -3,6 +3,7 @@ using Application.Abstractions;
 using Domain.Models;
 using PacketDotNet;
 using Presentation.Helpers;
+using Presentation.Models;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Net;
@@ -12,17 +13,25 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Input;
-using Presentation.Models;
-
 
 namespace Presentation.ViewModels;
 
 public sealed class MainViewModel : ViewModelBase
 {
-
     private readonly ICaptureDeviceService _deviceService;
     private readonly IPacketCaptureService _captureService;
     private readonly IPacketParser _parser;
+
+    // Відповідає за агрегатор потоків.
+    private readonly IFlowAggregator _flowAggregator;
+
+    // ===================== PACKETS (UI) =====================
+
+    public ObservableCollection<PacketInfo> Packets { get; } = new();
+
+    // Відповідає за відображення пакетів у DataGrid з можливістю фільтрації.
+    public ICollectionView PacketsView { get; }
+
     // Відповідає за вибраний пакет у таблиці (тригерить оновлення дерева протоколів і hex-дампу).
     private PacketInfo? _selectedPacket;
     public PacketInfo? SelectedPacket
@@ -33,7 +42,7 @@ public sealed class MainViewModel : ViewModelBase
             if (!Set(ref _selectedPacket, value))
                 return;
 
-            // Якщо вибрали пакет — прибираємо flow, щоб права панель перемкнулась
+            // Якщо вибрали пакет — прибираємо flow, щоб не було конфліктів у деталях
             if (value is not null && SelectedFlow is not null)
             {
                 _selectedFlow = null;
@@ -46,6 +55,11 @@ public sealed class MainViewModel : ViewModelBase
             OnPropertyChanged(nameof(DetailsTitle));
         }
     }
+
+    // ===================== FLOWS (UI) =====================
+
+    // Відповідає за список потоків для UI.
+    public ObservableCollection<FlowInfo> Flows { get; } = new();
 
     // Відповідає за вибраний flow у вкладці Flows.
     private FlowInfo? _selectedFlow;
@@ -62,22 +76,86 @@ public sealed class MainViewModel : ViewModelBase
         }
     }
 
-    // Відповідає за контекст правої панелі (або PacketInfo, або FlowInfo, або null).
+    // ===================== DETAILS =====================
+
+    // Відповідає за контекст (для сумісності зі старими шаблонами, якщо десь використовується).
     public object? DetailsContext => (object?)SelectedPacket ?? SelectedFlow;
 
-    // Відповідає за заголовок правої панелі.
+    // Відповідає за заголовок деталей (для сумісності).
     public string DetailsTitle => SelectedPacket is not null ? "Packet Details"
                                  : SelectedFlow is not null ? "Flow Details"
                                  : "Details";
 
-    // Відповідає за Top Hosts у вкладці Stats.
-    public ObservableCollection<Presentation.Models.HostStatRow> TopHosts { get; } = new();
+    // Відповідає за текстовий hex-дамп пакета для відображення у UI.
+    private string _hexDump = "";
+    public string HexDump
+    {
+        get => _hexDump;
+        set => Set(ref _hexDump, value);
+    }
 
-    // Відповідає за Top Ports у вкладці Stats.
-    public ObservableCollection<Presentation.Models.PortStatRow> TopPorts { get; } = new();
+    // Відповідає за кореневий вузол дерева протоколів для вибраного пакета.
+    private TreeViewItem? _protocolRoot;
+    public TreeViewItem? ProtocolRoot
+    {
+        get => _protocolRoot;
+        private set => Set(ref _protocolRoot, value);
+    }
 
-    // Відповідає за кількість рядків у статистиці.
-    // Відповідає за кількість рядків у статистиці.
+    // ===================== DEVICES / CAPTURE =====================
+
+    public ObservableCollection<CaptureDeviceInfo> Devices { get; } = new();
+
+    private CaptureDeviceInfo? _selectedDevice;
+    public CaptureDeviceInfo? SelectedDevice
+    {
+        get => _selectedDevice;
+        set => Set(ref _selectedDevice, value);
+    }
+
+    private string? _bpfFilter;
+    public string? BpfFilter
+    {
+        get => _bpfFilter;
+        set => Set(ref _bpfFilter, value);
+    }
+
+    private string _statusText = "Idle";
+    public string StatusText
+    {
+        get => _statusText;
+        set => Set(ref _statusText, value);
+    }
+
+    public ICommand StartCommand { get; }
+    public ICommand StopCommand { get; }
+
+    private readonly Channel<RawPacketCapturedEventArgs> _channel =
+        Channel.CreateBounded<RawPacketCapturedEventArgs>(new BoundedChannelOptions(20_000)
+        {
+            SingleReader = true,
+            SingleWriter = false,
+            FullMode = BoundedChannelFullMode.DropOldest
+        });
+
+    private CancellationTokenSource? _captureCts;
+    private Task? _uiReaderTask;
+
+    // ===================== LEFT TABS =====================
+
+    // Відповідає за вибрану вкладку зліва (0 = Packets, 1 = Flows, 2 = Stats...).
+    private int _leftTabIndex;
+    public int LeftTabIndex
+    {
+        get => _leftTabIndex;
+        set => Set(ref _leftTabIndex, value);
+    }
+
+    // ===================== STATS =====================
+
+    public ObservableCollection<HostStatRow> TopHosts { get; } = new();
+    public ObservableCollection<PortStatRow> TopPorts { get; } = new();
+
     private int _statsTopN = 25;
     public int StatsTopN
     {
@@ -88,7 +166,6 @@ public sealed class MainViewModel : ViewModelBase
             _statsDirty = true;
         }
     }
-    // Відповідає за режим сортування у Stats.
 
     private bool _hideMulticastBroadcast = true;
     public bool HideMulticastBroadcast
@@ -101,104 +178,46 @@ public sealed class MainViewModel : ViewModelBase
         }
     }
 
-    // Відповідає за "потрібно перерахувати Stats", щоб не перераховувати зайвий раз.
+    // Відповідає за "потрібно перерахувати Stats".
     private volatile bool _statsDirty = true;
 
-
-    // Відповідає за текстовий hex-дамп пакета для відображення у UI.
-    private string _hexDump = "";
-    public string HexDump
-    {
-        get => _hexDump;
-        set => Set(ref _hexDump, value);
-    }
-    // Відповідає за кореневий вузол дерева протоколів для вибраного пакета (відображається в TreeView).
-    private TreeViewItem? _protocolRoot;
-    public TreeViewItem? ProtocolRoot
-    {
-        get => _protocolRoot;
-        private set => Set(ref _protocolRoot, value);
-    }
-    // Відповідає за обраний діапазон байтів (start,length) у дереві деталей (Tag вузла).
-    private (int start, int length)? _selectedRange;
-    public (int start, int length)? SelectedRange
-    {
-        get => _selectedRange;
-        set => Set(ref _selectedRange, value);
-    }
-    private readonly Channel<RawPacketCapturedEventArgs> _channel =
-        Channel.CreateBounded<RawPacketCapturedEventArgs>(new BoundedChannelOptions(20_000)
-        {
-            SingleReader = true,
-            SingleWriter = false,
-            FullMode = BoundedChannelFullMode.DropOldest
-        });
-    private CancellationTokenSource? _captureCts;
-    private Task? _uiReaderTask;
-    public ObservableCollection<CaptureDeviceInfo> Devices { get; } = new();
-    // Тепер тут PacketInfo
-    public ObservableCollection<PacketInfo> Packets { get; } = new();
-    private CaptureDeviceInfo? _selectedDevice;
-    public CaptureDeviceInfo? SelectedDevice
-    {
-        get => _selectedDevice;
-        set => Set(ref _selectedDevice, value);
-    }
-    private string? _bpfFilter;
-    public string? BpfFilter
-    {
-        get => _bpfFilter;
-        set => Set(ref _bpfFilter, value);
-    }
-    private string _statusText = "Idle";
-    public string StatusText
-    {
-        get => _statusText;
-        set => Set(ref _statusText, value);
-    }
-    public ICommand StartCommand { get; }
-    public ICommand StopCommand { get; }
-    // Відповідає за агрегатор потоків.
-    private readonly IFlowAggregator _flowAggregator;
-    // Відповідає за список потоків для UI.
-    public ObservableCollection<FlowInfo> Flows { get; } = new();
-    // Відповідає за відображення пакетів у DataGrid з можливістю фільтрації.
-    public ICollectionView PacketsView { get; }
-    // Відповідає за вибрану вкладку зліва (0 = Packets, 1 = Flows).
-    private int _leftTabIndex;
-    public int LeftTabIndex
-    {
-        get => _leftTabIndex;
-        set => Set(ref _leftTabIndex, value);
-    }
+    // ===================== FILTERS (FLOW + UI) =====================
 
     // Відповідає за активний ключ flow-фільтра.
-    private Domain.Models.FlowKey? _activeFlowFilter;
+    private FlowKey? _activeFlowFilter;
 
-    // Відповідає за режим: включати reverse (обидва напрямки) чи ні.
+    // Відповідає за режим reverse (обидва напрямки) чи ні.
     private bool _includeReverseFlow;
 
-    // Відповідає за текст, який показує активний фільтр у UI.
-    private string _flowFilterText = "";
-    public string FlowFilterText
+    // Відповідає за активний UI-фільтр (Fiddler-style).
+    private PacketFilterModel _uiFilter = new();
+
+    // Відповідає за текст активних фільтрів у UI (Flow + UI).
+    private string _filtersText = "";
+    public string FiltersText
     {
-        get => _flowFilterText;
-        private set => Set(ref _flowFilterText, value);
+        get => _filtersText;
+        private set => Set(ref _filtersText, value);
     }
 
-
+    // Для сумісності з твоїм XAML (якщо там ще FlowFilterText)
+    public string FlowFilterText => FiltersText;
 
     // Відповідає за команди Follow Flow / Follow Both Directions / Clear.
     public ICommand FollowFlowCommand { get; }
     public ICommand FollowFlowBothDirectionsCommand { get; }
     public ICommand ClearFlowFilterCommand { get; }
 
+    // Відповідає за відкриття вікна Filters.
+    public ICommand OpenFiltersCommand { get; }
+
+    // ===================== CTOR =====================
+
     public MainViewModel(
         ICaptureDeviceService deviceService,
         IPacketCaptureService captureService,
         IPacketParser parser,
         IFlowAggregator flowAggregator)
-
     {
         _deviceService = deviceService;
         _captureService = captureService;
@@ -208,6 +227,14 @@ public sealed class MainViewModel : ViewModelBase
         StartCommand = new AsyncRelayCommand(StartAsync);
         StopCommand = new AsyncRelayCommand(StopAsync);
 
+        // Відповідає за команду відкриття вікна Filters (модально по центру).
+        OpenFiltersCommand = new RelayCommand(_ => OpenFiltersDialog());
+
+        // Відповідає за команди фільтрації по flow.
+        FollowFlowCommand = new RelayCommand(_ => ApplySelectedFlowFilter(includeReverse: false), _ => SelectedFlow is not null);
+        FollowFlowBothDirectionsCommand = new RelayCommand(_ => ApplySelectedFlowFilter(includeReverse: true), _ => SelectedFlow is not null);
+        ClearFlowFilterCommand = new RelayCommand(_ => ClearFlowFilter(), _ => _activeFlowFilter is not null || !_uiFilter.IsEmpty);
+
         LoadDevices();
 
         _captureService.PacketCaptured += (_, args) =>
@@ -215,16 +242,19 @@ public sealed class MainViewModel : ViewModelBase
             _channel.Writer.TryWrite(args);
         };
 
-        // Відповідає за створення view для фільтрації пакетів.
+        // Відповідає за створення view для фільтрації пакетів (ЄДИНИЙ комбінований фільтр).
         PacketsView = CollectionViewSource.GetDefaultView(Packets);
-        PacketsView.Filter = _ => true;
+        PacketsView.Filter = obj =>
+        {
+            if (obj is not PacketInfo p) return false;
+            return PassesCombinedFilters(p);
+        };
 
-        // Відповідає за команди фільтрації по flow.
-        FollowFlowCommand = new RelayCommand(_ => ApplySelectedFlowFilter(includeReverse: true), _ => SelectedFlow is not null);
-        FollowFlowBothDirectionsCommand = new RelayCommand(_ => ApplySelectedFlowFilter(includeReverse: true), _ => SelectedFlow is not null);
-        ClearFlowFilterCommand = new RelayCommand(_ => ClearFlowFilter(), _ => _activeFlowFilter is not null);
-
+        RefreshPacketsFilteringUi();
     }
+
+    // ===================== DEVICES =====================
+
     private void LoadDevices()
     {
         Devices.Clear();
@@ -234,7 +264,9 @@ public sealed class MainViewModel : ViewModelBase
         SelectedDevice = Devices.FirstOrDefault();
     }
 
-    // Відповідає за запуск захоплення: скидання UI, reset агрегатора flows, запуск reader task і старт capture.
+    // ===================== START/STOP =====================
+
+    // Відповідає за запуск захоплення: reset UI, reset flows/stats, запуск reader task і старт capture.
     private async Task StartAsync(CancellationToken ct)
     {
         if (SelectedDevice is null) return;
@@ -247,9 +279,14 @@ public sealed class MainViewModel : ViewModelBase
         Flows.Clear();
         _flowAggregator.Reset();
         _statsDirty = true;
-        ClearFlowFilter();
 
-        // (не обов’язково, але логічно) скидаємо деталі вибраного пакета
+        // Скидаємо фільтри
+        _activeFlowFilter = null;
+        _includeReverseFlow = false;
+        _uiFilter = new PacketFilterModel();
+        RefreshPacketsFilteringUi();
+
+        // Скидаємо деталі
         SelectedPacket = null;
         ProtocolRoot = null;
         HexDump = "";
@@ -261,6 +298,7 @@ public sealed class MainViewModel : ViewModelBase
 
         StatusText = "Capturing";
     }
+
     private async Task StopAsync(CancellationToken ct)
     {
         if (!_captureService.IsRunning) return;
@@ -279,14 +317,11 @@ public sealed class MainViewModel : ViewModelBase
         StatusText = "Idle";
     }
 
-    // Відповідає за батчинг: читаємо raw-пакети, парсимо, додаємо в Packets,
-    // агрегіруємо в flows, і раз на ~1с оновлюємо Flows у UI.
+    // ===================== READER / UI BATCH =====================
+
     private async Task RunUiBatchReaderAsync(CancellationToken ct)
     {
-        // Відповідає за батч з каналу (зменшує кількість викликів Dispatcher).
         var batch = new List<RawPacketCapturedEventArgs>(512);
-
-        // Відповідає за контроль частоти оновлення Flows/Stats у UI.
         var lastFlowsUiUpdateUtc = DateTime.UtcNow;
 
         try
@@ -295,96 +330,80 @@ public sealed class MainViewModel : ViewModelBase
             {
                 batch.Clear();
 
-                // Відповідає за зчитування пачки з каналу.
                 while (batch.Count < 512 && _channel.Reader.TryRead(out var item))
                     batch.Add(item);
 
-                // Відповідає за парсинг пакетів у фоні.
+                // Парсимо в фоні
                 var parsed = new List<PacketInfo>(batch.Count);
                 foreach (var e in batch)
                     parsed.Add(_parser.Parse(e.Timestamp, e.Length, e.RawCapture));
 
-                // Відповідає за агрегацію flows у фоні (поза UI потоком).
+                // Аггрегуємо flows (поза UI)
                 foreach (var p in parsed)
                     _flowAggregator.Add(p);
 
-                // Відповідає за оновлення UI (Packets) пачкою.
+                // Оновлюємо UI (Packets) пачкою
                 await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
                 {
                     foreach (var p in parsed)
                         Packets.Add(p);
 
-                    // Відповідає за обмеження кількості рядків, щоб UI не "помер".
                     const int maxRows = 50_000;
                     while (Packets.Count > maxRows)
                         Packets.RemoveAt(0);
                 });
 
-                // Відповідає за періодичне оновлення Flows + Stats (~1 раз/сек).
+                // Раз на ~1 секунду оновлюємо Flows і (за потреби) Stats
                 var nowUtc = DateTime.UtcNow;
                 if ((nowUtc - lastFlowsUiUpdateUtc).TotalMilliseconds >= 1000)
                 {
                     lastFlowsUiUpdateUtc = nowUtc;
 
-                    // Відповідає за snapshot flows (поза UI).
-                    // Якщо хочеш більш "повну" статистику, підніми take (наприклад 2000).
                     var top = _flowAggregator.SnapshotTop(take: 500);
 
-                    // Відповідає за оновлення Flows + Stats в UI потоці одним заходом.
                     await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
                     {
                         UpdateFlows(top);
 
-                        // Відповідає за оновлення вкладки Stats (Top Hosts / Top Ports).
+                        // Stats перераховуємо тільки якщо dirty
                         UpdateStats(top);
+
+                        // Команда Clear має міняти доступність, якщо UI-фільтр активний
+                        (ClearFlowFilterCommand as RelayCommand)?.RaiseCanExecuteChanged();
                     });
                 }
 
-                // Відповідає за віддачу керування, щоб цикл не "зажимав" поток.
-                // Тут НЕ робимо Delay(200), щоб не гальмувати захоплення.
                 await Task.Yield();
             }
         }
-        catch (OperationCanceledException)
-        {
-            // ok
-        }
+        catch (OperationCanceledException) { }
     }
 
-    // Відповідає за оновлення панелі деталей при виборі пакета.
-    // Відповідає за оновлення панелі деталей при виборі пакета: дерево протоколів + hex дамп.
-    // Відповідає за оновлення панелі деталей при виборі пакета: дерево протоколів + hex дамп.
+    // ===================== DETAILS (PACKET) =====================
+
     private void UpdateDetails(PacketInfo? p)
     {
-        // Очищення деталей
         ProtocolRoot = null;
         HexDump = "";
 
         if (p is null || p.RawBytes is null || p.RawBytes.Length == 0)
             return;
 
-        // Hex dump
         HexDump = BuildHexDump(p.RawBytes, bytesPerLine: 16);
 
         try
         {
-            // Відповідає за коректний повторний парсинг пакета для побудови дерева.
-            // LinkLayerType зберігаємо як int у Domain, а тут приводимо до SharpPcap.LinkLayers.
             var link = (LinkLayers)p.LinkLayerType;
-
-            // Парсимо пакет через PacketDotNet, використовуючи правильний LinkLayer.
             var parsedPacket = Packet.ParsePacket(link, p.RawBytes);
 
-            // Будуємо дерево протоколів (PacketTreeBuilder.Build має приймати PacketInfo як row).
             ProtocolRoot = PacketTreeBuilder.Build(parsedPacket, p);
         }
         catch (Exception ex)
         {
-            // Якщо парсинг зламався — показуємо причину як дерево з одним вузлом
             ProtocolRoot = new TreeViewItem { Header = $"Parse error: {ex.Message}" };
         }
     }
-    // Відповідає за генерацію hex-дампу (без кольорів, простий, але читабельний).
+
     private static string BuildHexDump(byte[] data, int bytesPerLine)
     {
         if (data.Length == 0) return "";
@@ -396,7 +415,6 @@ public sealed class MainViewModel : ViewModelBase
             sb.Append(i.ToString("X4"));
             sb.Append(": ");
 
-            // hex
             int lineEnd = Math.Min(i + bytesPerLine, data.Length);
             for (int j = i; j < lineEnd; j++)
             {
@@ -404,13 +422,11 @@ public sealed class MainViewModel : ViewModelBase
                 sb.Append(' ');
             }
 
-            // padding
             for (int j = lineEnd; j < i + bytesPerLine; j++)
                 sb.Append("   ");
 
             sb.Append(" |");
 
-            // ascii
             for (int j = i; j < lineEnd; j++)
             {
                 byte b = data[j];
@@ -422,37 +438,37 @@ public sealed class MainViewModel : ViewModelBase
 
         return sb.ToString();
     }
-    // Відповідає за оновлення Flows без втрати SelectedFlow + оновлення всіх полів FlowInfo (bi-directional).
+
+    // ===================== FLOWS (UI UPDATE) =====================
+
     private void UpdateFlows(IReadOnlyList<FlowInfo> snapshot)
     {
-        // Швидкий lookup по ключу
         var byKey = snapshot.ToDictionary(f => f.Key);
 
-        // 1) Оновляємо існуючі
         foreach (var existing in Flows.ToList())
         {
             if (byKey.TryGetValue(existing.Key, out var fresh))
             {
-                // ---- totals ----
+                // totals
                 existing.Packets = fresh.Packets;
                 existing.Bytes = fresh.Bytes;
                 existing.FirstSeen = fresh.FirstSeen;
                 existing.LastSeen = fresh.LastSeen;
 
-                // ---- direction / local-remote ----
+                // direction / local-remote
                 existing.Direction = fresh.Direction;
                 existing.LocalIp = fresh.LocalIp;
                 existing.LocalPort = fresh.LocalPort;
                 existing.RemoteIp = fresh.RemoteIp;
                 existing.RemotePort = fresh.RemotePort;
 
-                // ---- bi-directional counters ----
+                // bi-directional
                 existing.PacketsAToB = fresh.PacketsAToB;
                 existing.BytesAToB = fresh.BytesAToB;
                 existing.PacketsBToA = fresh.PacketsBToA;
                 existing.BytesBToA = fresh.BytesBToA;
 
-                // ---- local sent/recv ----
+                // local sent/recv
                 existing.SentPackets = fresh.SentPackets;
                 existing.SentBytes = fresh.SentBytes;
                 existing.RecvPackets = fresh.RecvPackets;
@@ -462,17 +478,16 @@ public sealed class MainViewModel : ViewModelBase
             }
             else
             {
-                // Flow зник — видаляємо
                 Flows.Remove(existing);
             }
         }
 
-        // 2) Додаємо нові flows
         foreach (var f in byKey.Values)
             Flows.Add(f);
     }
 
-    // Відповідає за застосування flow-фільтра на основі SelectedFlow.
+    // ===================== FLOW FILTER =====================
+
     private void ApplySelectedFlowFilter(bool includeReverse)
     {
         if (SelectedFlow is null) return;
@@ -480,40 +495,33 @@ public sealed class MainViewModel : ViewModelBase
         _activeFlowFilter = SelectedFlow.Key;
         _includeReverseFlow = includeReverse;
 
-        FlowFilterText = includeReverse
-            ? $"Flow filter (both directions): {FormatFlow(_activeFlowFilter.Value)}"
-            : $"Flow filter: {FormatFlow(_activeFlowFilter.Value)}";
-
-        PacketsView.Filter = obj =>
-        {
-            if (obj is not PacketInfo p) return false;
-            return MatchesFlow(p, _activeFlowFilter.Value, _includeReverseFlow);
-        };
-
-        // Відповідає за перехід на вкладку Packets
+        // Переходимо на Packets вкладку
         LeftTabIndex = 0;
 
-        PacketsView.Refresh();
-
-        // Відповідає за оновлення доступності кнопок/меню
+        RefreshPacketsFilteringUi();
         RaiseCanExecuteChangedForFlowCommands();
     }
-    // Відповідає за скидання flow-фільтра (показати всі пакети).
+
     private void ClearFlowFilter()
     {
         _activeFlowFilter = null;
         _includeReverseFlow = false;
 
-        FlowFilterText = "";
+        // ВАЖЛИВО: також можна скидати UI фільтр тут
+        // Зараз - скидаємо тільки flow, але Clear кнопка дозволяється і при UI фільтрі теж.
 
-        PacketsView.Filter = _ => true;
-        PacketsView.Refresh();
-
-        // Відповідає за оновлення доступності кнопок/меню
+        RefreshPacketsFilteringUi();
         RaiseCanExecuteChangedForFlowCommands();
     }
-    // Відповідає за перевірку чи пакет належить flow (включно з reverse якщо треба).
-    private static bool MatchesFlow(PacketInfo p, Domain.Models.FlowKey key, bool includeReverse)
+
+    private void RaiseCanExecuteChangedForFlowCommands()
+    {
+        (FollowFlowCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        (FollowFlowBothDirectionsCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        (ClearFlowFilterCommand as RelayCommand)?.RaiseCanExecuteChanged();
+    }
+
+    private static bool MatchesFlow(PacketInfo p, FlowKey key, bool includeReverse)
     {
         if (!string.Equals(p.Protocol, key.Protocol, StringComparison.OrdinalIgnoreCase))
             return false;
@@ -525,7 +533,6 @@ public sealed class MainViewModel : ViewModelBase
             p.DstPort == key.DstPort;
 
         if (direct) return true;
-
         if (!includeReverse) return false;
 
         bool reverse =
@@ -537,25 +544,164 @@ public sealed class MainViewModel : ViewModelBase
         return reverse;
     }
 
-    // Відповідає за красивий текст опису flow.
-    private static string FormatFlow(Domain.Models.FlowKey k)
+    private static string FormatFlow(FlowKey k)
         => $"{k.Protocol} {k.SrcIp}:{k.SrcPort} → {k.DstIp}:{k.DstPort}";
 
-    // Відповідає за оновлення CanExecute у команд Follow/Clear flow.
-    private void RaiseCanExecuteChangedForFlowCommands()
+    // ===================== UI FILTER (Fiddler-style) =====================
+
+    // Відповідає за відкриття модального вікна фільтрів і застосування _uiFilter.
+    private void OpenFiltersDialog()
     {
-        (FollowFlowCommand as RelayCommand)?.RaiseCanExecuteChanged();
-        (FollowFlowBothDirectionsCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        var vm = new Presentation.ViewModels.FiltersViewModel(_uiFilter);
+
+        var win = new Presentation.Views.FiltersWindow
+        {
+            Owner = System.Windows.Application.Current.MainWindow,
+            DataContext = vm
+        };
+
+        win.ShowDialog();
+
+        if (!vm.IsApplied)
+            return;
+
+        _uiFilter = vm.GetAppliedFilter();
+        RefreshPacketsFilteringUi();
         (ClearFlowFilterCommand as RelayCommand)?.RaiseCanExecuteChanged();
     }
 
-    // Відповідає за оновлення статистики (Top Hosts / Top Ports) на основі snapshot flows.
-    // Відповідає за оновлення статистики (Top Hosts / Top Ports) на основі snapshot flows.
-    // Відповідає за оновлення статистики (Top Hosts / Top Ports) на основі snapshot flows.
-    private void UpdateStats(IReadOnlyList<Domain.Models.FlowInfo> flows)
+    private bool PassesCombinedFilters(PacketInfo p)
     {
-        // Якщо налаштування не мінялись — можна не перераховувати
-        // (але якщо ти хочеш щоб Stats "живі" оновлювались постійно — прибери цей if)
+        // 1) Flow filter
+        if (_activeFlowFilter.HasValue)
+        {
+            if (!MatchesFlow(p, _activeFlowFilter.Value, _includeReverseFlow))
+                return false;
+        }
+
+        // 2) UI filter
+        if (!_uiFilter.IsEmpty)
+        {
+            if (!MatchesUiFilter(p, _uiFilter))
+                return false;
+        }
+
+        return true;
+    }
+
+    // Відповідає за синхронізацію тексту фільтрів + Refresh().
+    private void RefreshPacketsFilteringUi()
+    {
+        var parts = new List<string>();
+
+        if (_activeFlowFilter.HasValue)
+        {
+            parts.Add(_includeReverseFlow
+                ? $"Flow(both): {FormatFlow(_activeFlowFilter.Value)}"
+                : $"Flow: {FormatFlow(_activeFlowFilter.Value)}");
+        }
+
+        if (!_uiFilter.IsEmpty)
+            parts.Add("UI Filter: active");
+
+        FiltersText = parts.Count == 0 ? "" : string.Join(" | ", parts);
+
+        PacketsView.Refresh();
+        OnPropertyChanged(nameof(FlowFilterText)); // для сумісності
+    }
+
+    // Відповідає за перевірку, чи пакет проходить через критерії UI-фільтра (op + value).
+    private static bool MatchesUiFilter(PacketInfo p, PacketFilterModel f)
+    {
+        // Відповідає за порівняння текстових полів (Equals / NotEquals / Contains / NotContains).
+        static bool MatchText(string? value, TextMatchOp op, string? pattern)
+        {
+            if (op == TextMatchOp.Any || string.IsNullOrWhiteSpace(pattern))
+                return true;
+
+            value ??= "";
+            pattern = pattern.Trim();
+
+            return op switch
+            {
+                TextMatchOp.Equals => string.Equals(value, pattern, StringComparison.OrdinalIgnoreCase),
+                TextMatchOp.NotEquals => !string.Equals(value, pattern, StringComparison.OrdinalIgnoreCase),
+                TextMatchOp.Contains => value.IndexOf(pattern, StringComparison.OrdinalIgnoreCase) >= 0,
+                TextMatchOp.NotContains => value.IndexOf(pattern, StringComparison.OrdinalIgnoreCase) < 0,
+                _ => true
+            };
+        }
+
+        // Відповідає за порівняння числових полів (Equals / NotEquals).
+        static bool MatchNumber(int? value, NumberMatchOp op, int? pattern)
+        {
+            if (op == NumberMatchOp.Any || pattern is null)
+                return true;
+
+            return op switch
+            {
+                NumberMatchOp.Equals => value == pattern,
+                NumberMatchOp.NotEquals => value != pattern,
+                _ => true
+            };
+        }
+
+        // ---- IP Src/Dst ----
+        if (!MatchText(p.SrcIp, f.SrcIpOp, f.SrcIpValue)) return false;
+        if (!MatchText(p.DstIp, f.DstIpOp, f.DstIpValue)) return false;
+
+        // ---- Any IP (Src OR Dst) ----
+        if (f.AnyIpOp != TextMatchOp.Any && !string.IsNullOrWhiteSpace(f.AnyIpValue))
+        {
+            bool srcOk = MatchText(p.SrcIp, f.AnyIpOp, f.AnyIpValue);
+            bool dstOk = MatchText(p.DstIp, f.AnyIpOp, f.AnyIpValue);
+
+            // Для "AnyIp" логіка: має співпасти хоча б одна сторона.
+            // Навіть для NOT_CONTAINS — це ок: якщо Src не містить => srcOk = true і умова проходить.
+            if (!srcOk && !dstOk) return false;
+        }
+
+        // ---- Ports ----
+        if (!MatchNumber(p.SrcPort, f.SrcPortOp, f.SrcPortValue)) return false;
+        if (!MatchNumber(p.DstPort, f.DstPortOp, f.DstPortValue)) return false;
+
+        // ---- Any Port (Src OR Dst) ----
+        if (f.AnyPortOp != NumberMatchOp.Any && f.AnyPortValue.HasValue)
+        {
+            bool srcOk = MatchNumber(p.SrcPort, f.AnyPortOp, f.AnyPortValue);
+            bool dstOk = MatchNumber(p.DstPort, f.AnyPortOp, f.AnyPortValue);
+            if (!srcOk && !dstOk) return false;
+        }
+
+        // ---- Protocol / Info ----
+        if (!MatchText(p.Protocol, f.ProtocolOp, f.ProtocolValue)) return false;
+        if (!MatchText(p.Info, f.InfoOp, f.InfoValue)) return false;
+
+        // ---- Length range ----
+        if (f.MinLength.HasValue && p.Length < f.MinLength.Value) return false;
+        if (f.MaxLength.HasValue && p.Length > f.MaxLength.Value) return false;
+
+        // Time range (inclusive) - compare in LOCAL TIME to match what user typed
+        if (f.TimeFromUtc.HasValue || f.TimeToUtc.HasValue)
+        {
+            // Packet timestamp -> local
+            var tLocal = p.Timestamp; // вже локальний
+
+            // Filter values were stored as UTC in model, convert them to local for comparison
+            DateTime? fromLocal = f.TimeFromUtc?.ToLocalTime();
+            DateTime? toLocal = f.TimeToUtc?.ToLocalTime();
+
+            if (fromLocal.HasValue && tLocal < fromLocal.Value) return false;
+            if (toLocal.HasValue && tLocal > toLocal.Value) return false;
+        }
+
+        return true;
+    }
+
+    // ===================== STATS =====================
+
+    private void UpdateStats(IReadOnlyList<FlowInfo> flows)
+    {
         if (!_statsDirty)
             return;
 
@@ -603,7 +749,6 @@ public sealed class MainViewModel : ViewModelBase
                 RecvBytes = kv.Value.recv,
                 LastSeen = kv.Value.lastSeen
             })
-            // Відбір TopN робимо по Bytes (це не заважає DataGrid сортувати по кліку)
             .OrderByDescending(x => x.Bytes)
             .Take(StatsTopN)
             .ToList();
@@ -662,12 +807,8 @@ public sealed class MainViewModel : ViewModelBase
         _statsDirty = false;
     }
 
-
-
-    // Відповідає за просте визначення назви сервісу по порту (для читабельності).
     private static string GuessService(string proto, int port)
     {
-        // Мінімальна мапа — можна розширювати.
         return (proto?.ToUpperInvariant(), port) switch
         {
             ("TCP", 80) => "HTTP",
@@ -686,7 +827,6 @@ public sealed class MainViewModel : ViewModelBase
         };
     }
 
-    // Відповідає за визначення типу IP (Unicast/Multicast/Broadcast).
     private static string GetIpType(string ip)
     {
         if (string.IsNullOrWhiteSpace(ip))
@@ -697,20 +837,17 @@ public sealed class MainViewModel : ViewModelBase
 
         var bytes = addr.GetAddressBytes();
 
-        // IPv4
         if (addr.AddressFamily == AddressFamily.InterNetwork)
         {
             if (ip == "255.255.255.255")
                 return "Broadcast";
 
-            // 224.0.0.0/4 multicast
             if (bytes[0] >= 224 && bytes[0] <= 239)
                 return "Multicast";
 
             return "Unicast";
         }
 
-        // IPv6 multicast ff00::/8
         if (addr.AddressFamily == AddressFamily.InterNetworkV6)
         {
             if (bytes.Length > 0 && bytes[0] == 0xFF)
@@ -722,13 +859,10 @@ public sealed class MainViewModel : ViewModelBase
         return "Unknown";
     }
 
-    // Відповідає за витяг IP з endpoint виду "ip:port".
     private static string ExtractIp(string endpoint)
     {
         if (string.IsNullOrWhiteSpace(endpoint)) return "";
         int idx = endpoint.LastIndexOf(':');
         return idx > 0 ? endpoint[..idx] : endpoint;
     }
-
-
 }

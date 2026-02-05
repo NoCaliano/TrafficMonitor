@@ -17,6 +17,7 @@
 
         <!-- Відповідає за панель керування: вибір адаптера, BPF фільтр, Start/Stop, статус -->
         <StackPanel Orientation="Horizontal" Grid.Row="0" VerticalAlignment="Top">
+            
             <ComboBox Width="420"
                       ItemsSource="{Binding Devices}"
                       SelectedItem="{Binding SelectedDevice}"
@@ -36,15 +37,18 @@
                     Margin="8,0,0,0"
                     Padding="12,4"
                     Command="{Binding StopCommand}" />
-
+            <Button Content="Filters..."
+                    Margin="8,0,0,0"
+                    Padding="10,4"
+                    Command="{Binding OpenFiltersCommand}" />
             <TextBlock Margin="12,0,0,0"
                        VerticalAlignment="Center"
                        Text="{Binding StatusText}"/>
 
             <TextBlock Margin="12,0,0,0"
-                       VerticalAlignment="Center"
-                       Foreground="DarkOrange"
-                       Text="{Binding FlowFilterText}"/>
+                   VerticalAlignment="Center"
+                   Foreground="DarkOrange"
+                   Text="{Binding FiltersText}"/>
 
             <Button Content="Clear Filter"
                     Margin="8,0,0,0"

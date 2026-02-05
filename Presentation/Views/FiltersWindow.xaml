@@ -1,0 +1,289 @@
+﻿<Window x:Class="Presentation.Views.FiltersWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:pm="clr-namespace:Presentation.Models"
+        Title="Filters"
+        SizeToContent="WidthAndHeight"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        WindowStyle="ToolWindow"
+        ShowInTaskbar="False">
+
+    <Border Padding="12">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="10"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <!-- Заголовок -->
+            <TextBlock FontWeight="Bold" Text="Packet Filters (UI-only)"/>
+
+            <Grid Grid.Row="2">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <!-- IP -->
+                    <RowDefinition Height="8"/>
+                    <RowDefinition Height="Auto"/>
+                    <!-- Ports -->
+                    <RowDefinition Height="8"/>
+                    <RowDefinition Height="Auto"/>
+                    <!-- Time range (NEW) -->
+                    <RowDefinition Height="8"/>
+                    <RowDefinition Height="Auto"/>
+                    <!-- Other -->
+                    <RowDefinition Height="12"/>
+                    <RowDefinition Height="Auto"/>
+                    <!-- Buttons -->
+                </Grid.RowDefinitions>
+
+                <!-- ===================== IP ===================== -->
+                <GroupBox Header="IP" Grid.Row="0">
+                    <Grid Margin="8">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="6"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="70"/>
+                            <ColumnDefinition Width="120"/>
+                            <ColumnDefinition Width="10"/>
+                            <ColumnDefinition Width="240"/>
+                            <ColumnDefinition Width="18"/>
+                            <ColumnDefinition Width="70"/>
+                            <ColumnDefinition Width="120"/>
+                            <ColumnDefinition Width="10"/>
+                            <ColumnDefinition Width="240"/>
+                        </Grid.ColumnDefinitions>
+
+                        <!-- Src IP -->
+                        <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="Src IP"/>
+                        <ComboBox Grid.Row="0" Grid.Column="1"
+                                  SelectedValue="{Binding Filter.SrcIpOp}"
+                                  SelectedValuePath="Tag">
+                            <ComboBoxItem Content="Any" Tag="{x:Static pm:TextMatchOp.Any}"/>
+                            <ComboBoxItem Content="Equals" Tag="{x:Static pm:TextMatchOp.Equals}"/>
+                            <ComboBoxItem Content="Not Equals" Tag="{x:Static pm:TextMatchOp.NotEquals}"/>
+                            <ComboBoxItem Content="Contains" Tag="{x:Static pm:TextMatchOp.Contains}"/>
+                            <ComboBoxItem Content="Not Contains" Tag="{x:Static pm:TextMatchOp.NotContains}"/>
+                        </ComboBox>
+                        <TextBox Grid.Row="0" Grid.Column="3"
+                                 Text="{Binding Filter.SrcIpValue, UpdateSourceTrigger=PropertyChanged}"/>
+
+                        <!-- Dst IP -->
+                        <TextBlock Grid.Row="0" Grid.Column="5" VerticalAlignment="Center" Text="Dst IP"/>
+                        <ComboBox Grid.Row="0" Grid.Column="6"
+                                  SelectedValue="{Binding Filter.DstIpOp}"
+                                  SelectedValuePath="Tag">
+                            <ComboBoxItem Content="Any" Tag="{x:Static pm:TextMatchOp.Any}"/>
+                            <ComboBoxItem Content="Equals" Tag="{x:Static pm:TextMatchOp.Equals}"/>
+                            <ComboBoxItem Content="Not Equals" Tag="{x:Static pm:TextMatchOp.NotEquals}"/>
+                            <ComboBoxItem Content="Contains" Tag="{x:Static pm:TextMatchOp.Contains}"/>
+                            <ComboBoxItem Content="Not Contains" Tag="{x:Static pm:TextMatchOp.NotContains}"/>
+                        </ComboBox>
+                        <TextBox Grid.Row="0" Grid.Column="8"
+                                 Text="{Binding Filter.DstIpValue, UpdateSourceTrigger=PropertyChanged}"/>
+
+                        <!-- Any IP -->
+                        <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Text="Any IP"/>
+                        <ComboBox Grid.Row="2" Grid.Column="1"
+                                  SelectedValue="{Binding Filter.AnyIpOp}"
+                                  SelectedValuePath="Tag">
+                            <ComboBoxItem Content="Any" Tag="{x:Static pm:TextMatchOp.Any}"/>
+                            <ComboBoxItem Content="Equals" Tag="{x:Static pm:TextMatchOp.Equals}"/>
+                            <ComboBoxItem Content="Not Equals" Tag="{x:Static pm:TextMatchOp.NotEquals}"/>
+                            <ComboBoxItem Content="Contains" Tag="{x:Static pm:TextMatchOp.Contains}"/>
+                            <ComboBoxItem Content="Not Contains" Tag="{x:Static pm:TextMatchOp.NotContains}"/>
+                        </ComboBox>
+                        <TextBox Grid.Row="2" Grid.Column="3"
+                                 Text="{Binding Filter.AnyIpValue, UpdateSourceTrigger=PropertyChanged}"/>
+
+                        <!-- Підказка -->
+                        <TextBlock Grid.Row="2" Grid.Column="5" Grid.ColumnSpan="4"
+                                   VerticalAlignment="Center"
+                                   Foreground="Gray"
+                                   Text="Any IP checks either Src or Dst"/>
+                    </Grid>
+                </GroupBox>
+
+                <!-- ===================== Ports ===================== -->
+                <GroupBox Header="Ports" Grid.Row="2">
+                    <Grid Margin="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="70"/>
+                            <ColumnDefinition Width="120"/>
+                            <ColumnDefinition Width="10"/>
+                            <ColumnDefinition Width="120"/>
+                            <ColumnDefinition Width="18"/>
+                            <ColumnDefinition Width="70"/>
+                            <ColumnDefinition Width="120"/>
+                            <ColumnDefinition Width="10"/>
+                            <ColumnDefinition Width="120"/>
+                            <ColumnDefinition Width="18"/>
+                            <ColumnDefinition Width="70"/>
+                            <ColumnDefinition Width="120"/>
+                            <ColumnDefinition Width="10"/>
+                            <ColumnDefinition Width="120"/>
+                        </Grid.ColumnDefinitions>
+
+                        <!-- Any Port -->
+                        <TextBlock Grid.Column="0" VerticalAlignment="Center" Text="Any"/>
+                        <ComboBox Grid.Column="1"
+                                  SelectedValue="{Binding Filter.AnyPortOp}"
+                                  SelectedValuePath="Tag">
+                            <ComboBoxItem Content="Any" Tag="{x:Static pm:NumberMatchOp.Any}"/>
+                            <ComboBoxItem Content="Equals" Tag="{x:Static pm:NumberMatchOp.Equals}"/>
+                            <ComboBoxItem Content="Not Equals" Tag="{x:Static pm:NumberMatchOp.NotEquals}"/>
+                        </ComboBox>
+                        <TextBox Grid.Column="3"
+                                 Text="{Binding Filter.AnyPortValue, UpdateSourceTrigger=PropertyChanged}"/>
+
+                        <!-- Src Port -->
+                        <TextBlock Grid.Column="5" VerticalAlignment="Center" Text="Src"/>
+                        <ComboBox Grid.Column="6"
+                                  SelectedValue="{Binding Filter.SrcPortOp}"
+                                  SelectedValuePath="Tag">
+                            <ComboBoxItem Content="Any" Tag="{x:Static pm:NumberMatchOp.Any}"/>
+                            <ComboBoxItem Content="Equals" Tag="{x:Static pm:NumberMatchOp.Equals}"/>
+                            <ComboBoxItem Content="Not Equals" Tag="{x:Static pm:NumberMatchOp.NotEquals}"/>
+                        </ComboBox>
+                        <TextBox Grid.Column="8"
+                                 Text="{Binding Filter.SrcPortValue, UpdateSourceTrigger=PropertyChanged}"/>
+
+                        <!-- Dst Port -->
+                        <TextBlock Grid.Column="10" VerticalAlignment="Center" Text="Dst"/>
+                        <ComboBox Grid.Column="11"
+                                  SelectedValue="{Binding Filter.DstPortOp}"
+                                  SelectedValuePath="Tag">
+                            <ComboBoxItem Content="Any" Tag="{x:Static pm:NumberMatchOp.Any}"/>
+                            <ComboBoxItem Content="Equals" Tag="{x:Static pm:NumberMatchOp.Equals}"/>
+                            <ComboBoxItem Content="Not Equals" Tag="{x:Static pm:NumberMatchOp.NotEquals}"/>
+                        </ComboBox>
+                        <TextBox Grid.Column="13"
+                                 Text="{Binding Filter.DstPortValue, UpdateSourceTrigger=PropertyChanged}"/>
+                    </Grid>
+                </GroupBox>
+
+                <!-- ===================== Time range (NEW) ===================== -->
+                <GroupBox Header="Time range (local time)" Grid.Row="4">
+                    <Grid Margin="8">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="6"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="70"/>
+                            <ColumnDefinition Width="220"/>
+                            <ColumnDefinition Width="18"/>
+                            <ColumnDefinition Width="70"/>
+                            <ColumnDefinition Width="220"/>
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="From"/>
+                        <TextBox Grid.Row="0" Grid.Column="1"
+                                 Text="{Binding TimeFromText, UpdateSourceTrigger=PropertyChanged}"
+                                 ToolTip="Formats: HH:mm:ss or yyyy-MM-dd HH:mm:ss"/>
+
+                        <TextBlock Grid.Row="0" Grid.Column="3" VerticalAlignment="Center" Text="To"/>
+                        <TextBox Grid.Row="0" Grid.Column="4"
+                                 Text="{Binding TimeToText, UpdateSourceTrigger=PropertyChanged}"
+                                 ToolTip="Formats: HH:mm:ss or yyyy-MM-dd HH:mm:ss"/>
+
+                        <TextBlock Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="5"
+                                   Foreground="Gray"
+                                   Text="Tip: If you enter only HH:mm:ss, today's date will be assumed."/>
+                    </Grid>
+                </GroupBox>
+
+                <!-- ===================== Other ===================== -->
+                <GroupBox Header="Other" Grid.Row="6">
+                    <Grid Margin="8">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="6"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="6"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="70"/>
+                            <ColumnDefinition Width="120"/>
+                            <ColumnDefinition Width="10"/>
+                            <ColumnDefinition Width="240"/>
+                            <ColumnDefinition Width="18"/>
+                            <ColumnDefinition Width="70"/>
+                            <ColumnDefinition Width="120"/>
+                            <ColumnDefinition Width="10"/>
+                            <ColumnDefinition Width="240"/>
+                        </Grid.ColumnDefinitions>
+
+                        <!-- Protocol -->
+                        <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="Proto"/>
+                        <ComboBox Grid.Row="0" Grid.Column="1"
+                                  SelectedValue="{Binding Filter.ProtocolOp}"
+                                  SelectedValuePath="Tag">
+                            <ComboBoxItem Content="Any" Tag="{x:Static pm:TextMatchOp.Any}"/>
+                            <ComboBoxItem Content="Equals" Tag="{x:Static pm:TextMatchOp.Equals}"/>
+                            <ComboBoxItem Content="Not Equals" Tag="{x:Static pm:TextMatchOp.NotEquals}"/>
+                            <ComboBoxItem Content="Contains" Tag="{x:Static pm:TextMatchOp.Contains}"/>
+                            <ComboBoxItem Content="Not Contains" Tag="{x:Static pm:TextMatchOp.NotContains}"/>
+                        </ComboBox>
+
+                        <ComboBox Grid.Row="0" Grid.Column="3"
+                                  IsEditable="True"
+                                  ItemsSource="{Binding ProtocolOptions}"
+                                  Text="{Binding Filter.ProtocolValue, UpdateSourceTrigger=PropertyChanged}"/>
+
+                        <!-- Info -->
+                        <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Text="Info"/>
+                        <ComboBox Grid.Row="2" Grid.Column="1"
+                                  SelectedValue="{Binding Filter.InfoOp}"
+                                  SelectedValuePath="Tag">
+                            <ComboBoxItem Content="Any" Tag="{x:Static pm:TextMatchOp.Any}"/>
+                            <ComboBoxItem Content="Contains" Tag="{x:Static pm:TextMatchOp.Contains}"/>
+                            <ComboBoxItem Content="Not Contains" Tag="{x:Static pm:TextMatchOp.NotContains}"/>
+                            <ComboBoxItem Content="Equals" Tag="{x:Static pm:TextMatchOp.Equals}"/>
+                            <ComboBoxItem Content="Not Equals" Tag="{x:Static pm:TextMatchOp.NotEquals}"/>
+                        </ComboBox>
+                        <TextBox Grid.Row="2" Grid.Column="3"
+                                 Text="{Binding Filter.InfoValue, UpdateSourceTrigger=PropertyChanged}"/>
+
+                        <!-- Length -->
+                        <TextBlock Grid.Row="4" Grid.Column="0" VerticalAlignment="Center" Text="Min Len"/>
+                        <TextBox Grid.Row="4" Grid.Column="1"
+                                 Text="{Binding Filter.MinLength, UpdateSourceTrigger=PropertyChanged}"/>
+
+                        <TextBlock Grid.Row="4" Grid.Column="5" VerticalAlignment="Center" Text="Max Len"/>
+                        <TextBox Grid.Row="4" Grid.Column="6"
+                                 Text="{Binding Filter.MaxLength, UpdateSourceTrigger=PropertyChanged}"/>
+
+                        <TextBlock Grid.Row="4" Grid.Column="8"
+                                   VerticalAlignment="Center"
+                                   Foreground="Gray"
+                                   Text="Leave empty = no limit"/>
+                    </Grid>
+                </GroupBox>
+
+                <!-- ===================== Buttons ===================== -->
+                <StackPanel Grid.Row="8" Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button Content="Clear" MinWidth="90" Margin="0,0,8,0"
+                            Command="{Binding ClearCommand}"/>
+
+                    <Button Content="Cancel" MinWidth="90" Margin="0,0,8,0"
+                            Command="{Binding CancelCommand}"
+                            CommandParameter="{Binding RelativeSource={RelativeSource AncestorType=Window}}"/>
+
+                    <Button Content="Apply" MinWidth="90"
+                            Command="{Binding ApplyCommand}"
+                            CommandParameter="{Binding RelativeSource={RelativeSource AncestorType=Window}}"/>
+                </StackPanel>
+            </Grid>
+        </Grid>
+    </Border>
+</Window>
