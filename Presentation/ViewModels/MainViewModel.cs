@@ -6,6 +6,7 @@ using Presentation.Helpers;
 using Presentation.Models;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading.Channels;
@@ -151,36 +152,6 @@ public sealed class MainViewModel : ViewModelBase
         set => Set(ref _leftTabIndex, value);
     }
 
-    // ===================== STATS =====================
-
-    public ObservableCollection<HostStatRow> TopHosts { get; } = new();
-    public ObservableCollection<PortStatRow> TopPorts { get; } = new();
-
-    private int _statsTopN = 25;
-    public int StatsTopN
-    {
-        get => _statsTopN;
-        set
-        {
-            if (!Set(ref _statsTopN, value)) return;
-            _statsDirty = true;
-        }
-    }
-
-    private bool _hideMulticastBroadcast = true;
-    public bool HideMulticastBroadcast
-    {
-        get => _hideMulticastBroadcast;
-        set
-        {
-            if (!Set(ref _hideMulticastBroadcast, value)) return;
-            _statsDirty = true;
-        }
-    }
-
-    // Відповідає за "потрібно перерахувати Stats".
-    private volatile bool _statsDirty = true;
-
     // ===================== FILTERS (FLOW + UI) =====================
 
     // Відповідає за активний ключ flow-фільтра.
@@ -211,7 +182,15 @@ public sealed class MainViewModel : ViewModelBase
     // Відповідає за відкриття вікна Filters.
     public ICommand OpenFiltersCommand { get; }
 
-    // ===================== CTOR =====================
+    // ===================== STATS =====================
+
+
+    public StatsViewModel Stats { get; }
+    private long _capTotalPackets;
+    private long _capTotalBytes;
+    private DateTime? _capFirstSeen;
+    private DateTime? _capLastSeen;
+    private readonly Stopwatch _capSw = new();
 
     public MainViewModel(
         ICaptureDeviceService deviceService,
@@ -223,6 +202,10 @@ public sealed class MainViewModel : ViewModelBase
         _captureService = captureService;
         _flowAggregator = flowAggregator;
         _parser = parser;
+
+
+        Stats = new StatsViewModel();
+
 
         StartCommand = new AsyncRelayCommand(StartAsync);
         StopCommand = new AsyncRelayCommand(StopAsync);
@@ -278,13 +261,20 @@ public sealed class MainViewModel : ViewModelBase
         Packets.Clear();
         Flows.Clear();
         _flowAggregator.Reset();
-        _statsDirty = true;
+        Stats.Reset();
 
         // Скидаємо фільтри
         _activeFlowFilter = null;
         _includeReverseFlow = false;
         _uiFilter = new PacketFilterModel();
         RefreshPacketsFilteringUi();
+
+
+        _capTotalPackets = 0;
+        _capTotalBytes = 0;
+        _capFirstSeen = null;
+        _capLastSeen = null;
+        _capSw.Restart();
 
         // Скидаємо деталі
         SelectedPacket = null;
@@ -303,7 +293,10 @@ public sealed class MainViewModel : ViewModelBase
     {
         if (!_captureService.IsRunning) return;
 
+        
+
         StatusText = "Stopping...";
+        _capSw.Stop();
         await _captureService.StopAsync(ct);
 
         if (_captureCts is not null)
@@ -338,6 +331,35 @@ public sealed class MainViewModel : ViewModelBase
                 foreach (var e in batch)
                     parsed.Add(_parser.Parse(e.Timestamp, e.Length, e.RawCapture));
 
+                // parsed вже заповнений — можна рахувати totals
+                if (parsed.Count > 0)
+                {
+                    _capTotalPackets += parsed.Count;
+
+                    long add = 0;
+                    for (int i = 0; i < parsed.Count; i++)
+                        add += parsed[i].Length;
+
+                    _capTotalBytes += add;
+
+                    // якщо timestamp може бути "Unspecified" — краще нормалізувати тут
+                    var min = parsed[0].Timestamp;
+                    var max = parsed[0].Timestamp;
+
+                    for (int i = 1; i < parsed.Count; i++)
+                    {
+                        var t = parsed[i].Timestamp;
+                        if (t < min) min = t;
+                        if (t > max) max = t;
+                    }
+
+                    if (!_capFirstSeen.HasValue || min < _capFirstSeen.Value) _capFirstSeen = min;
+                    if (!_capLastSeen.HasValue || max > _capLastSeen.Value) _capLastSeen = max;
+                }
+
+                foreach (var e in batch)
+                    parsed.Add(_parser.Parse(e.Timestamp, e.Length, e.RawCapture));
+
                 // Аггрегуємо flows (поза UI)
                 foreach (var p in parsed)
                     _flowAggregator.Add(p);
@@ -357,6 +379,15 @@ public sealed class MainViewModel : ViewModelBase
                 var nowUtc = DateTime.UtcNow;
                 if ((nowUtc - lastFlowsUiUpdateUtc).TotalMilliseconds >= 1000)
                 {
+                    var stats = new CaptureStats
+                    {
+                        TotalPackets = _capTotalPackets,
+                        TotalBytes = _capTotalBytes,
+                        FirstSeen = _capFirstSeen,
+                        LastSeen = _capLastSeen,
+                        Elapsed = _capSw.Elapsed
+                    };
+
                     lastFlowsUiUpdateUtc = nowUtc;
 
                     var top = _flowAggregator.SnapshotTop(take: 500);
@@ -366,7 +397,7 @@ public sealed class MainViewModel : ViewModelBase
                         UpdateFlows(top);
 
                         // Stats перераховуємо тільки якщо dirty
-                        UpdateStats(top);
+                        Stats.Update(top, stats);
 
                         // Команда Clear має міняти доступність, якщо UI-фільтр активний
                         (ClearFlowFilterCommand as RelayCommand)?.RaiseCanExecuteChanged();
@@ -696,173 +727,5 @@ public sealed class MainViewModel : ViewModelBase
         }
 
         return true;
-    }
-
-    // ===================== STATS =====================
-
-    private void UpdateStats(IReadOnlyList<FlowInfo> flows)
-    {
-        if (!_statsDirty)
-            return;
-
-        // -------------------- Top Hosts --------------------
-        var hostAgg = new Dictionary<string, (int flows, int packets, long bytes, long sent, long recv, DateTime lastSeen, string role, string type)>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var f in flows)
-        {
-            string host = !string.IsNullOrWhiteSpace(f.RemoteIp)
-                ? f.RemoteIp
-                : (ExtractIp(f.RemoteEndpoint) != "" ? ExtractIp(f.RemoteEndpoint) : f.Key.DstIp);
-
-            if (string.IsNullOrWhiteSpace(host))
-                continue;
-
-            var type = GetIpType(host);
-            if (HideMulticastBroadcast && (type == "Multicast" || type == "Broadcast"))
-                continue;
-
-            string role = !string.IsNullOrWhiteSpace(f.RemoteIp) ? "Remote" : "Unknown";
-
-            if (!hostAgg.TryGetValue(host, out var a))
-                a = (0, 0, 0, 0, 0, DateTime.MinValue, role, type);
-
-            a.flows += 1;
-            a.packets += f.Packets;
-            a.bytes += f.Bytes;
-            a.sent += f.SentBytes;
-            a.recv += f.RecvBytes;
-            if (f.LastSeen > a.lastSeen) a.lastSeen = f.LastSeen;
-
-            hostAgg[host] = a;
-        }
-
-        var topHosts = hostAgg
-            .Select(kv => new HostStatRow
-            {
-                Host = kv.Key,
-                Type = kv.Value.type,
-                Role = kv.Value.role,
-                Flows = kv.Value.flows,
-                Packets = kv.Value.packets,
-                Bytes = kv.Value.bytes,
-                SentBytes = kv.Value.sent,
-                RecvBytes = kv.Value.recv,
-                LastSeen = kv.Value.lastSeen
-            })
-            .OrderByDescending(x => x.Bytes)
-            .Take(StatsTopN)
-            .ToList();
-
-        TopHosts.Clear();
-        foreach (var r in topHosts)
-            TopHosts.Add(r);
-
-        // -------------------- Top Ports --------------------
-        var portAgg = new Dictionary<(string proto, int port), (int flows, int packets, long bytes, long sent, long recv, DateTime lastSeen)>();
-
-        foreach (var f in flows)
-        {
-            var proto = f.Protocol ?? "";
-            int? port = f.RemotePort ?? f.DstPort ?? f.Key.DstPort;
-
-            if (port is null || port <= 0)
-                continue;
-
-            var key = (proto, port.Value);
-
-            if (!portAgg.TryGetValue(key, out var a))
-                a = (0, 0, 0, 0, 0, DateTime.MinValue);
-
-            a.flows += 1;
-            a.packets += f.Packets;
-            a.bytes += f.Bytes;
-            a.sent += f.SentBytes;
-            a.recv += f.RecvBytes;
-            if (f.LastSeen > a.lastSeen) a.lastSeen = f.LastSeen;
-
-            portAgg[key] = a;
-        }
-
-        var topPorts = portAgg
-            .Select(kv => new PortStatRow
-            {
-                Protocol = kv.Key.proto,
-                Port = kv.Key.port,
-                Service = GuessService(kv.Key.proto, kv.Key.port),
-                Flows = kv.Value.flows,
-                Packets = kv.Value.packets,
-                Bytes = kv.Value.bytes,
-                SentBytes = kv.Value.sent,
-                RecvBytes = kv.Value.recv,
-                LastSeen = kv.Value.lastSeen
-            })
-            .OrderByDescending(x => x.Bytes)
-            .Take(StatsTopN)
-            .ToList();
-
-        TopPorts.Clear();
-        foreach (var r in topPorts)
-            TopPorts.Add(r);
-
-        _statsDirty = false;
-    }
-
-    private static string GuessService(string proto, int port)
-    {
-        return (proto?.ToUpperInvariant(), port) switch
-        {
-            ("TCP", 80) => "HTTP",
-            ("TCP", 443) => "HTTPS",
-            ("UDP", 443) => "QUIC",
-            ("UDP", 53) => "DNS",
-            ("TCP", 53) => "DNS",
-            ("UDP", 123) => "NTP",
-            ("UDP", 1900) => "SSDP",
-            ("UDP", 5353) => "mDNS",
-            ("TCP", 22) => "SSH",
-            ("TCP", 25) => "SMTP",
-            ("TCP", 110) => "POP3",
-            ("TCP", 143) => "IMAP",
-            _ => ""
-        };
-    }
-
-    private static string GetIpType(string ip)
-    {
-        if (string.IsNullOrWhiteSpace(ip))
-            return "Unknown";
-
-        if (!IPAddress.TryParse(ip, out var addr))
-            return "Unknown";
-
-        var bytes = addr.GetAddressBytes();
-
-        if (addr.AddressFamily == AddressFamily.InterNetwork)
-        {
-            if (ip == "255.255.255.255")
-                return "Broadcast";
-
-            if (bytes[0] >= 224 && bytes[0] <= 239)
-                return "Multicast";
-
-            return "Unicast";
-        }
-
-        if (addr.AddressFamily == AddressFamily.InterNetworkV6)
-        {
-            if (bytes.Length > 0 && bytes[0] == 0xFF)
-                return "Multicast";
-
-            return "Unicast";
-        }
-
-        return "Unknown";
-    }
-
-    private static string ExtractIp(string endpoint)
-    {
-        if (string.IsNullOrWhiteSpace(endpoint)) return "";
-        int idx = endpoint.LastIndexOf(':');
-        return idx > 0 ? endpoint[..idx] : endpoint;
-    }
+    }  
 }
