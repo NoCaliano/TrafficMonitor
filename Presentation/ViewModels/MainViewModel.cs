@@ -13,7 +13,9 @@ using System.Threading.Channels;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
+using System.Windows.Documents;
 using System.Windows.Input;
+using System.Windows.Media;
 
 namespace Presentation.ViewModels;
 
@@ -93,6 +95,26 @@ public sealed class MainViewModel : ViewModelBase
     {
         get => _hexDump;
         set => Set(ref _hexDump, value);
+    }
+
+    private FlowDocument _hexDocument = new();
+    public FlowDocument HexDocument
+    {
+        get => _hexDocument;
+        private set => Set(ref _hexDocument, value);
+    }
+
+    private (int start, int length)? _selectedRange;
+    public (int start, int length)? SelectedRange
+    {
+        get => _selectedRange;
+        set
+        {
+            if (!Set(ref _selectedRange, value)) return;
+
+            // при виборі вузла дерева — підсвічуємо hex
+            RebuildHexDocument();
+        }
     }
 
     // Відповідає за кореневий вузол дерева протоколів для вибраного пакета.
@@ -416,23 +438,115 @@ public sealed class MainViewModel : ViewModelBase
     {
         ProtocolRoot = null;
         HexDump = "";
+        HexDocument = new FlowDocument();
 
         if (p is null || p.RawBytes is null || p.RawBytes.Length == 0)
             return;
 
-        HexDump = BuildHexDump(p.RawBytes, bytesPerLine: 16);
+        HexDump = BuildHexDump(p.RawBytes, 16);
+
+        // скидаємо виділення
+        _selectedRange = null;
+        OnPropertyChanged(nameof(SelectedRange));
+
+        // будуємо документ (без підсвітки)
+        HexDocument = BuildHexDocument(p.RawBytes, 16, null);
 
         try
         {
             var link = (LinkLayers)p.LinkLayerType;
             var parsedPacket = Packet.ParsePacket(link, p.RawBytes);
-
             ProtocolRoot = PacketTreeBuilder.Build(parsedPacket, p);
         }
         catch (Exception ex)
         {
             ProtocolRoot = new TreeViewItem { Header = $"Parse error: {ex.Message}" };
         }
+    }
+
+    private void RebuildHexDocument()
+    {
+        var bytes = SelectedPacket?.RawBytes;
+        if (bytes is null || bytes.Length == 0)
+        {
+            HexDocument = new FlowDocument(new Paragraph(new Run("")));
+            return;
+        }
+
+        int highlightStart = -1;
+        int highlightEnd = -1;
+        if (SelectedRange is { } r)
+        {
+            highlightStart = Math.Max(0, r.start);
+            highlightEnd = Math.Min(bytes.Length, r.start + Math.Max(0, r.length)); // exclusive
+            if (highlightStart >= highlightEnd)
+            {
+                highlightStart = highlightEnd = -1; // нічого
+            }
+        }
+
+        const int bytesPerLine = 16;
+
+        // Можеш вибрати інший колір, але цей виглядає нормально
+        Brush hlBg = Brushes.Khaki;
+
+        var doc = new FlowDocument
+        {
+            PageWidth = 2000, // щоб не переносило рядки
+            LineHeight = 1,
+        };
+
+        for (int i = 0; i < bytes.Length; i += bytesPerLine)
+        {
+            int lineEnd = Math.Min(i + bytesPerLine, bytes.Length);
+
+            var p = new Paragraph
+            {
+                Margin = new System.Windows.Thickness(0),
+            };
+
+            // Offset "0000: "
+            p.Inlines.Add(new Run(i.ToString("X4") + ": "));
+
+            // HEX bytes
+            for (int j = i; j < i + bytesPerLine; j++)
+            {
+                if (j < lineEnd)
+                {
+                    bool isHl = highlightStart >= 0 && j >= highlightStart && j < highlightEnd;
+
+                    var run = new Run(bytes[j].ToString("X2") + " ");
+                    if (isHl) run.Background = hlBg;
+                    p.Inlines.Add(run);
+                }
+                else
+                {
+                    // padding
+                    p.Inlines.Add(new Run("   "));
+                }
+            }
+
+            // Separator
+            p.Inlines.Add(new Run(" |"));
+
+            // ASCII
+            for (int j = i; j < lineEnd; j++)
+            {
+                bool isHl = highlightStart >= 0 && j >= highlightStart && j < highlightEnd;
+
+                char c = bytes[j] >= 32 && bytes[j] <= 126 ? (char)bytes[j] : '.';
+                var run = new Run(c.ToString());
+                if (isHl) run.Background = hlBg;
+                p.Inlines.Add(run);
+            }
+
+            // Close
+            p.Inlines.Add(new Run("|"));
+
+            doc.Blocks.Add(p);
+        }
+
+        HexDocument = doc;
     }
 
     private static string BuildHexDump(byte[] data, int bytesPerLine)
@@ -469,6 +583,70 @@ public sealed class MainViewModel : ViewModelBase
 
         return sb.ToString();
     }
+
+    private static FlowDocument BuildHexDocument(byte[] data, int bytesPerLine, (int start, int length)? sel)
+    {
+        int selStart = sel?.start ?? -1;
+        int selEnd = sel is null ? -1 : sel.Value.start + Math.Max(0, sel.Value.length); // exclusive
+
+        bool InSel(int idx) => sel is not null && idx >= selStart && idx < selEnd;
+
+        var doc = new FlowDocument
+        {
+            PagePadding = new System.Windows.Thickness(0)
+        };
+
+        var p = new Paragraph
+        {
+            Margin = new System.Windows.Thickness(0),
+            FontFamily = new FontFamily("Consolas"),
+            FontSize = 12
+        };
+
+        for (int i = 0; i < data.Length; i += bytesPerLine)
+        {
+            // offset
+            p.Inlines.Add(new Run(i.ToString("X4") + ": ") { Foreground = Brushes.Gray });
+
+            int lineEnd = Math.Min(i + bytesPerLine, data.Length);
+
+            // HEX part
+            for (int j = i; j < i + bytesPerLine; j++)
+            {
+                if (j < lineEnd)
+                {
+                    var run = new Run(data[j].ToString("X2") + " ");
+                    if (InSel(j)) run.Background = Brushes.Yellow;
+                    p.Inlines.Add(run);
+                }
+                else
+                {
+                    p.Inlines.Add(new Run("   "));
+                }
+            }
+
+            p.Inlines.Add(new Run(" |") { Foreground = Brushes.Gray });
+
+            // ASCII part
+            for (int j = i; j < lineEnd; j++)
+            {
+                byte b = data[j];
+                char c = (b >= 32 && b <= 126) ? (char)b : '.';
+
+                var run = new Run(c.ToString());
+                if (InSel(j)) run.Background = Brushes.Yellow;
+                p.Inlines.Add(run);
+            }
+
+            p.Inlines.Add(new Run("|") { Foreground = Brushes.Gray });
+            p.Inlines.Add(new LineBreak());
+        }
+
+        doc.Blocks.Add(p);
+        return doc;
+    }
+
+
 
     // ===================== FLOWS (UI UPDATE) =====================
 

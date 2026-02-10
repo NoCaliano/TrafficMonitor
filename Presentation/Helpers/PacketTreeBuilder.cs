@@ -28,7 +28,8 @@ namespace Presentation.Helpers
             // --- Ethernet (handle optional VLAN) ---
             int ethStart = 0;
             int ethLen = 14;
-            if (frameLen >= 16)
+
+            if (frameLen >= 14)
             {
                 ushort etherType = (ushort)((bytes[12] << 8) | bytes[13]);
                 if (etherType == 0x8100 && frameLen >= 18)
@@ -38,23 +39,26 @@ namespace Presentation.Helpers
             var eth = packet.Extract<EthernetPacket>();
             if (eth != null && frameLen >= ethLen)
             {
-                ushort type = (ushort)((bytes[ethLen - 2] << 8) | bytes[ethLen - 1]);
+                // Type field position depends on VLAN or not
+                ushort type = (ushort)((bytes[ethStart + ethLen - 2] << 8) | bytes[ethStart + ethLen - 1]);
 
-                var ethNode = T($"Ethernet II, Src: {eth.SourceHardwareAddress}, Dst: {eth.DestinationHardwareAddress}",
+                var ethNode = T(
+                    $"Ethernet II, Src: {eth.SourceHardwareAddress}, Dst: {eth.DestinationHardwareAddress}",
                     (ethStart, ethLen));
 
-                ethNode.Items.Add(T($"Destination MAC: {eth.DestinationHardwareAddress}", (0, 6)));
-                ethNode.Items.Add(T($"Source MAC: {eth.SourceHardwareAddress}", (6, 6)));
+                // ✅ FIX: children ranges must be ABSOLUTE offsets (ethStart + ...)
+                ethNode.Items.Add(T($"Destination MAC: {eth.DestinationHardwareAddress}", (ethStart + 0, 6)));
+                ethNode.Items.Add(T($"Source MAC: {eth.SourceHardwareAddress}", (ethStart + 6, 6)));
 
                 if (ethLen == 14)
                 {
-                    ethNode.Items.Add(T($"Type: 0x{type:X4}", (12, 2)));
+                    ethNode.Items.Add(T($"Type: 0x{type:X4}", (ethStart + 12, 2)));
                 }
                 else
                 {
-                    ethNode.Items.Add(T($"Type: 0x8100 (802.1Q VLAN)", (12, 2)));
-                    ethNode.Items.Add(T($"VLAN TCI: 0x{((bytes[14] << 8) | bytes[15]):X4}", (14, 2)));
-                    ethNode.Items.Add(T($"Encapsulated Type: 0x{type:X4}", (16, 2)));
+                    ethNode.Items.Add(T($"Type: 0x8100 (802.1Q VLAN)", (ethStart + 12, 2)));
+                    ethNode.Items.Add(T($"VLAN TCI: 0x{((bytes[ethStart + 14] << 8) | bytes[ethStart + 15]):X4}", (ethStart + 14, 2)));
+                    ethNode.Items.Add(T($"Encapsulated Type: 0x{type:X4}", (ethStart + 16, 2)));
                 }
 
                 root.Items.Add(ethNode);
@@ -278,7 +282,7 @@ namespace Presentation.Helpers
         {
             var item = new TreeViewItem { Header = header };
             if (range.HasValue)
-                item.Tag = (range.Value.start, range.Value.length);
+                item.Tag = (range.Value.start, range.Value.length); // ValueTuple<int,int>
             return item;
         }
 
