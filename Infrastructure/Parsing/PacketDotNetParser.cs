@@ -3,6 +3,7 @@
 using Application.Abstractions;
 using Domain.Models;
 using PacketDotNet;
+using Infrastructure.Networking;
 using SharpPcap;
 using System.Net;
 
@@ -10,6 +11,13 @@ namespace Infrastructure.Parsing;
 
 public sealed class PacketDotNetParser : IPacketParser
 {
+    private readonly ProcessMapperService _processMapperService;
+
+    public PacketDotNetParser(ProcessMapperService processMapperService)
+    {
+        _processMapperService = processMapperService;
+    }
+
     public PacketInfo Parse(DateTime timestamp, int length, object rawCapture)
     {
         // локальний час
@@ -48,6 +56,8 @@ public sealed class PacketDotNetParser : IPacketParser
             int? srcPort = null,
             int? dstPort = null,
             string tcpFlags = "",
+            int? pid = null,
+            string processName = "",
             string info = "")
         {
             return new PacketInfo
@@ -66,6 +76,9 @@ public sealed class PacketDotNetParser : IPacketParser
 
                 TcpFlags = tcpFlags,
                 Info = info,
+
+                Pid = pid,
+                ProcessName = processName,
 
                 RawBytes = bytesCopy,
                 LinkLayer = raw.LinkLayerType.ToString(),
@@ -106,6 +119,7 @@ public sealed class PacketDotNetParser : IPacketParser
             {
                 var flags = TcpFlagsToString(tcp);
                 var info = BuildTcpInfo(tcp, srcIpStr, dstIpStr);
+                ResolveTcpProcess(srcIpStr, tcp.SourcePort, dstIpStr, tcp.DestinationPort, out var pid, out var processName);
 
                 return Make(
                     protocol: "TCP",
@@ -116,7 +130,9 @@ public sealed class PacketDotNetParser : IPacketParser
                     srcPort: tcp.SourcePort,
                     dstPort: tcp.DestinationPort,
                     tcpFlags: flags,
-                    info: info
+                    info: info,
+                    pid: pid,
+                    processName: processName
                 );
             }
 
@@ -129,6 +145,8 @@ public sealed class PacketDotNetParser : IPacketParser
                     ? $"UDP {udp.SourcePort} → {udp.DestinationPort} Len={udp.PayloadData?.Length ?? 0}"
                     : $"{protoHint} UDP {udp.SourcePort} → {udp.DestinationPort} Len={udp.PayloadData?.Length ?? 0}";
 
+                ResolveUdpProcess(srcIpStr, udp.SourcePort, dstIpStr, udp.DestinationPort, out var pid, out var processName);
+
                 return Make(
                     protocol: "UDP",
                     srcMac: srcMacStr,
@@ -137,7 +155,9 @@ public sealed class PacketDotNetParser : IPacketParser
                     dstIp: dstIpStr,
                     srcPort: udp.SourcePort,
                     dstPort: udp.DestinationPort,
-                    info: info
+                    info: info,
+                    pid: pid,
+                    processName: processName
                 );
             }
 
@@ -231,5 +251,39 @@ public sealed class PacketDotNetParser : IPacketParser
         if (srcPort == 67 || dstPort == 67 || srcPort == 68 || dstPort == 68) return "DHCP";
         if (srcPort == 123 || dstPort == 123) return "NTP";
         return null;
+    }
+
+    private void ResolveTcpProcess(string srcIp, int srcPort, string dstIp, int dstPort, out int? pid, out string processName)
+    {
+        pid = null;
+        processName = "";
+
+        if (!IPAddress.TryParse(srcIp, out var src) || !IPAddress.TryParse(dstIp, out var dst))
+            return;
+
+        if (!_processMapperService.TryResolveTcp(src, srcPort, dst, dstPort, out var resolvedPid))
+            return;
+
+        pid = resolvedPid;
+        processName = ProcessMapperService.TryGetProcessName(resolvedPid);
+    }
+
+    private void ResolveUdpProcess(string srcIp, int srcPort, string dstIp, int dstPort, out int? pid, out string processName)
+    {
+        pid = null;
+        processName = "";
+
+        if (IPAddress.TryParse(srcIp, out var src) && _processMapperService.TryResolveUdp(src, srcPort, out var srcPid))
+        {
+            pid = srcPid;
+            processName = ProcessMapperService.TryGetProcessName(srcPid);
+            return;
+        }
+
+        if (IPAddress.TryParse(dstIp, out var dst) && _processMapperService.TryResolveUdp(dst, dstPort, out var dstPid))
+        {
+            pid = dstPid;
+            processName = ProcessMapperService.TryGetProcessName(dstPid);
+        }
     }
 }

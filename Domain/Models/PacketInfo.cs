@@ -19,6 +19,10 @@ public sealed class PacketInfo
     public string Protocol { get; init; } = "";   // "TCP", "UDP", "ICMP", "ARP", ...
     public int? SrcPort { get; init; }
     public int? DstPort { get; init; }
+    public int? Pid { get; init; }
+
+    // Відповідає за ім'я процесу, який володіє сокетом (якщо вдалося визначити).
+    public string ProcessName { get; init; } = "";
 
     public string TcpFlags { get; init; } = "";   // "SYN, ACK" ...
     public string Info { get; init; } = "";       // короткий опис (DNS query / TCP handshake / etc.)

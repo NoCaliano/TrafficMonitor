@@ -98,6 +98,8 @@
                                 <DataGridTextColumn Header="DPort" Binding="{Binding DstPort}" Width="60"/>
                                 <DataGridTextColumn Header="Len" Binding="{Binding Length}" Width="70"/>
                                 <DataGridTextColumn Header="Flags" Binding="{Binding TcpFlags}" Width="110"/>
+                                <DataGridTextColumn Header="PID" Binding="{Binding Pid}" Width="70"/>
+                                <DataGridTextColumn Header="Process" Binding="{Binding ProcessName}" Width="130"/>
                                 <DataGridTextColumn Header="Info" Binding="{Binding Info}" Width="*"/>
                             </DataGrid.Columns>
                         </DataGrid>

@@ -33,6 +33,8 @@ public partial class App : System.Windows.Application
                 services.AddSingleton<IPacketParser, PacketDotNetParser>();
                 // ViewModels
                 services.AddSingleton<MainViewModel>();
+                // Відповідає за резолв endpoint -> PID/процес.
+                services.AddSingleton<ProcessMapperService>();
                 // Відповідає за агрегацію потоків (Flows)
                 services.AddSingleton<IFlowAggregator, FlowAggregator>();
                 // Відповідає за визначення локальних IP для Direction.
