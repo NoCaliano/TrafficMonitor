@@ -886,6 +886,10 @@ public sealed class MainViewModel : ViewModelBase
         if (!MatchText(p.Protocol, f.ProtocolOp, f.ProtocolValue)) return false;
         if (!MatchText(p.Info, f.InfoOp, f.InfoValue)) return false;
 
+        // ---- Process ----
+        if (!MatchNumber(p.Pid, f.PidOp, f.PidValue)) return false;
+        if (!MatchText(p.ProcessName, f.ProcessNameOp, f.ProcessNameValue)) return false;
+
         // ---- Length range ----
         if (f.MinLength.HasValue && p.Length < f.MinLength.Value) return false;
         if (f.MaxLength.HasValue && p.Length > f.MaxLength.Value) return false;

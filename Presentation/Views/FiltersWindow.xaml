@@ -209,6 +209,8 @@
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="6"/>
                             <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="6"/>
+                            <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
 
                         <Grid.ColumnDefinitions>
@@ -254,16 +256,41 @@
                         <TextBox Grid.Row="2" Grid.Column="3"
                                  Text="{Binding Filter.InfoValue, UpdateSourceTrigger=PropertyChanged}"/>
 
+                        <!-- Process -->
+                        <TextBlock Grid.Row="4" Grid.Column="0" VerticalAlignment="Center" Text="PID"/>
+                        <ComboBox Grid.Row="4" Grid.Column="1"
+                                  SelectedValue="{Binding Filter.PidOp}"
+                                  SelectedValuePath="Tag">
+                            <ComboBoxItem Content="Any" Tag="{x:Static pm:NumberMatchOp.Any}"/>
+                            <ComboBoxItem Content="Equals" Tag="{x:Static pm:NumberMatchOp.Equals}"/>
+                            <ComboBoxItem Content="Not Equals" Tag="{x:Static pm:NumberMatchOp.NotEquals}"/>
+                        </ComboBox>
+                        <TextBox Grid.Row="4" Grid.Column="3"
+                                 Text="{Binding Filter.PidValue, UpdateSourceTrigger=PropertyChanged}"/>
+
+                        <TextBlock Grid.Row="4" Grid.Column="5" VerticalAlignment="Center" Text="Process"/>
+                        <ComboBox Grid.Row="4" Grid.Column="6"
+                                  SelectedValue="{Binding Filter.ProcessNameOp}"
+                                  SelectedValuePath="Tag">
+                            <ComboBoxItem Content="Any" Tag="{x:Static pm:TextMatchOp.Any}"/>
+                            <ComboBoxItem Content="Equals" Tag="{x:Static pm:TextMatchOp.Equals}"/>
+                            <ComboBoxItem Content="Not Equals" Tag="{x:Static pm:TextMatchOp.NotEquals}"/>
+                            <ComboBoxItem Content="Contains" Tag="{x:Static pm:TextMatchOp.Contains}"/>
+                            <ComboBoxItem Content="Not Contains" Tag="{x:Static pm:TextMatchOp.NotContains}"/>
+                        </ComboBox>
+                        <TextBox Grid.Row="4" Grid.Column="8"
+                                 Text="{Binding Filter.ProcessNameValue, UpdateSourceTrigger=PropertyChanged}"/>
+                        
                         <!-- Length -->
-                        <TextBlock Grid.Row="4" Grid.Column="0" VerticalAlignment="Center" Text="Min Len"/>
-                        <TextBox Grid.Row="4" Grid.Column="1"
+                        <TextBlock Grid.Row="6" Grid.Column="0" VerticalAlignment="Center" Text="Min Len"/>
+                        <TextBox Grid.Row="6" Grid.Column="1"
                                  Text="{Binding Filter.MinLength, UpdateSourceTrigger=PropertyChanged}"/>
 
-                        <TextBlock Grid.Row="4" Grid.Column="5" VerticalAlignment="Center" Text="Max Len"/>
-                        <TextBox Grid.Row="4" Grid.Column="6"
+                        <TextBlock Grid.Row="6" Grid.Column="5" VerticalAlignment="Center" Text="Max Len"/>
+                        <TextBox Grid.Row="6" Grid.Column="6"
                                  Text="{Binding Filter.MaxLength, UpdateSourceTrigger=PropertyChanged}"/>
 
-                        <TextBlock Grid.Row="4" Grid.Column="8"
+                        <TextBlock Grid.Row="6" Grid.Column="8"
                                    VerticalAlignment="Center"
                                    Foreground="Gray"
                                    Text="Leave empty = no limit"/>

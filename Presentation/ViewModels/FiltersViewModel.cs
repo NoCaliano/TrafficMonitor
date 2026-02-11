@@ -89,6 +89,12 @@ public sealed class FiltersViewModel : ViewModelBase
             Filter.InfoOp = TextMatchOp.Any;
             Filter.InfoValue = "";
 
+            Filter.PidOp = NumberMatchOp.Any;
+            Filter.PidValue = null;
+
+            Filter.ProcessNameOp = TextMatchOp.Any;
+            Filter.ProcessNameValue = "";
+
             Filter.MinLength = null;
             Filter.MaxLength = null;
 
@@ -128,6 +134,12 @@ public sealed class FiltersViewModel : ViewModelBase
         if (!ValidLen(f.MinLength) || !ValidLen(f.MaxLength))
         {
             error = "Length must be >= 0.";
+            return false;
+        }
+
+        if (f.PidValue.HasValue && f.PidValue.Value < 0)
+        {
+            error = "PID must be >= 0.";
             return false;
         }
 
@@ -235,6 +247,13 @@ public sealed class FiltersViewModel : ViewModelBase
         // ---- Protocol / Info ----
         ProtocolOp = s.ProtocolOp,
         ProtocolValue = s.ProtocolValue,
+
+        // ---- Process ----
+        PidOp = s.PidOp,
+        PidValue = s.PidValue,
+
+        ProcessNameOp = s.ProcessNameOp,
+        ProcessNameValue = s.ProcessNameValue,
 
         InfoOp = s.InfoOp,
         InfoValue = s.InfoValue,

@@ -48,6 +48,13 @@ public sealed class PacketFilterModel
     public TextMatchOp InfoOp { get; set; } = TextMatchOp.Any;
     public string InfoValue { get; set; } = "";
 
+    // ---- Process ----
+    public NumberMatchOp PidOp { get; set; } = NumberMatchOp.Any;
+    public int? PidValue { get; set; }
+
+    public TextMatchOp ProcessNameOp { get; set; } = TextMatchOp.Any;
+    public string ProcessNameValue { get; set; } = "";
+
     // ---- Length ----
     public int? MinLength { get; set; }
     public int? MaxLength { get; set; }
@@ -66,6 +73,8 @@ public sealed class PacketFilterModel
         AnyPortOp == NumberMatchOp.Any && AnyPortValue is null &&
         ProtocolOp == TextMatchOp.Any && string.IsNullOrWhiteSpace(ProtocolValue) &&
         InfoOp == TextMatchOp.Any && string.IsNullOrWhiteSpace(InfoValue) &&
+        PidOp == NumberMatchOp.Any && PidValue is null &&
+        ProcessNameOp == TextMatchOp.Any && string.IsNullOrWhiteSpace(ProcessNameValue) &&
         MinLength is null &&
         MaxLength is null &&
         TimeFromUtc is null &&
