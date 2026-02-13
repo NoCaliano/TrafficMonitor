@@ -7,6 +7,7 @@ namespace Domain.Models;
 
 public sealed class PacketInfo
 {
+    public long No { get; set; }
     public DateTime Timestamp { get; init; }
     public int Length { get; init; }
 

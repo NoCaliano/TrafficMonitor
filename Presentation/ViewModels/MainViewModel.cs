@@ -32,6 +32,7 @@ public sealed class MainViewModel : ViewModelBase
 
     public ObservableCollection<PacketInfo> Packets { get; } = new();
 
+    private long _packetNo = 0;
     // Відповідає за відображення пакетів у DataGrid з можливістю фільтрації.
     public ICollectionView PacketsView { get; }
 
@@ -280,6 +281,7 @@ public sealed class MainViewModel : ViewModelBase
         StatusText = "Starting...";
 
         // Відповідає за повний reset перед новим захопленням
+        _packetNo = 0;
         Packets.Clear();
         Flows.Clear();
         _flowAggregator.Reset();
@@ -351,7 +353,14 @@ public sealed class MainViewModel : ViewModelBase
                 // Парсимо в фоні
                 var parsed = new List<PacketInfo>(batch.Count);
                 foreach (var e in batch)
-                    parsed.Add(_parser.Parse(e.Timestamp, e.Length, e.RawCapture));
+                {
+                    var p = _parser.Parse(e.Timestamp, e.Length, e.RawCapture);
+
+                    // ✅ Номер пакета
+                    p.No = Interlocked.Increment(ref _packetNo);
+
+                    parsed.Add(p);
+                }
 
                 // parsed вже заповнений — можна рахувати totals
                 if (parsed.Count > 0)
@@ -378,9 +387,6 @@ public sealed class MainViewModel : ViewModelBase
                     if (!_capFirstSeen.HasValue || min < _capFirstSeen.Value) _capFirstSeen = min;
                     if (!_capLastSeen.HasValue || max > _capLastSeen.Value) _capLastSeen = max;
                 }
-
-                foreach (var e in batch)
-                    parsed.Add(_parser.Parse(e.Timestamp, e.Length, e.RawCapture));
 
                 // Аггрегуємо flows (поза UI)
                 foreach (var p in parsed)
@@ -429,7 +435,10 @@ public sealed class MainViewModel : ViewModelBase
                 await Task.Yield();
             }
         }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException)
+        {
+            // ok
+        }
     }
 
     // ===================== DETAILS (PACKET) =====================
@@ -909,5 +918,5 @@ public sealed class MainViewModel : ViewModelBase
         }
 
         return true;
-    }  
+    }
 }

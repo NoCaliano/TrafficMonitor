@@ -8,17 +8,16 @@ using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using System.Windows.Navigation;
 using System.Windows.Shapes;
 
 namespace Presentation.Views
 {
     /// <summary>
-    /// Логика взаимодействия для StatsView.xaml
+    /// Логика взаимодействия для StatsWindow.xaml
     /// </summary>
-    public partial class StatsView : UserControl
+    public partial class StatsWindow : Window
     {
-        public StatsView()
+        public StatsWindow()
         {
             InitializeComponent();
         }
