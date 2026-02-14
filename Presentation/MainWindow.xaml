@@ -78,7 +78,7 @@
                     <TextBlock Foreground="DarkOrange" Text="{Binding FiltersText}"/>
 
                     <Separator/>
-                    
+
                     <Button Content="Show Packets" Command="{Binding ShowPacketsCommand}" />
                     <Button Content="Show Flows" Command="{Binding ShowFlowsCommand}" />
                 </ToolBar>
@@ -112,178 +112,14 @@
                         </Grid>
                     </ControlTemplate>
                 </TabControl.Template>
-                <!-- ===================== Packets ===================== -->
+
+                <!-- Используем готовые UserControl'ы вместо дублирования -->
                 <TabItem Header="Packets">
-                    <Grid Margin="0">
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="*"/>
-                            <RowDefinition Height="6"/>
-                            <RowDefinition Height="260"/>
-                        </Grid.RowDefinitions>
-
-                        <DataGrid Grid.Row="0"
-                                  Margin="0"
-                                  ItemsSource="{Binding PacketsView}"
-                                  SelectedItem="{Binding SelectedPacket}"
-                                  IsReadOnly="True"
-                                  AutoGenerateColumns="False"
-                                  EnableRowVirtualization="True"
-                                  EnableColumnVirtualization="True"
-                                  VirtualizingPanel.IsVirtualizing="True"
-                                  VirtualizingPanel.VirtualizationMode="Recycling">
-
-                            <DataGrid.Columns>
-                                <DataGridTextColumn Header="No"
-                                        Binding="{Binding No}"
-                                        Width="55">
-                                        <DataGridTextColumn.ElementStyle>
-                                            <Style TargetType="TextBlock">
-                                                <Setter Property="HorizontalAlignment" Value="Center"/>
-                                            </Style>
-                                </DataGridTextColumn.ElementStyle>
-                                </DataGridTextColumn>
-                                <DataGridTextColumn Header="Time"    Binding="{Binding Timestamp, StringFormat=HH:mm:ss.fff}" Width="110"/>
-                                <DataGridTextColumn Header="Src"     Binding="{Binding SrcIp}" Width="140"/>
-                                <DataGridTextColumn Header="Dst"     Binding="{Binding DstIp}" Width="140"/>
-                                <DataGridTextColumn Header="Proto"   Binding="{Binding Protocol}" Width="60"/>
-                                <DataGridTextColumn Header="SPort"   Binding="{Binding SrcPort}" Width="60"/>
-                                <DataGridTextColumn Header="DPort"   Binding="{Binding DstPort}" Width="60"/>
-                                <DataGridTextColumn Header="Len"     Binding="{Binding Length}" Width="70"/>
-                                <DataGridTextColumn Header="Flags"   Binding="{Binding TcpFlags}" Width="110"/>
-                                <DataGridTextColumn Header="PID"     Binding="{Binding Pid}" Width="70"/>
-                                <DataGridTextColumn Header="Process" Binding="{Binding ProcessName}" Width="130"/>
-                                <DataGridTextColumn Header="Info"    Binding="{Binding Info}" Width="*"/>
-                            </DataGrid.Columns>
-                        </DataGrid>
-
-                        <GridSplitter Grid.Row="1"
-                                      Height="6"
-                                      HorizontalAlignment="Stretch"
-                                      VerticalAlignment="Stretch"/>
-
-                        <!-- Нижня панель: Details + Hex -->
-                        <Grid Grid.Row="2" Margin="0">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="6"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
-
-                            <GroupBox Grid.Column="0" Header="Packet Details" Margin="0">
-                                <TreeView ItemsSource="{Binding ProtocolRoot.Items}"
-                                          PreviewMouseMove="ProtocolTree_PreviewMouseMove"
-                                          MouseLeave="ProtocolTree_MouseLeave"
-                                          Margin="0">
-                                    <TreeView.Resources>
-                                        <HierarchicalDataTemplate DataType="{x:Type TreeViewItem}" ItemsSource="{Binding Items}">
-                                            <TextBlock Text="{Binding Header}" />
-                                        </HierarchicalDataTemplate>
-
-                                        <Style TargetType="{x:Type TreeViewItem}">
-                                            <EventSetter Event="MouseEnter" Handler="ProtocolTreeItem_MouseEnter"/>
-                                            <EventSetter Event="Selected" Handler="ProtocolTreeItem_Selected"/>
-                                        </Style>
-                                    </TreeView.Resources>
-                                </TreeView>
-                            </GroupBox>
-
-                            <GridSplitter Grid.Column="1" Width="6"
-                                          HorizontalAlignment="Stretch"
-                                          VerticalAlignment="Stretch"/>
-
-                            <GroupBox Grid.Column="2" Header="Hex" Margin="0">
-                                <RichTextBox Margin="0"
-                                             helpers:RichTextBoxAssist.BindableDocument="{Binding HexDocument}"
-                                             IsReadOnly="True"
-                                             FontFamily="Consolas"
-                                             FontSize="12"
-                                             VerticalScrollBarVisibility="Auto"
-                                             HorizontalScrollBarVisibility="Auto"/>
-                            </GroupBox>
-                        </Grid>
-                    </Grid>
+                    <views:PacketsView />
                 </TabItem>
 
-                <!-- ===================== Flows ===================== -->
                 <TabItem Header="Flows">
-                    <Grid Margin="0">
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="*"/>
-                            <RowDefinition Height="6"/>
-                            <RowDefinition Height="200"/>
-                        </Grid.RowDefinitions>
-
-                        <DataGrid Grid.Row="0"
-                                  Margin="0"
-                                  ItemsSource="{Binding Flows}"
-                                  SelectedItem="{Binding SelectedFlow}"
-                                  IsReadOnly="True"
-                                  AutoGenerateColumns="False"
-                                  EnableRowVirtualization="True"
-                                  EnableColumnVirtualization="True"
-                                  VirtualizingPanel.IsVirtualizing="True"
-                                  VirtualizingPanel.VirtualizationMode="Recycling">
-
-                            <DataGrid.ContextMenu>
-                                <ContextMenu>
-                                    <MenuItem Header="Follow Flow" Command="{Binding FollowFlowCommand}" />
-                                    <MenuItem Header="Follow Flow (Both directions)" Command="{Binding FollowFlowBothDirectionsCommand}" />
-                                    <Separator/>
-                                    <MenuItem Header="Clear Flow Filter" Command="{Binding ClearFlowFilterCommand}" />
-                                </ContextMenu>
-                            </DataGrid.ContextMenu>
-
-                            <DataGrid.Columns>
-                                <DataGridTextColumn Header="Dir"     Binding="{Binding Dir}" Width="60"/>
-                                <DataGridTextColumn Header="Proto"   Binding="{Binding Key.Protocol}" Width="60"/>
-                                <DataGridTextColumn Header="Src"     Binding="{Binding Key.SrcIp}" Width="160"/>
-                                <DataGridTextColumn Header="SPort"   Binding="{Binding Key.SrcPort}" Width="60"/>
-                                <DataGridTextColumn Header="Dst"     Binding="{Binding Key.DstIp}" Width="160"/>
-                                <DataGridTextColumn Header="DPort"   Binding="{Binding Key.DstPort}" Width="60"/>
-                                <DataGridTextColumn Header="Packets" Binding="{Binding Packets}" Width="80"/>
-                                <DataGridTextColumn Header="Bytes"   Binding="{Binding Bytes}" Width="90"/>
-                                <DataGridTextColumn Header="First"   Binding="{Binding FirstSeen, StringFormat=HH:mm:ss}" Width="80"/>
-                                <DataGridTextColumn Header="Last"    Binding="{Binding LastSeen, StringFormat=HH:mm:ss}" Width="80"/>
-                                <DataGridTextColumn Header="Duration" Binding="{Binding Duration}" Width="*"/>
-                            </DataGrid.Columns>
-                        </DataGrid>
-
-                        <GridSplitter Grid.Row="1"
-                                      Height="6"
-                                      HorizontalAlignment="Stretch"
-                                      VerticalAlignment="Stretch"/>
-
-                        <GroupBox Grid.Row="2" Header="Flow Details" Margin="0">
-                            <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0">
-                                <StackPanel DataContext="{Binding SelectedFlow}" Margin="6">
-                                    <TextBlock Text="{Binding Dir, StringFormat=Direction: {0}}" />
-                                    <TextBlock Text="{Binding LocalEndpoint, StringFormat=Local: {0}}" />
-                                    <TextBlock Text="{Binding RemoteEndpoint, StringFormat=Remote: {0}}" />
-                                    <Separator Margin="0,10,0,10"/>
-                                    <TextBlock FontWeight="Bold" Text="Totals" />
-                                    <TextBlock Text="{Binding Packets, StringFormat=Packets: {0}}" />
-                                    <TextBlock Text="{Binding Bytes, StringFormat=Bytes: {0}}" />
-                                    <Separator Margin="0,10,0,10"/>
-                                    <TextBlock FontWeight="Bold" Text="A ↔ B (normalized)" />
-                                    <TextBlock Text="{Binding PacketsAToB, StringFormat=A→B Packets: {0}}" />
-                                    <TextBlock Text="{Binding BytesAToB, StringFormat=A→B Bytes: {0}}" />
-                                    <TextBlock Margin="0,4,0,0" Text="{Binding PacketsBToA, StringFormat=B→A Packets: {0}}" />
-                                    <TextBlock Text="{Binding BytesBToA, StringFormat=B→A Bytes: {0}}" />
-                                    <Separator Margin="0,10,0,10"/>
-                                    <TextBlock FontWeight="Bold" Text="Local (Sent / Recv)" />
-                                    <TextBlock Text="{Binding SentPackets, StringFormat=Sent Packets: {0}}" />
-                                    <TextBlock Text="{Binding SentBytes, StringFormat=Sent Bytes: {0}}" />
-                                    <TextBlock Margin="0,4,0,0" Text="{Binding RecvPackets, StringFormat=Recv Packets: {0}}" />
-                                    <TextBlock Text="{Binding RecvBytes, StringFormat=Recv Bytes: {0}}" />
-                                    <Separator Margin="0,10,0,10"/>
-                                    <TextBlock FontWeight="Bold" Text="Timing" />
-                                    <TextBlock Text="{Binding FirstSeen, StringFormat=First: {0:HH:mm:ss}}" />
-                                    <TextBlock Text="{Binding LastSeen, StringFormat=Last: {0:HH:mm:ss}}" />
-                                    <TextBlock Text="{Binding Duration, StringFormat=Duration: {0}}" />
-                                </StackPanel>
-                            </ScrollViewer>
-                        </GroupBox>
-                    </Grid>
+                    <views:FlowsView />
                 </TabItem>
 
             </TabControl>

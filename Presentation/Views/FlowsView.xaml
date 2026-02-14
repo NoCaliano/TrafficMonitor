@@ -46,16 +46,32 @@
         <GridSplitter Grid.Row="1" Height="6" HorizontalAlignment="Stretch"/>
 
         <GroupBox Grid.Row="2" Header="Flow Details" Margin="0">
-            <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="6">
-                <StackPanel DataContext="{Binding SelectedFlow}">
+            <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0">
+                <StackPanel DataContext="{Binding SelectedFlow}" Margin="6">
                     <TextBlock Text="{Binding Dir, StringFormat=Direction: {0}}" />
                     <TextBlock Text="{Binding LocalEndpoint, StringFormat=Local: {0}}" />
                     <TextBlock Text="{Binding RemoteEndpoint, StringFormat=Remote: {0}}" />
                     <Separator Margin="0,10,0,10"/>
-
                     <TextBlock FontWeight="Bold" Text="Totals" />
                     <TextBlock Text="{Binding Packets, StringFormat=Packets: {0}}" />
                     <TextBlock Text="{Binding Bytes, StringFormat=Bytes: {0}}" />
+                    <Separator Margin="0,10,0,10"/>
+                    <TextBlock FontWeight="Bold" Text="A ↔ B (normalized)" />
+                    <TextBlock Text="{Binding PacketsAToB, StringFormat=A→B Packets: {0}}" />
+                    <TextBlock Text="{Binding BytesAToB, StringFormat=A→B Bytes: {0}}" />
+                    <TextBlock Margin="0,4,0,0" Text="{Binding PacketsBToA, StringFormat=B→A Packets: {0}}" />
+                    <TextBlock Text="{Binding BytesBToA, StringFormat=B→A Bytes: {0}}" />
+                    <Separator Margin="0,10,0,10"/>
+                    <TextBlock FontWeight="Bold" Text="Local (Sent / Recv)" />
+                    <TextBlock Text="{Binding SentPackets, StringFormat=Sent Packets: {0}}" />
+                    <TextBlock Text="{Binding SentBytes, StringFormat=Sent Bytes: {0}}" />
+                    <TextBlock Margin="0,4,0,0" Text="{Binding RecvPackets, StringFormat=Recv Packets: {0}}" />
+                    <TextBlock Text="{Binding RecvBytes, StringFormat=Recv Bytes: {0}}" />
+                    <Separator Margin="0,10,0,10"/>
+                    <TextBlock FontWeight="Bold" Text="Timing" />
+                    <TextBlock Text="{Binding FirstSeen, StringFormat=First: {0:HH:mm:ss}}" />
+                    <TextBlock Text="{Binding LastSeen, StringFormat=Last: {0:HH:mm:ss}}" />
+                    <TextBlock Text="{Binding Duration, StringFormat=Duration: {0}}" />
                 </StackPanel>
             </ScrollViewer>
         </GroupBox>
