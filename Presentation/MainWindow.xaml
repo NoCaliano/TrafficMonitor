@@ -26,7 +26,7 @@
                 <MenuItem Header="_Go"/>
                 <MenuItem Header="_Capture"/>
                 <MenuItem Header="_Analyze"/>
-                <MenuItem Header="_Statistics"/>
+                <MenuItem Header="_Statistics" Command="{Binding OpenStatisticsCommand}"/>
             </Menu>
         </Border>
 
@@ -76,6 +76,11 @@
 
                     <TextBlock Text="{Binding StatusText}"/>
                     <TextBlock Foreground="DarkOrange" Text="{Binding FiltersText}"/>
+
+                    <Separator/>
+                    
+                    <Button Content="Show Packets" Command="{Binding ShowPacketsCommand}" />
+                    <Button Content="Show Flows" Command="{Binding ShowFlowsCommand}" />
                 </ToolBar>
             </ToolBarTray>
         </Border>
@@ -99,7 +104,14 @@
         <!-- ===== MAIN CONTENT (edge-to-edge) ===== -->
         <Grid Margin="0">
             <TabControl SelectedIndex="{Binding LeftTabIndex}" Margin="0" Padding="0">
-
+                <TabControl.Template>
+                    <ControlTemplate TargetType="{x:Type TabControl}">
+                        <Grid KeyboardNavigation.TabNavigation="Local">
+                            <ContentPresenter x:Name="PART_SelectedContentHost"
+                                              ContentSource="SelectedContent"/>
+                        </Grid>
+                    </ControlTemplate>
+                </TabControl.Template>
                 <!-- ===================== Packets ===================== -->
                 <TabItem Header="Packets">
                     <Grid Margin="0">

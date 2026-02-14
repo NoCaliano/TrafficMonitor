@@ -201,10 +201,11 @@ public sealed class MainViewModel : ViewModelBase
     public ICommand FollowFlowCommand { get; }
     public ICommand FollowFlowBothDirectionsCommand { get; }
     public ICommand ClearFlowFilterCommand { get; }
-
+    public ICommand ShowPacketsCommand { get; }
     // Відповідає за відкриття вікна Filters.
     public ICommand OpenFiltersCommand { get; }
-
+    public ICommand ShowFlowsCommand { get; }
+    public ICommand OpenStatisticsCommand { get; }
     // ===================== STATS =====================
 
 
@@ -235,6 +236,9 @@ public sealed class MainViewModel : ViewModelBase
 
         // Відповідає за команду відкриття вікна Filters (модально по центру).
         OpenFiltersCommand = new RelayCommand(_ => OpenFiltersDialog());
+        ShowFlowsCommand = new RelayCommand(_ => ShowFlows());
+        OpenStatisticsCommand = new RelayCommand(_ => OpenStatisticsWindow());
+        ShowPacketsCommand = new RelayCommand(_ => ShowPackets());
 
         // Відповідає за команди фільтрації по flow.
         FollowFlowCommand = new RelayCommand(_ => ApplySelectedFlowFilter(includeReverse: false), _ => SelectedFlow is not null);
@@ -918,5 +922,25 @@ public sealed class MainViewModel : ViewModelBase
         }
 
         return true;
+    }
+    private void ShowPackets()
+    {
+        LeftTabIndex = 0;
+    }
+    private void ShowFlows()
+    {
+        LeftTabIndex = 1;
+    }
+
+    private void OpenStatisticsWindow()
+    {
+        var win = new Presentation.Views.StatsWindow
+        {
+            Owner = System.Windows.Application.Current.MainWindow,
+            DataContext = Stats
+        };
+
+        win.Show();
+        win.Activate();
     }
 }
