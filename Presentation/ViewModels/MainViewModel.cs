@@ -34,6 +34,13 @@ public sealed class MainViewModel : ViewModelBase
     private readonly Func<Func<bool>, Action, FlowsViewModel> _flowsFactory;
     private readonly Func<PacketFilterModel, FiltersViewModel> _filtersFactory;
 
+    // --- UI batching for incoming packets to avoid flooding the UI thread ---
+    private readonly object _pendingLock = new();
+    private readonly List<PacketInfo> _pendingPackets = new();
+    private readonly System.Threading.Timer _flushTimer;
+    private const int _flushIntervalMs = 200; // flush UI every 200ms
+    private const int _maxPendingPackets = 50_000; // cap pending to avoid OOM
+
     // ===================== PACKETS (UI) =====================
 
     public ObservableCollection<PacketInfo> Packets { get; } = new();
@@ -121,8 +128,8 @@ public sealed class MainViewModel : ViewModelBase
     }
 
     // Відповідає за кореневий вузол дерева протоколів для вибраного пакета.
-    private TreeViewItem? _protocolRoot;
-    public TreeViewItem? ProtocolRoot
+    private ProtocolNode? _protocolRoot;
+    public ProtocolNode? ProtocolRoot
     {
         get => _protocolRoot;
         private set => Set(ref _protocolRoot, value);
@@ -259,35 +266,36 @@ public sealed class MainViewModel : ViewModelBase
 
 
         LoadDevices();
-
         // subscribe to capture controller events
+        // We only enqueue parsed packets here to avoid heavy work on capture thread or UI thread.
         _captureController.PacketsParsed += parsed =>
         {
-            System.Windows.Application.Current.Dispatcher.Invoke(() =>
+            lock (_pendingLock)
             {
+                // avoid growing beyond cap
+                int canAdd = Math.Max(0, _maxPendingPackets - _pendingPackets.Count);
+                if (canAdd <= 0) return;
                 foreach (var p in parsed)
                 {
-                    Packets.Add(p);
-                    TryAddProcessFilter(p);
+                    _pendingPackets.Add(p);
+                    if (--canAdd <= 0) break;
                 }
-
-                const int maxRows = 50_000;
-                while (Packets.Count > maxRows)
-                    Packets.RemoveAt(0);
-
-                ProcessPacketsView.Refresh();
-            });
+            }
         };
 
         _captureController.FlowsAndStatsAvailable += (top, stats) =>
         {
-            System.Windows.Application.Current.Dispatcher.Invoke(() =>
+            // flows/stats are less frequent; marshal to UI thread but keep lightweight
+            System.Windows.Application.Current.Dispatcher.BeginInvoke(new Action(() =>
             {
                 UpdateFlows(top);
                 Stats.Update(top, stats);
                 (ClearFlowFilterCommand as RelayCommand)?.RaiseCanExecuteChanged();
-            });
+            }));
         };
+
+        // create periodic flush timer (callbacks on ThreadPool)
+        _flushTimer = new System.Threading.Timer(_ => FlushPending(), null, System.Threading.Timeout.Infinite, System.Threading.Timeout.Infinite);
 
         // Відповідає за створення view для фільтрації пакетів (ЄДИНИЙ комбінований фільтр).
         PacketsView = CollectionViewSource.GetDefaultView(Packets);
@@ -366,6 +374,9 @@ public sealed class MainViewModel : ViewModelBase
 
         await _captureController.StartAsync(SelectedDevice.Id, BpfFilter, ct);
 
+        // start periodic flush timer
+        _flushTimer.Change(_flushIntervalMs, _flushIntervalMs);
+
         StatusText = "Capturing";
     }
 
@@ -379,7 +390,39 @@ public sealed class MainViewModel : ViewModelBase
         _capSw.Stop();
         await _captureController.StopAsync(ct);
 
+        // stop flush timer and flush remaining
+        _flushTimer.Change(System.Threading.Timeout.Infinite, System.Threading.Timeout.Infinite);
+        FlushPending();
+
         StatusText = "Idle";
+    }
+
+    private void FlushPending()
+    {
+        // take snapshot of pending
+        List<PacketInfo> toFlush;
+        lock (_pendingLock)
+        {
+            if (_pendingPackets.Count == 0) return;
+            toFlush = new List<PacketInfo>(_pendingPackets);
+            _pendingPackets.Clear();
+        }
+
+        System.Windows.Application.Current.Dispatcher.BeginInvoke(new Action(() =>
+        {
+            // add to UI collection in one shot
+            foreach (var p in toFlush)
+            {
+                Packets.Add(p);
+                TryAddProcessFilter(p);
+            }
+
+            const int maxRows = 50_000;
+            while (Packets.Count > maxRows)
+                Packets.RemoveAt(0);
+
+            ProcessPacketsView.Refresh();
+        }));
     }
 
     // CaptureController.RunReaderAsync handles batching, parsing and flow aggregation.
@@ -404,16 +447,17 @@ public sealed class MainViewModel : ViewModelBase
         // будуємо документ (без підсвітки)
         HexDocument = _hexDumpService.BuildHexDocument(p.RawBytes, 16, null);
 
-        try
-        {
-            var link = (LinkLayers)p.LinkLayerType;
-            var parsedPacket = Packet.ParsePacket(link, p.RawBytes);
-            ProtocolRoot = PacketTreeBuilder.Build(parsedPacket, p);
-        }
-        catch (Exception ex)
-        {
-            ProtocolRoot = new TreeViewItem { Header = $"Parse error: {ex.Message}" };
-        }
+            try
+            {
+                var link = (LinkLayers)p.LinkLayerType;
+                var parsedPacket = Packet.ParsePacket(link, p.RawBytes);
+                ProtocolRoot = PacketTreeBuilder.Build(parsedPacket, p);
+            }
+            catch (Exception ex)
+            {
+                var node = new Presentation.Helpers.ProtocolNode { Header = $"Parse error: {ex.Message}" };
+                ProtocolRoot = node;
+            }
     }
 
     private void RebuildHexDocument()

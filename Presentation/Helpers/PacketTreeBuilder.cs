@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Net;
 using System.Text;
 using System.Windows.Controls;
+using System.Collections.ObjectModel;
 using Domain.Models;
 
 namespace Presentation.Helpers
@@ -14,7 +15,7 @@ namespace Presentation.Helpers
         /// Будує кореневий TreeViewItem з вкладеними вузлами Ethernet/IP/TCP/UDP…
         /// У Tag кожного вузла кладеться (start,length) для підсвітки в Hex.
         /// </summary>
-        public static TreeViewItem Build(Packet packet, PacketInfo row)
+        public static ProtocolNode Build(Packet packet, PacketInfo row)
         {
             var bytes = row.RawBytes;
             if (bytes == null || bytes.Length == 0)
@@ -35,6 +36,8 @@ namespace Presentation.Helpers
                 if (etherType == 0x8100 && frameLen >= 18)
                     ethLen = 18;
             }
+
+        
 
             var eth = packet.Extract<EthernetPacket>();
             if (eth != null && frameLen >= ethLen)
@@ -278,23 +281,31 @@ namespace Presentation.Helpers
             return root;
         }
 
-        private static TreeViewItem T(string header, (int start, int length)? range = null)
+        private static ProtocolNode T(string header, (int start, int length)? range = null)
         {
-            var item = new TreeViewItem { Header = header };
+            var item = new ProtocolNode { Header = header };
             if (range.HasValue)
-                item.Tag = (range.Value.start, range.Value.length); // ValueTuple<int,int>
+                item.Range = (range.Value.start, range.Value.length);
             return item;
         }
 
-        private static void ExpandAll(ItemsControl node)
+        private static void ExpandAll(ProtocolNode node)
         {
-            if (node is TreeViewItem tvi) tvi.IsExpanded = true;
-
-            foreach (var item in node.Items)
-            {
-                if (item is ItemsControl child)
-                    ExpandAll(child);
-            }
+            if (node == null) return;
+            node.IsExpanded = true;
+            foreach (var child in node.Items)
+                ExpandAll(child);
         }
+
+    }
+
+    // Simple POCO used as data model for the TreeView in XAML.
+    public class ProtocolNode
+    {
+        public string Header { get; set; } = string.Empty;
+        public (int start, int length)? Range { get; set; }
+        public ObservableCollection<ProtocolNode> Items { get; } = new();
+        public bool IsExpanded { get; set; }
+        public object Tag => Range.HasValue ? (Range.Value.start, Range.Value.length) : null;
     }
 }

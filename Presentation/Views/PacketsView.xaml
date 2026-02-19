@@ -11,7 +11,7 @@
         </Grid.RowDefinitions>
 
         <!-- Packets table -->
-        <DataGrid Grid.Row="0"
+        <DataGrid x:Name="PacketsDataGrid" Grid.Row="0"
                   ItemsSource="{Binding PacketsView}"
                   SelectedItem="{Binding SelectedPacket}"
                   IsReadOnly="True"
@@ -52,13 +52,15 @@
                           PreviewMouseMove="ProtocolTree_PreviewMouseMove"
                           MouseLeave="ProtocolTree_MouseLeave">
                     <TreeView.Resources>
-                        <HierarchicalDataTemplate DataType="{x:Type TreeViewItem}" ItemsSource="{Binding Items}">
+                        <HierarchicalDataTemplate DataType="{x:Type helpers:ProtocolNode}" ItemsSource="{Binding Items}">
                             <TextBlock Text="{Binding Header}" />
                         </HierarchicalDataTemplate>
 
                         <Style TargetType="{x:Type TreeViewItem}">
                             <EventSetter Event="MouseEnter" Handler="ProtocolTreeItem_MouseEnter"/>
                             <EventSetter Event="Selected" Handler="ProtocolTreeItem_Selected"/>
+                            <!-- ensure DataContext is used for Tag when generated containers are created -->
+                            <Setter Property="Tag" Value="{Binding Tag, Mode=OneWay}" />
                         </Style>
                     </TreeView.Resources>
                 </TreeView>
