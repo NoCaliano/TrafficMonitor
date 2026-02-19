@@ -7,6 +7,7 @@ using Infrastructure.Parsing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Presentation.Services;
 using Presentation.ViewModels;
 using System.Windows;
 
@@ -31,8 +32,22 @@ public partial class App : System.Windows.Application
                 services.AddSingleton<IPacketCaptureService, SharpPcapCaptureService>();
                 // Відповідає за реєстрацію PacketDotNet парсера.
                 services.AddSingleton<IPacketParser, PacketDotNetParser>();
+                // Services (presentation)
+                services.AddSingleton<IHexDumpService, HexDumpService>();
+                services.AddSingleton<IPacketFilterService, PacketFilterService>();
+                services.AddSingleton<IFlowFilterService, FlowFilterService>();
+
                 // ViewModels
                 services.AddSingleton<MainViewModel>();
+                services.AddSingleton<StatsViewModel>();
+                // FlowsViewModel requires delegates created by MainViewModel, register factory
+                services.AddTransient<FlowsViewModel>();
+                services.AddTransient<Func<Func<bool>, Action, FlowsViewModel>>(sp => (uiNonEmpty, onFilterChanged) => ActivatorUtilities.CreateInstance<FlowsViewModel>(sp, uiNonEmpty, onFilterChanged));
+                // FiltersViewModel requires initial PacketFilterModel -> factory
+                services.AddTransient(sp => (Func<Presentation.Models.PacketFilterModel, FiltersViewModel>)(p => ActivatorUtilities.CreateInstance<FiltersViewModel>(sp, p)));
+
+                // Capture controller (expose via interface)
+                services.AddSingleton<ICaptureController, CaptureController>();
                 // Відповідає за резолв endpoint -> PID/процес.
                 services.AddSingleton<ProcessMapperService>();
                 // Відповідає за агрегацію потоків (Flows)

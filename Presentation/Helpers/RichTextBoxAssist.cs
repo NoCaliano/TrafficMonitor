@@ -1,6 +1,9 @@
-﻿using System.Windows;
+﻿using System.IO;
+using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
+using System.Windows.Markup;
+using System.Xml;
 
 namespace Presentation.Helpers;
 
@@ -21,9 +24,41 @@ public static class RichTextBoxAssist
 
     private static void OnBindableDocumentChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
-        if (d is not RichTextBox rtb)
-            return;
+        if (d is not RichTextBox rtb) return;
 
-        rtb.Document = (FlowDocument?)e.NewValue ?? new FlowDocument();
+        var newDoc = e.NewValue as FlowDocument;
+        if (newDoc == null)
+        {
+            rtb.Document = new FlowDocument();
+            return;
+        }
+
+        // If document already belongs to another RichTextBox, clone it.
+        if (newDoc.Parent is RichTextBox existing && !ReferenceEquals(existing, rtb))
+        {
+            rtb.Document = CloneFlowDocument(newDoc) ?? new FlowDocument();
+            return;
+        }
+
+        try
+        {
+            rtb.Document = newDoc;
+        }
+        catch (ArgumentException) // handle the actual exception thrown by WPF
+        {
+            rtb.Document = CloneFlowDocument(newDoc) ?? new FlowDocument();
+        }
+    }
+
+    private static FlowDocument? CloneFlowDocument(FlowDocument source)
+    {
+        if (source == null)
+            return null;
+
+        // Deep-clone via XAML serialization (preserves content & formatting).
+        var xaml = XamlWriter.Save(source);
+        using var stringReader = new StringReader(xaml);
+        using var xmlReader = XmlReader.Create(stringReader);
+        return (FlowDocument)XamlReader.Load(xmlReader);
     }
 }

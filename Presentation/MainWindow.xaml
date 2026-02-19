@@ -81,6 +81,8 @@
 
                     <Button Content="Show Packets" Command="{Binding ShowPacketsCommand}" />
                     <Button Content="Show Flows" Command="{Binding ShowFlowsCommand}" />
+                    <Button Content="Process Packets" Command="{Binding ShowProcessPacketsCommand}" />
+                    
                 </ToolBar>
             </ToolBarTray>
         </Border>
@@ -121,6 +123,11 @@
                 <TabItem Header="Flows">
                     <views:FlowsView />
                 </TabItem>
+
+                <TabItem Header="Process Packets">
+                    <views:ProcessPacketsView />
+                </TabItem>
+
 
             </TabControl>
         </Grid>
