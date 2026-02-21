@@ -8,6 +8,7 @@ using Presentation.Models;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Windows;
@@ -40,6 +41,10 @@ public sealed class MainViewModel : ViewModelBase
     private readonly System.Threading.Timer _flushTimer;
     private const int _flushIntervalMs = 200; // flush UI every 200ms
     private const int _maxPendingPackets = 50_000; // cap pending to avoid OOM
+    private const int _maxUiAppendPerFlush = 2_000; // limit UI work per tick under heavy load
+    private long _uiPacketsDropped;
+    private readonly HashSet<int> _knownProcessIds = new();
+    private readonly Dictionary<int, ProcessStatRow> _processStatsMap = new();
 
     // ===================== PACKETS (UI) =====================
 
@@ -201,9 +206,13 @@ public sealed class MainViewModel : ViewModelBase
     public ICommand OpenStatisticsCommand { get; }
 
     public ICommand ShowProcessPacketsCommand { get; }
+    public ICommand ShowPacketsForPidCommand { get; }
+    public ICommand FocusOnPidCommand { get; }
     // ===================== STATS =====================
     public ICollectionView ProcessPacketsView { get; }
     public ObservableCollection<ProcessFilterOption> ProcessFilters { get; } = new();
+    public ObservableCollection<ProcessStatRow> ProcessStats { get; } = new();
+    public ICollectionView ProcessStatsView { get; }
 
     private ProcessFilterOption? _selectedProcessFilter;
     public ProcessFilterOption? SelectedProcessFilter
@@ -260,6 +269,8 @@ public sealed class MainViewModel : ViewModelBase
         OpenStatisticsCommand = new RelayCommand(_ => OpenStatisticsWindow());
         ShowPacketsCommand = new RelayCommand(_ => ShowPackets());
         ShowProcessPacketsCommand = new RelayCommand(_ => ShowProcessPackets());
+        ShowPacketsForPidCommand = new RelayCommand(p => ShowPacketsForPid(p));
+        FocusOnPidCommand = new RelayCommand(p => FocusOnPid(p));
 
         // FlowsViewModel will manage flow selection and flow commands
         _flowsVm = _flowsFactory(() => !_uiFilter.IsEmpty, () => RefreshPacketsFilteringUi());
@@ -321,6 +332,8 @@ public sealed class MainViewModel : ViewModelBase
         ProcessFilters.Add(ProcessFilterOption.All);
         SelectedProcessFilter = ProcessFilterOption.All;
 
+        ProcessStatsView = CollectionViewSource.GetDefaultView(ProcessStats);
+
         RefreshPacketsFilteringUi();
     }
 
@@ -349,6 +362,8 @@ public sealed class MainViewModel : ViewModelBase
         _packetNo = 0;
         Packets.Clear();
         ProcessFilters.Clear();
+        _knownProcessIds.Clear();
+        ProcessStats.Clear();
         ProcessFilters.Add(ProcessFilterOption.All);
         SelectedProcessFilter = ProcessFilterOption.All;
         _flowsVm.Flows.Clear();
@@ -365,6 +380,7 @@ public sealed class MainViewModel : ViewModelBase
         _capTotalBytes = 0;
         _capFirstSeen = null;
         _capLastSeen = null;
+        _uiPacketsDropped = 0;
         _capSw.Restart();
 
         // Скидаємо деталі
@@ -411,10 +427,20 @@ public sealed class MainViewModel : ViewModelBase
         System.Windows.Application.Current.Dispatcher.BeginInvoke(new Action(() =>
         {
             // add to UI collection in one shot
-            foreach (var p in toFlush)
+            int startIndex = 0;
+            if (toFlush.Count > _maxUiAppendPerFlush)
             {
+                startIndex = toFlush.Count - _maxUiAppendPerFlush;
+                Interlocked.Add(ref _uiPacketsDropped, startIndex);
+            }
+
+            // add a bounded amount of rows to keep UI responsive at very high pps
+            for (int i = startIndex; i < toFlush.Count; i++)
+            {
+                var p = toFlush[i];
                 Packets.Add(p);
                 TryAddProcessFilter(p);
+                UpdateProcessStats(p);
             }
 
             const int maxRows = 50_000;
@@ -422,8 +448,16 @@ public sealed class MainViewModel : ViewModelBase
                 Packets.RemoveAt(0);
 
             ProcessPacketsView.Refresh();
+
+            var dropped = Interlocked.Read(ref _uiPacketsDropped);
+            if (dropped > 0)
+                StatusText = $"Capturing (UI throttled, skipped {dropped:N0} packets)";
+            else if (_captureService.IsRunning)
+                StatusText = "Capturing";
         }));
     }
+
+    
 
     // CaptureController.RunReaderAsync handles batching, parsing and flow aggregation.
 
@@ -458,7 +492,7 @@ public sealed class MainViewModel : ViewModelBase
                 var node = new Presentation.Helpers.ProtocolNode { Header = $"Parse error: {ex.Message}" };
                 ProtocolRoot = node;
             }
-    }
+        }
 
     private void RebuildHexDocument()
     {
@@ -580,10 +614,48 @@ public sealed class MainViewModel : ViewModelBase
         if (packet.Pid is not int pid || string.IsNullOrWhiteSpace(packet.ProcessName))
             return;
 
-        if (ProcessFilters.Any(x => x.Pid == pid))
+        if (!_knownProcessIds.Add(pid))
             return;
 
         ProcessFilters.Add(new ProcessFilterOption(pid, packet.ProcessName));
+    }
+
+    private void FocusOnPid(object? param)
+    {
+        if (param is not int pid) return;
+
+        // find first packet with this pid and select it in PacketsView
+        var first = Packets.FirstOrDefault(p => p.Pid == pid);
+        if (first is null) return;
+
+        SelectedPacket = first;
+        LeftTabIndex = 0; // switch to Packets tab
+    }
+
+    private void UpdateProcessStats(PacketInfo p)
+    {
+        if (p.Pid is not int pid || string.IsNullOrWhiteSpace(p.ProcessName))
+            return;
+        if (!_processStatsMap.TryGetValue(pid, out var row))
+        {
+            row = new ProcessStatRow(pid, p.ProcessName, 0, 0);
+            _processStatsMap[pid] = row;
+            ProcessStats.Add(row);
+        }
+
+        row.PacketCount++;
+        row.TotalBytes += p.Length;
+        row.AddSample(1);
+    }
+
+    private void ShowPacketsForPid(object? param)
+    {
+        if (param is not int pid) return;
+
+        _uiFilter.PidOp = NumberMatchOp.Equals;
+        _uiFilter.PidValue = pid;
+        RefreshPacketsFilteringUi();
+        LeftTabIndex = 0;
     }
 
     public sealed record ProcessFilterOption(int? Pid, string ProcessName)
