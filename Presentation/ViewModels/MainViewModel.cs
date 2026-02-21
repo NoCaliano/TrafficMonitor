@@ -196,6 +196,7 @@ public sealed class MainViewModel : ViewModelBase
 
     public ICommand StartCommand { get; }
     public ICommand StopCommand { get; }
+    public ICommand ApplyBpfCommand { get; }
 
     // ===================== LEFT TABS =====================
 
@@ -292,6 +293,7 @@ public sealed class MainViewModel : ViewModelBase
 
         StartCommand = new AsyncRelayCommand(StartAsync);
         StopCommand = new AsyncRelayCommand(StopAsync);
+        ApplyBpfCommand = new AsyncRelayCommand(ApplyBpfAsync);
 
         // Відповідає за команду відкриття вікна Filters (модально по центру).
         OpenFiltersCommand = new RelayCommand(_ => OpenFiltersDialog());
@@ -445,6 +447,30 @@ public sealed class MainViewModel : ViewModelBase
         StatusText = "Idle";
     }
 
+    private async Task ApplyBpfAsync(CancellationToken ct)
+    {
+        // Quick-apply BPF: restart capture controller with new filter while preserving UI state.
+        if (SelectedDevice is null)
+            return;
+
+        try
+        {
+            if (_captureController.IsRunning)
+            {
+                // stop and restart capture with new filter
+                await _captureController.StopAsync(CancellationToken.None);
+                await _captureController.StartAsync(SelectedDevice.Id, BpfFilter, CancellationToken.None);
+
+                StatusText = string.IsNullOrWhiteSpace(BpfFilter) ? "Capturing" : $"Capturing (BPF: {BpfFilter})";
+            }
+        }
+        catch (Exception ex)
+        {
+            // keep UI responsive; show error
+            StatusText = $"Error applying BPF: {ex.Message}";
+        }
+    }
+
     private void FlushPending()
     {
         // take snapshot of pending
@@ -500,23 +526,25 @@ public sealed class MainViewModel : ViewModelBase
         ProtocolRoot = null;
         HexDump = "";
         HexDocument = new FlowDocument();
-
-        if (p is null || p.RawBytes is null || p.RawBytes.Length == 0)
+        if (p is null || p.RawBytesId is null)
             return;
 
-        HexDump = _hexDumpService.BuildHexDump(p.RawBytes, 16);
+        var bytes = RawBytesStore.Get(p.RawBytesId);
+        if (bytes == null || bytes.Length == 0) return;
+
+        HexDump = _hexDumpService.BuildHexDump(bytes, 16);
 
         // скидаємо виділення
         _selectedRange = null;
         OnPropertyChanged(nameof(SelectedRange));
 
         // будуємо документ (без підсвітки)
-        HexDocument = _hexDumpService.BuildHexDocument(p.RawBytes, 16, null);
+        HexDocument = _hexDumpService.BuildHexDocument(bytes, 16, null);
 
         try
         {
             var link = (LinkLayers)p.LinkLayerType;
-            var parsedPacket = Packet.ParsePacket(link, p.RawBytes);
+            var parsedPacket = Packet.ParsePacket(link, bytes);
             ProtocolRoot = PacketTreeBuilder.Build(parsedPacket, p);
         }
         catch (Exception ex)
@@ -528,7 +556,13 @@ public sealed class MainViewModel : ViewModelBase
 
     private void RebuildHexDocument()
     {
-        var bytes = SelectedPacket?.RawBytes;
+        if (SelectedPacket?.RawBytesId is null)
+        {
+            HexDocument = new FlowDocument(new Paragraph(new Run("")));
+            return;
+        }
+
+        var bytes = RawBytesStore.Get(SelectedPacket.RawBytesId);
         if (bytes is null || bytes.Length == 0)
         {
             HexDocument = new FlowDocument(new Paragraph(new Run("")));

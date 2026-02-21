@@ -42,9 +42,9 @@ public sealed class PacketDotNetParser : IPacketParser
         // Відповідає за збереження типу LinkLayer для коректного повторного парсингу в UI.
         int linkLayerType = (int)raw.LinkLayerType;
 
-        // Відповідає за безпечне копіювання байтів пакета для деталей/hex/дерева.
-        // (Не використовуємо raw.Data напряму, щоб уникнути проблем з життєвим циклом буфера)
-        byte[] bytesCopy = raw.Data.ToArray();
+        // Save raw bytes into central store. RawBytesStore.Add will make an internal copy
+        // so we can safely pass raw.Data without calling ToArray() here.
+        int? rawId = RawBytesStore.Add(raw.Data);
 
         // Локальна фабрика: щоб не дублювати RawBytes/LinkLayer у кожному return
         PacketInfo Make(
@@ -80,7 +80,7 @@ public sealed class PacketDotNetParser : IPacketParser
                 Pid = pid,
                 ProcessName = processName,
 
-                RawBytes = bytesCopy,
+                RawBytesId = rawId,
                 LinkLayer = raw.LinkLayerType.ToString(),
                 LinkLayerType = linkLayerType
             };
@@ -88,7 +88,7 @@ public sealed class PacketDotNetParser : IPacketParser
 
         try
         {
-            var packet = Packet.ParsePacket(raw.LinkLayerType, bytesCopy);
+            var packet = Packet.ParsePacket(raw.LinkLayerType, raw.Data);
 
             var eth = packet.Extract<EthernetPacket>();
             var srcMacStr = eth?.SourceHardwareAddress?.ToString() ?? "";
@@ -265,7 +265,7 @@ public sealed class PacketDotNetParser : IPacketParser
             return;
 
         pid = resolvedPid;
-        processName = ProcessMapperService.TryGetProcessName(resolvedPid);
+        processName = _processMapperService.GetProcessNameCached(resolvedPid);
     }
 
     private void ResolveUdpProcess(string srcIp, int srcPort, string dstIp, int dstPort, out int? pid, out string processName)

@@ -8,6 +8,10 @@ public sealed class ProcessMapperService : IDisposable
 {
     private readonly object _lock = new();
 
+        // Cache for PID -> process name to avoid frequent Process.GetProcessById calls
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<int, (string Name, DateTime Expires)> _nameCache = new();
+        private readonly TimeSpan _nameCacheTtl = TimeSpan.FromSeconds(5);
+
     private Dictionary<TcpKey, int> _tcpMap = new();
     private Dictionary<UdpKey, int> _udpMap = new();
 
@@ -71,6 +75,22 @@ public sealed class ProcessMapperService : IDisposable
         {
             return "";
         }
+    }
+
+    // Cached variant to reduce expensive system calls
+    public string GetProcessNameCached(int pid)
+    {
+        if (pid <= 0) return "";
+
+        var now = DateTime.UtcNow;
+        if (_nameCache.TryGetValue(pid, out var entry) && entry.Expires > now)
+        {
+            return entry.Name;
+        }
+
+        var name = TryGetProcessName(pid);
+        _nameCache[pid] = (name, now.Add(_nameCacheTtl));
+        return name;
     }
 
     private void RefreshSafe()

@@ -97,8 +97,8 @@
                     <Button Content="Show Packets" Command="{Binding ShowPacketsCommand}" />
                     <Button Content="Show Flows" Command="{Binding ShowFlowsCommand}" />
                     <Button Content="Process Packets" Command="{Binding ShowProcessPacketsCommand}" />
-                    <Button Content="⬅" Command="{Binding SelectPreviousPacketCommand}" ToolTip="Попередній пакет" />
-                    <Button Content="➡" Command="{Binding SelectNextPacketCommand}" ToolTip="Наступний пакет" />
+                    <Button Content="⏪" Command="{Binding SelectPreviousPacketCommand}" ToolTip="Попередній пакет" />
+                    <Button Content="⏩" Command="{Binding SelectNextPacketCommand}" ToolTip="Наступний пакет" />
                     
                 </ToolBar>
             </ToolBarTray>
