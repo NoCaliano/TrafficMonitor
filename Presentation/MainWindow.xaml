@@ -22,7 +22,22 @@
 
                 <MenuItem Header="_File"/>
                 <MenuItem Header="_Edit"/>
-                <MenuItem Header="_View"/>
+                <MenuItem Header="_View">
+                    <MenuItem Header="Packets Columns">
+                        <MenuItem Header="No" IsCheckable="True" IsChecked="{Binding IsNoColumnVisible, Mode=TwoWay}"/>
+                        <MenuItem Header="Time" IsCheckable="True" IsChecked="{Binding IsTimeColumnVisible, Mode=TwoWay}"/>
+                        <MenuItem Header="Src" IsCheckable="True" IsChecked="{Binding IsSrcColumnVisible, Mode=TwoWay}"/>
+                        <MenuItem Header="Dst" IsCheckable="True" IsChecked="{Binding IsDstColumnVisible, Mode=TwoWay}"/>
+                        <MenuItem Header="Proto" IsCheckable="True" IsChecked="{Binding IsProtoColumnVisible, Mode=TwoWay}"/>
+                        <MenuItem Header="SPort" IsCheckable="True" IsChecked="{Binding IsSPortColumnVisible, Mode=TwoWay}"/>
+                        <MenuItem Header="DPort" IsCheckable="True" IsChecked="{Binding IsDPortColumnVisible, Mode=TwoWay}"/>
+                        <MenuItem Header="Len" IsCheckable="True" IsChecked="{Binding IsLenColumnVisible, Mode=TwoWay}"/>
+                        <MenuItem Header="Flags" IsCheckable="True" IsChecked="{Binding IsFlagsColumnVisible, Mode=TwoWay}"/>
+                        <MenuItem Header="PID" IsCheckable="True" IsChecked="{Binding IsPidColumnVisible, Mode=TwoWay}"/>
+                        <MenuItem Header="Process" IsCheckable="True" IsChecked="{Binding IsProcessColumnVisible, Mode=TwoWay}"/>
+                        <MenuItem Header="Info" IsCheckable="True" IsChecked="{Binding IsInfoColumnVisible, Mode=TwoWay}"/>
+                    </MenuItem>
+                </MenuItem>
                 <MenuItem Header="_Go"/>
                 <MenuItem Header="_Capture"/>
                 <MenuItem Header="_Analyze"/>
@@ -82,6 +97,8 @@
                     <Button Content="Show Packets" Command="{Binding ShowPacketsCommand}" />
                     <Button Content="Show Flows" Command="{Binding ShowFlowsCommand}" />
                     <Button Content="Process Packets" Command="{Binding ShowProcessPacketsCommand}" />
+                    <Button Content="⬅" Command="{Binding SelectPreviousPacketCommand}" ToolTip="Попередній пакет" />
+                    <Button Content="➡" Command="{Binding SelectNextPacketCommand}" ToolTip="Наступний пакет" />
                     
                 </ToolBar>
             </ToolBarTray>

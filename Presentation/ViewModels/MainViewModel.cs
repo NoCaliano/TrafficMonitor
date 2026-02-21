@@ -46,6 +46,35 @@ public sealed class MainViewModel : ViewModelBase
     private readonly HashSet<int> _knownProcessIds = new();
     private readonly Dictionary<int, ProcessStatRow> _processStatsMap = new();
 
+
+
+    // ===================== MENUITEM VIEW (UI) =====================
+    public bool IsNoColumnVisible { get => _isNoColumnVisible; set => Set(ref _isNoColumnVisible, value); }
+    public bool IsTimeColumnVisible { get => _isTimeColumnVisible; set => Set(ref _isTimeColumnVisible, value); }
+    public bool IsSrcColumnVisible { get => _isSrcColumnVisible; set => Set(ref _isSrcColumnVisible, value); }
+    public bool IsDstColumnVisible { get => _isDstColumnVisible; set => Set(ref _isDstColumnVisible, value); }
+    public bool IsProtoColumnVisible { get => _isProtoColumnVisible; set => Set(ref _isProtoColumnVisible, value); }
+    public bool IsSPortColumnVisible { get => _isSPortColumnVisible; set => Set(ref _isSPortColumnVisible, value); }
+    public bool IsDPortColumnVisible { get => _isDPortColumnVisible; set => Set(ref _isDPortColumnVisible, value); }
+    public bool IsLenColumnVisible { get => _isLenColumnVisible; set => Set(ref _isLenColumnVisible, value); }
+    public bool IsFlagsColumnVisible { get => _isFlagsColumnVisible; set => Set(ref _isFlagsColumnVisible, value); }
+    public bool IsPidColumnVisible { get => _isPidColumnVisible; set => Set(ref _isPidColumnVisible, value); }
+    public bool IsProcessColumnVisible { get => _isProcessColumnVisible; set => Set(ref _isProcessColumnVisible, value); }
+    public bool IsInfoColumnVisible { get => _isInfoColumnVisible; set => Set(ref _isInfoColumnVisible, value); }
+
+    private bool _isNoColumnVisible = true;
+    private bool _isTimeColumnVisible = true;
+    private bool _isSrcColumnVisible = true;
+    private bool _isDstColumnVisible = true;
+    private bool _isProtoColumnVisible = true;
+    private bool _isSPortColumnVisible = true;
+    private bool _isDPortColumnVisible = true;
+    private bool _isLenColumnVisible = true;
+    private bool _isFlagsColumnVisible = false;
+    private bool _isPidColumnVisible = false;
+    private bool _isProcessColumnVisible = false;
+    private bool _isInfoColumnVisible = true;
+
     // ===================== PACKETS (UI) =====================
 
     public ObservableCollection<PacketInfo> Packets { get; } = new();
@@ -200,7 +229,6 @@ public sealed class MainViewModel : ViewModelBase
     public ICommand FollowFlowBothDirectionsCommand => _flowsVm.FollowFlowBothDirectionsCommand;
     public ICommand ClearFlowFilterCommand => _flowsVm.ClearFlowFilterCommand;
     public ICommand ShowPacketsCommand { get; }
-    // Відповідає за відкриття вікна Filters.
     public ICommand OpenFiltersCommand { get; }
     public ICommand ShowFlowsCommand { get; }
     public ICommand OpenStatisticsCommand { get; }
@@ -208,6 +236,8 @@ public sealed class MainViewModel : ViewModelBase
     public ICommand ShowProcessPacketsCommand { get; }
     public ICommand ShowPacketsForPidCommand { get; }
     public ICommand FocusOnPidCommand { get; }
+    public ICommand SelectPreviousPacketCommand { get; }
+    public ICommand SelectNextPacketCommand { get; }
     // ===================== STATS =====================
     public ICollectionView ProcessPacketsView { get; }
     public ObservableCollection<ProcessFilterOption> ProcessFilters { get; } = new();
@@ -271,6 +301,8 @@ public sealed class MainViewModel : ViewModelBase
         ShowProcessPacketsCommand = new RelayCommand(_ => ShowProcessPackets());
         ShowPacketsForPidCommand = new RelayCommand(p => ShowPacketsForPid(p));
         FocusOnPidCommand = new RelayCommand(p => FocusOnPid(p));
+        SelectPreviousPacketCommand = new RelayCommand(_ => SelectPacketByOffset(-1));
+        SelectNextPacketCommand = new RelayCommand(_ => SelectPacketByOffset(1));
 
         // FlowsViewModel will manage flow selection and flow commands
         _flowsVm = _flowsFactory(() => !_uiFilter.IsEmpty, () => RefreshPacketsFilteringUi());
@@ -400,7 +432,7 @@ public sealed class MainViewModel : ViewModelBase
     {
         if (!_captureService.IsRunning) return;
 
-        
+
 
         StatusText = "Stopping...";
         _capSw.Stop();
@@ -457,7 +489,7 @@ public sealed class MainViewModel : ViewModelBase
         }));
     }
 
-    
+
 
     // CaptureController.RunReaderAsync handles batching, parsing and flow aggregation.
 
@@ -481,18 +513,18 @@ public sealed class MainViewModel : ViewModelBase
         // будуємо документ (без підсвітки)
         HexDocument = _hexDumpService.BuildHexDocument(p.RawBytes, 16, null);
 
-            try
-            {
-                var link = (LinkLayers)p.LinkLayerType;
-                var parsedPacket = Packet.ParsePacket(link, p.RawBytes);
-                ProtocolRoot = PacketTreeBuilder.Build(parsedPacket, p);
-            }
-            catch (Exception ex)
-            {
-                var node = new Presentation.Helpers.ProtocolNode { Header = $"Parse error: {ex.Message}" };
-                ProtocolRoot = node;
-            }
+        try
+        {
+            var link = (LinkLayers)p.LinkLayerType;
+            var parsedPacket = Packet.ParsePacket(link, p.RawBytes);
+            ProtocolRoot = PacketTreeBuilder.Build(parsedPacket, p);
         }
+        catch (Exception ex)
+        {
+            var node = new Presentation.Helpers.ProtocolNode { Header = $"Parse error: {ex.Message}" };
+            ProtocolRoot = node;
+        }
+    }
 
     private void RebuildHexDocument()
     {
@@ -505,9 +537,6 @@ public sealed class MainViewModel : ViewModelBase
 
         HexDocument = _hexDumpService.BuildHexDocumentHighlighted(bytes, 16, SelectedRange);
     }
-
-    
-
 
 
     // ===================== FLOWS (UI UPDATE) =====================
@@ -523,7 +552,7 @@ public sealed class MainViewModel : ViewModelBase
         _flowsVm.RaiseCanExecuteChangedForFlowCommands();
     }
 
-    
+
 
     // ===================== UI FILTER (Fiddler-style) =====================
 
@@ -582,7 +611,7 @@ public sealed class MainViewModel : ViewModelBase
     }
 
     // Відповідає за перевірку, чи пакет проходить через критерії UI-фільтра (op + value).
-    
+
     private void ShowPackets()
     {
         LeftTabIndex = 0;
@@ -663,5 +692,25 @@ public sealed class MainViewModel : ViewModelBase
         public static ProcessFilterOption All { get; } = new(null, "All processes");
 
         public string DisplayName => Pid is null ? ProcessName : $"{ProcessName} (PID: {Pid})";
+    }
+    private void SelectPacketByOffset(int offset)
+    {
+        if (offset == 0)
+            return;
+
+        var visiblePackets = PacketsView.Cast<PacketInfo>().ToList();
+        if (visiblePackets.Count == 0)
+            return;
+
+        var currentIndex = SelectedPacket is null
+            ? (offset > 0 ? -1 : visiblePackets.Count)
+            : visiblePackets.IndexOf(SelectedPacket);
+
+        if (currentIndex < 0)
+            currentIndex = offset > 0 ? -1 : visiblePackets.Count;
+
+        var nextIndex = Math.Clamp(currentIndex + offset, 0, visiblePackets.Count - 1);
+        SelectedPacket = visiblePackets[nextIndex];
+        LeftTabIndex = 0;
     }
 }
