@@ -55,7 +55,7 @@
             </Grid.ColumnDefinitions>
 
             <GroupBox Grid.Column="0" Header="Packet Details" Margin="0">
-                <TreeView ItemsSource="{Binding ProtocolRoot.Items}"
+                <TreeView ItemsSource="{Binding ProtocolRoots}"
                           PreviewMouseMove="ProtocolTree_PreviewMouseMove"
                           MouseLeave="ProtocolTree_MouseLeave">
                     <TreeView.Resources>

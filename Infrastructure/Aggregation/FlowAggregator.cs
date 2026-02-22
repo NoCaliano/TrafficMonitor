@@ -2,6 +2,7 @@
 using Application.Abstractions;
 using Domain.Models;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 
 namespace Infrastructure.Aggregation;
 
@@ -103,11 +104,41 @@ public sealed class FlowAggregator : IFlowAggregator
             });
     }
 
-    public IReadOnlyList<FlowInfo> SnapshotTop(int take) =>
-        _flows.Values
-            .OrderByDescending(f => f.Bytes)
-            .Take(take)
-            .ToList();
+    public IReadOnlyList<FlowInfo> SnapshotTop(int take)
+    {
+        if (take <= 0)
+            return Array.Empty<FlowInfo>();
+
+        // Avoid sorting all flows (O(n log n)) on every UI update.
+        // Keep a min-heap of the top K flows by Bytes (O(n log k)).
+        var pq = new PriorityQueue<FlowInfo, long>();
+
+        foreach (var f in _flows.Values)
+        {
+            var bytes = f.Bytes;
+
+            if (pq.Count < take)
+            {
+                pq.Enqueue(f, bytes);
+                continue;
+            }
+
+            pq.TryPeek(out _, out var minBytes);
+            if (bytes <= minBytes)
+                continue;
+
+            pq.Dequeue();
+            pq.Enqueue(f, bytes);
+        }
+
+        var result = new List<FlowInfo>(pq.Count);
+        while (pq.TryDequeue(out var item, out _))
+            result.Add(item);
+
+        // PriorityQueue returns ascending; return descending for UI.
+        result.Sort(static (a, b) => b.Bytes.CompareTo(a.Bytes));
+        return result;
+    }
 
     public void Reset() => _flows.Clear();
 

@@ -1,6 +1,5 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Text;
+using System.Net;
 
 // Відповідає за модель відображення пакета в системі (дані для UI/агрегації/експорту).
 namespace Domain.Models;
@@ -17,6 +16,10 @@ public sealed class PacketInfo
     public string SrcIp { get; init; } = "";
     public string DstIp { get; init; } = "";
 
+    // Parsed IPs for fast lookups (e.g., PID resolution) without string -> IPAddress conversions.
+    public IPAddress? SrcIpAddress { get; init; }
+    public IPAddress? DstIpAddress { get; init; }
+
     public string Protocol { get; init; } = "";   // "TCP", "UDP", "ICMP", "ARP", ...
     public int? SrcPort { get; init; }
     public int? DstPort { get; init; }
@@ -29,6 +32,10 @@ public sealed class PacketInfo
     public string Info { get; init; } = "";       // короткий опис (DNS query / TCP handshake / etc.)
     // Відповідає за збереження сирих даних пакета: зберігаємо лише id у RawBytesStore
     public int? RawBytesId { get; init; }
+
+    // Optional pinned raw bytes for packets kept in UI lists.
+    // If set, UI can show details even after RawBytesStore evicts the payload.
+    public byte[]? RawBytes { get; set; }
     public string LinkLayer { get; init; } = "";
 
     // Відповідає за тип канального рівня (як int), щоб UI міг повторно парсити пакет через PacketDotNet.

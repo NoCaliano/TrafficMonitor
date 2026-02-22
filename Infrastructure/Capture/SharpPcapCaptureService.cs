@@ -1,21 +1,31 @@
 ﻿// Відповідає за живе захоплення пакетів через SharpPcap та генерацію події PacketCaptured.
 // У хендлері пакета не робимо важких операцій, щоб не гальмувати захоплення.
 using Application.Abstractions;
+using Infrastructure.Networking;
 using SharpPcap;
 
 namespace Infrastructure.Capture;
 
 public sealed class SharpPcapCaptureService : IPacketCaptureService
 {
+    private readonly ProcessMapperService _processMapperService;
     private ILiveDevice? _device;
 
     public bool IsRunning { get; private set; }
 
     public event EventHandler<RawPacketCapturedEventArgs>? PacketCaptured;
 
+    public SharpPcapCaptureService(ProcessMapperService processMapperService)
+    {
+        _processMapperService = processMapperService;
+    }
+
     public Task StartAsync(string deviceId, string? bpfFilter, CancellationToken ct)
     {
         if (IsRunning) return Task.CompletedTask;
+
+        // Enable endpoint->PID polling only while capture is running.
+        _processMapperService.Start();
 
         var dev = CaptureDeviceList.Instance.FirstOrDefault(d => d.Name == deviceId);
         if (dev is null)
@@ -55,6 +65,8 @@ public sealed class SharpPcapCaptureService : IPacketCaptureService
 
         _device = null;
         IsRunning = false;
+
+        _processMapperService.Stop();
 
         return Task.CompletedTask;
     }

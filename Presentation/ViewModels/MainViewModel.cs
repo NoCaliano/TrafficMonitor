@@ -17,6 +17,7 @@ using System.Windows.Data;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Collections.Generic;
 
 namespace Presentation.ViewModels;
 
@@ -45,6 +46,10 @@ public sealed class MainViewModel : ViewModelBase
     private long _uiPacketsDropped;
     private readonly HashSet<int> _knownProcessIds = new();
     private readonly Dictionary<int, ProcessStatRow> _processStatsMap = new();
+    private readonly Dictionary<int, int> _processPacketsSinceLastSample = new();
+
+    private bool _uiFilterIsEmpty = true;
+    private bool _packetsViewHasFilter;
 
 
 
@@ -77,7 +82,7 @@ public sealed class MainViewModel : ViewModelBase
 
     // ===================== PACKETS (UI) =====================
 
-    public ObservableCollection<PacketInfo> Packets { get; } = new();
+    public BulkObservableCollection<PacketInfo> Packets { get; } = new();
 
     private long _packetNo = 0;
     // Відповідає за відображення пакетів у DataGrid з можливістю фільтрації.
@@ -166,8 +171,18 @@ public sealed class MainViewModel : ViewModelBase
     public ProtocolNode? ProtocolRoot
     {
         get => _protocolRoot;
-        private set => Set(ref _protocolRoot, value);
+        private set
+        {
+            if (!Set(ref _protocolRoot, value))
+                return;
+
+            OnPropertyChanged(nameof(ProtocolRoots));
+        }
     }
+
+    public IEnumerable<ProtocolNode> ProtocolRoots => ProtocolRoot is null
+        ? Array.Empty<ProtocolNode>()
+        : new[] { ProtocolRoot };
 
     // ===================== DEVICES / CAPTURE =====================
 
@@ -307,7 +322,7 @@ public sealed class MainViewModel : ViewModelBase
         SelectNextPacketCommand = new RelayCommand(_ => SelectPacketByOffset(1));
 
         // FlowsViewModel will manage flow selection and flow commands
-        _flowsVm = _flowsFactory(() => !_uiFilter.IsEmpty, () => RefreshPacketsFilteringUi());
+        _flowsVm = _flowsFactory(() => !_uiFilterIsEmpty, () => RefreshPacketsFilteringUi());
 
 
         LoadDevices();
@@ -342,13 +357,9 @@ public sealed class MainViewModel : ViewModelBase
         // create periodic flush timer (callbacks on ThreadPool)
         _flushTimer = new System.Threading.Timer(_ => FlushPending(), null, System.Threading.Timeout.Infinite, System.Threading.Timeout.Infinite);
 
-        // Відповідає за створення view для фільтрації пакетів (ЄДИНИЙ комбінований фільтр).
+        // Відповідає за створення view для фільтрації пакетів.
+        // Важливо: не тримаємо активний Filter коли фільтрів немає (це дуже дорого на великій колекції).
         PacketsView = CollectionViewSource.GetDefaultView(Packets);
-        PacketsView.Filter = obj =>
-        {
-            if (obj is not PacketInfo p) return false;
-            return PassesCombinedFilters(p);
-        };
         ProcessPacketsView = new ListCollectionView(Packets)
         {
             Filter = obj =>
@@ -394,6 +405,7 @@ public sealed class MainViewModel : ViewModelBase
 
         // Відповідає за повний reset перед новим захопленням
         _packetNo = 0;
+        RawBytesStore.Clear();
         Packets.Clear();
         ProcessFilters.Clear();
         _knownProcessIds.Clear();
@@ -484,6 +496,9 @@ public sealed class MainViewModel : ViewModelBase
 
         System.Windows.Application.Current.Dispatcher.BeginInvoke(new Action(() =>
         {
+
+            _processPacketsSinceLastSample.Clear();
+
             // add to UI collection in one shot
             int startIndex = 0;
             if (toFlush.Count > _maxUiAppendPerFlush)
@@ -492,20 +507,27 @@ public sealed class MainViewModel : ViewModelBase
                 Interlocked.Add(ref _uiPacketsDropped, startIndex);
             }
 
-            // add a bounded amount of rows to keep UI responsive at very high pps
+            var toAdd = new List<PacketInfo>(Math.Max(0, toFlush.Count - startIndex));
+
+            // Add a bounded amount of rows to keep UI responsive at very high pps.
+            // We still update stats per packet, but append to the UI collection in one batch.
             for (int i = startIndex; i < toFlush.Count; i++)
             {
                 var p = toFlush[i];
-                Packets.Add(p);
+                toAdd.Add(p);
                 TryAddProcessFilter(p);
                 UpdateProcessStats(p);
             }
 
-            const int maxRows = 50_000;
-            while (Packets.Count > maxRows)
-                Packets.RemoveAt(0);
+            Packets.AddRange(toAdd);
 
-            ProcessPacketsView.Refresh();
+
+            // Add sparkline samples once per flush interval per PID (instead of per packet)
+            foreach (var kvp in _processPacketsSinceLastSample)
+            {
+                if (_processStatsMap.TryGetValue(kvp.Key, out var row))
+                    row.AddSample(kvp.Value);
+            }
 
             var dropped = Interlocked.Read(ref _uiPacketsDropped);
             if (dropped > 0)
@@ -526,10 +548,10 @@ public sealed class MainViewModel : ViewModelBase
         ProtocolRoot = null;
         HexDump = "";
         HexDocument = new FlowDocument();
-        if (p is null || p.RawBytesId is null)
+        if (p is null)
             return;
 
-        var bytes = RawBytesStore.Get(p.RawBytesId);
+        var bytes = p.RawBytes ?? (p.RawBytesId is null ? null : RawBytesStore.Get(p.RawBytesId));
         if (bytes == null || bytes.Length == 0) return;
 
         HexDump = _hexDumpService.BuildHexDump(bytes, 16);
@@ -556,13 +578,13 @@ public sealed class MainViewModel : ViewModelBase
 
     private void RebuildHexDocument()
     {
-        if (SelectedPacket?.RawBytesId is null)
+        if (SelectedPacket is null)
         {
             HexDocument = new FlowDocument(new Paragraph(new Run("")));
             return;
         }
 
-        var bytes = RawBytesStore.Get(SelectedPacket.RawBytesId);
+        var bytes = SelectedPacket.RawBytes ?? (SelectedPacket.RawBytesId is null ? null : RawBytesStore.Get(SelectedPacket.RawBytesId));
         if (bytes is null || bytes.Length == 0)
         {
             HexDocument = new FlowDocument(new Paragraph(new Run("")));
@@ -614,11 +636,11 @@ public sealed class MainViewModel : ViewModelBase
     private bool PassesCombinedFilters(PacketInfo p)
     {
         // 1) Flow filter
-        if (!_flowFilterService.Matches(p))
+        if (_flowFilterService.IsActive && !_flowFilterService.Matches(p))
             return false;
 
         // 2) UI filter
-        if (!_uiFilter.IsEmpty)
+        if (!_uiFilterIsEmpty)
         {
             if (!_packetFilterService.MatchesUiFilter(p, _uiFilter))
                 return false;
@@ -630,6 +652,18 @@ public sealed class MainViewModel : ViewModelBase
     // Відповідає за синхронізацію тексту фільтрів + Refresh().
     private void RefreshPacketsFilteringUi()
     {
+        _uiFilterIsEmpty = _uiFilter.IsEmpty;
+
+        bool needFilter = _flowFilterService.IsActive || !_uiFilterIsEmpty;
+        if (needFilter)
+        {
+            PacketsView.Filter = obj => obj is PacketInfo p && PassesCombinedFilters(p);
+        }
+        else
+        {
+            PacketsView.Filter = null;
+        }
+
         var parts = new List<string>();
 
         var flowText = _flowFilterService.FormatFilterText();
@@ -640,7 +674,11 @@ public sealed class MainViewModel : ViewModelBase
 
         FiltersText = parts.Count == 0 ? "" : string.Join(" | ", parts);
 
-        PacketsView.Refresh();
+        // Refreshing a large CollectionView is expensive; only do it when we actually have a filter.
+        if (needFilter || _packetsViewHasFilter)
+            PacketsView.Refresh();
+
+        _packetsViewHasFilter = needFilter;
         OnPropertyChanged(nameof(FlowFilterText)); // для сумісності
     }
 
@@ -708,7 +746,13 @@ public sealed class MainViewModel : ViewModelBase
 
         row.PacketCount++;
         row.TotalBytes += p.Length;
-        row.AddSample(1);
+
+
+        // Sampling for sparklines is batched in FlushPending() to avoid rebuilding geometry per packet.
+        if (_processPacketsSinceLastSample.TryGetValue(pid, out var count))
+            _processPacketsSinceLastSample[pid] = count + 1;
+        else
+            _processPacketsSinceLastSample[pid] = 1;
     }
 
     private void ShowPacketsForPid(object? param)

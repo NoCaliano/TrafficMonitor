@@ -17,7 +17,7 @@ namespace Presentation.Helpers
         /// </summary>
         public static ProtocolNode Build(Packet packet, PacketInfo row)
         {
-            var bytes = Domain.Models.RawBytesStore.Get(row.RawBytesId);
+            var bytes = row.RawBytes ?? Domain.Models.RawBytesStore.Get(row.RawBytesId);
             if (bytes == null || bytes.Length == 0)
                 return T("No data");
 

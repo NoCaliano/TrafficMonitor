@@ -1,7 +1,6 @@
 using Domain.Models;
 using Presentation.Services;
 using Presentation.Helpers;
-using System.Collections.ObjectModel;
 using System.Linq;
 using System;
 using System.Windows.Input;
@@ -14,7 +13,7 @@ public sealed class FlowsViewModel : ViewModelBase
     private readonly Func<bool> _uiFilterNonEmpty;
     private readonly Action _onFilterChanged;
 
-    public ObservableCollection<FlowInfo> Flows { get; } = new();
+    public BulkObservableCollection<FlowInfo> Flows { get; } = new();
 
     public FlowsViewModel(IFlowFilterService flowFilterService, Func<bool> uiFilterNonEmpty, Action onFilterChanged)
     {
@@ -67,46 +66,14 @@ public sealed class FlowsViewModel : ViewModelBase
 
     public void UpdateFlows(IReadOnlyList<FlowInfo> snapshot)
     {
-        var byKey = snapshot.ToDictionary(f => f.Key);
+        // Updating many items individually causes a large amount of CollectionChanged work in WPF.
+        // Replace the whole list with a single Reset notification.
+        FlowKey? selectedKey = SelectedFlow?.Key;
 
-        foreach (var existing in Flows.ToList())
-        {
-            if (byKey.TryGetValue(existing.Key, out var fresh))
-            {
-                // totals
-                existing.Packets = fresh.Packets;
-                existing.Bytes = fresh.Bytes;
-                existing.FirstSeen = fresh.FirstSeen;
-                existing.LastSeen = fresh.LastSeen;
+        Flows.ReplaceAll(snapshot);
 
-                // direction / local-remote
-                existing.Direction = fresh.Direction;
-                existing.LocalIp = fresh.LocalIp;
-                existing.LocalPort = fresh.LocalPort;
-                existing.RemoteIp = fresh.RemoteIp;
-                existing.RemotePort = fresh.RemotePort;
-
-                // bi-directional
-                existing.PacketsAToB = fresh.PacketsAToB;
-                existing.BytesAToB = fresh.BytesAToB;
-                existing.PacketsBToA = fresh.PacketsBToA;
-                existing.BytesBToA = fresh.BytesBToA;
-
-                // local sent/recv
-                existing.SentPackets = fresh.SentPackets;
-                existing.SentBytes = fresh.SentBytes;
-                existing.RecvPackets = fresh.RecvPackets;
-                existing.RecvBytes = fresh.RecvBytes;
-
-                byKey.Remove(existing.Key);
-            }
-            else
-            {
-                Flows.Remove(existing);
-            }
-        }
-
-        foreach (var f in byKey.Values)
-            Flows.Add(f);
+        // Re-apply selection (SelectedItem compares by reference; after reset WPF may clear it).
+        if (selectedKey is not null)
+            SelectedFlow = Flows.FirstOrDefault(f => f.Key.Equals(selectedKey.Value));
     }
 }

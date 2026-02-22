@@ -1,35 +1,63 @@
 ﻿using System.Diagnostics;
 using System.Net;
 using System.Runtime.InteropServices;
+using System.Threading;
 
 namespace Infrastructure.Networking;
 
 public sealed class ProcessMapperService : IDisposable
 {
-    private readonly object _lock = new();
+    // Cache for PID -> process name to avoid frequent Process.GetProcessById calls
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<int, (string Name, DateTime Expires)> _nameCache = new();
+    private readonly TimeSpan _nameCacheTtl = TimeSpan.FromSeconds(5);
 
-        // Cache for PID -> process name to avoid frequent Process.GetProcessById calls
-        private readonly System.Collections.Concurrent.ConcurrentDictionary<int, (string Name, DateTime Expires)> _nameCache = new();
-        private readonly TimeSpan _nameCacheTtl = TimeSpan.FromSeconds(5);
-
+    // These dictionaries are treated as immutable snapshots:
+    // Refresh() builds new instances and atomically swaps the references.
+    // Readers access the current snapshot lock-free via Volatile.Read.
     private Dictionary<TcpKey, int> _tcpMap = new();
     private Dictionary<UdpKey, int> _udpMap = new();
 
     private readonly System.Timers.Timer _timer;
 
-    public ProcessMapperService(int refreshMs = 1000)
+    public bool IsRunning => _timer.Enabled;
+
+    public ProcessMapperService(int refreshMs = 3000)
     {
         _timer = new System.Timers.Timer(refreshMs);
         _timer.Elapsed += (_, __) => RefreshSafe();
         _timer.AutoReset = true;
-        _timer.Start();
+
+        // Do not start polling until capture starts; reading TCP/UDP tables is expensive.
+    }
+
+    public void Start()
+    {
+        if (_timer.Enabled)
+            return;
 
         RefreshSafe();
+        _timer.Start();
+    }
+
+    public void Stop()
+    {
+        if (!_timer.Enabled)
+            return;
+
+        _timer.Stop();
+    }
+
+    public void SetRefreshInterval(int refreshMs)
+    {
+        if (refreshMs < 250)
+            refreshMs = 250;
+
+        _timer.Interval = refreshMs;
     }
 
     public void Dispose()
     {
-        _timer.Stop();
+        Stop();
         _timer.Dispose();
     }
 
@@ -40,11 +68,9 @@ public sealed class ProcessMapperService : IDisposable
         var k1 = new TcpKey(src, srcPort, dst, dstPort);
         var k2 = new TcpKey(dst, dstPort, src, srcPort);
 
-        lock (_lock)
-        {
-            if (_tcpMap.TryGetValue(k1, out pid)) return true;
-            if (_tcpMap.TryGetValue(k2, out pid)) return true;
-        }
+        var map = Volatile.Read(ref _tcpMap);
+        if (map.TryGetValue(k1, out pid)) return true;
+        if (map.TryGetValue(k2, out pid)) return true;
 
         pid = -1;
         return false;
@@ -54,10 +80,8 @@ public sealed class ProcessMapperService : IDisposable
     {
         var k = new UdpKey(localIp, localPort);
 
-        lock (_lock)
-        {
-            if (_udpMap.TryGetValue(k, out pid)) return true;
-        }
+        var map = Volatile.Read(ref _udpMap);
+        if (map.TryGetValue(k, out pid)) return true;
 
         pid = -1;
         return false;
@@ -110,11 +134,9 @@ public sealed class ProcessMapperService : IDisposable
         var tcp = ReadTcpTableAll();
         var udp = ReadUdpTableAll();
 
-        lock (_lock)
-        {
-            _tcpMap = tcp;
-            _udpMap = udp;
-        }
+        // Atomic snapshot swap.
+        Volatile.Write(ref _tcpMap, tcp);
+        Volatile.Write(ref _udpMap, udp);
     }
 
     // ---------------- TCP ----------------
