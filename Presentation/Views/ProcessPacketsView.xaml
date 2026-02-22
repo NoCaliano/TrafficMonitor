@@ -12,90 +12,94 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
-            <RowDefinition Height="6"/>
-            <RowDefinition Height="260"/>
         </Grid.RowDefinitions>
 
         <Border Grid.Row="0" Padding="8" Background="#FFF" BorderBrush="#FFE6E6E6" BorderThickness="0,0,0,1">
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                <TextBlock Text="Processes (discovered)" FontWeight="Bold" FontSize="14"/>
+                <TextBlock Text="Processes" FontWeight="Bold" FontSize="14"/>
                 <TextBlock Text="  —  "/>
-                <TextBlock Text="Shows processes that own sockets and their packet counts" Foreground="#666" VerticalAlignment="Center"/>
+                <TextBlock Text="Per-process traffic overview" Foreground="#666" VerticalAlignment="Center"/>
             </StackPanel>
         </Border>
 
-        <DataGrid Grid.Row="1"
-                  ItemsSource="{Binding ProcessStats}"
-                  AutoGenerateColumns="False"
-                  IsReadOnly="True"
-                  RowHeight="48"
-                  HeadersVisibility="Column"
-                  EnableRowVirtualization="True"
-                  EnableColumnVirtualization="True"
-                  VirtualizingPanel.IsVirtualizing="True"
-                  VirtualizingPanel.VirtualizationMode="Recycling"
-                  Margin="8">
-            <DataGrid.Columns>
-                <DataGridTemplateColumn Header="" Width="56">
-                    <DataGridTemplateColumn.CellTemplate>
-                        <DataTemplate>
-                            <Border Width="32" Height="32" CornerRadius="4">
-                                <Image Width="32" Height="32">
-                                    <Image.Source>
-                                        <Binding Path="Pid" Converter="{StaticResource ProcessIconConverter}" />
-                                    </Image.Source>
-                                </Image>
-                            </Border>
-                        </DataTemplate>
-                    </DataGridTemplateColumn.CellTemplate>
-                </DataGridTemplateColumn>
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="8">
+            <ItemsControl ItemsSource="{Binding ProcessStatsView}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <UniformGrid Columns="4" />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
 
-                <DataGridTextColumn Header="Process (PID)" Binding="{Binding DisplayName}" Width="*">
-                    <DataGridTextColumn.ElementStyle>
-                        <Style TargetType="TextBlock">
-                            <Setter Property="FontWeight" Value="SemiBold"/>
-                        </Style>
-                    </DataGridTextColumn.ElementStyle>
-                </DataGridTextColumn>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Border Margin="6"
+                                Padding="10"
+                                Background="#FFF"
+                                BorderBrush="#FFE1E1E1"
+                                BorderThickness="1"
+                                CornerRadius="8">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
 
-                <DataGridTextColumn Header="Packets" Binding="{Binding PacketCount}" Width="120"/>
-                <DataGridTextColumn Header="Traffic (MB)" Binding="{Binding TrafficMb, StringFormat=N2}" Width="140"/>
+                                <DockPanel Grid.Row="0" LastChildFill="True">
+                                    <Border DockPanel.Dock="Left" Width="32" Height="32" CornerRadius="6" Margin="0,0,10,0">
+                                        <Image Width="32" Height="32">
+                                            <Image.Source>
+                                                <Binding Path="Pid" Converter="{StaticResource ProcessIconConverter}" />
+                                            </Image.Source>
+                                        </Image>
+                                    </Border>
 
-                <DataGridTemplateColumn Header="Chart" Width="200">
-                    <DataGridTemplateColumn.CellTemplate>
-                        <DataTemplate>
-                            <!-- Placeholder for small sparkline chart -->
-                            <Border Background="#FFF" Padding="4">
-                                <Grid Height="32">
-                                    <Rectangle Fill="#F5F5F5" RadiusX="3" RadiusY="3"/>
-                                    <Viewbox Stretch="Fill">
-                                        <Canvas Width="180" Height="24">
-                                            <Path Data="{Binding SparklineGeometry}" Stroke="#007ACC" StrokeThickness="1.5" />
-                                        </Canvas>
-                                    </Viewbox>
-                                </Grid>
-                            </Border>
-                        </DataTemplate>
-                    </DataGridTemplateColumn.CellTemplate>
-                </DataGridTemplateColumn>
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding ProcessName}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Foreground="#666" FontSize="11" Text="{Binding Pid, StringFormat=PID: {0}}"/>
+                                    </StackPanel>
+                                </DockPanel>
 
-                <DataGridTemplateColumn Header="Actions" Width="120">
-                    <DataGridTemplateColumn.CellTemplate>
-                        <DataTemplate>
-                            <StackPanel Orientation="Horizontal">
-                                <Button Content="Show Packets"
-                                        Command="{Binding DataContext.ShowPacketsForPidCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                        CommandParameter="{Binding Pid}" Margin="0,0,6,0"/>
-                                <Button Content="Focus" Width="48"
-                                        Command="{Binding DataContext.FocusOnPidCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                        CommandParameter="{Binding Pid}"/>
-                            </StackPanel>
-                        </DataTemplate>
-                    </DataGridTemplateColumn.CellTemplate>
-                </DataGridTemplateColumn>
-            </DataGrid.Columns>
-        </DataGrid>
+                                <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,10,0,0">
+                                    <TextBlock Foreground="#666" FontSize="11" Text="{Binding PacketCount, StringFormat=Packets: {0:N0}}"/>
+                                    <TextBlock Foreground="#666" FontSize="11" Margin="12,0,0,0" Text="{Binding TotalBytesHuman, StringFormat=Traffic: {0}}"/>
+                                </StackPanel>
 
-        <GridSplitter Grid.Row="2" Height="6" HorizontalAlignment="Stretch"/>
+                                <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,4,0,0">
+                                    <TextBlock Foreground="#666" FontSize="11" Text="{Binding LastSamplePackets, StringFormat=Recent: {0} pkt}"/>
+                                    <TextBlock Foreground="#666" FontSize="11" Margin="12,0,0,0" Text="{Binding PeakSamplePackets, StringFormat=Peak: {0} pkt}"/>
+                                    <TextBlock Foreground="#666" FontSize="11" Margin="12,0,0,0" Text="{Binding AvgSamplePackets, StringFormat=Avg: {0:0.#} pkt}"/>
+                                </StackPanel>
+
+                                <Border Grid.Row="3" Background="#FFF" Padding="6" Margin="0,10,0,0">
+                                    <Grid Height="44">
+                                        <Rectangle Fill="#F5F5F5" RadiusX="6" RadiusY="6"/>
+                                        <Viewbox Stretch="Fill">
+                                            <Canvas Width="180" Height="24">
+                                                <Path Data="{Binding SparklineGeometry}" Stroke="#007ACC" StrokeThickness="1.5" />
+                                            </Canvas>
+                                        </Viewbox>
+                                    </Grid>
+                                </Border>
+
+                                <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,10,0,0" HorizontalAlignment="Right">
+                                    <Button Content="Show"
+                                            Command="{Binding DataContext.ShowPacketsForPidCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            CommandParameter="{Binding Pid}"
+                                            Padding="10,2"
+                                            Margin="0,0,6,0"/>
+                                    <Button Content="Focus"
+                                            Command="{Binding DataContext.FocusOnPidCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            CommandParameter="{Binding Pid}"
+                                            Padding="10,2"/>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
     </Grid>
 </UserControl>

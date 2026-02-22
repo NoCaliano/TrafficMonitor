@@ -17,16 +17,21 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
     public long PacketCount { get => _packetCount; set { if (_packetCount != value) { _packetCount = value; OnPropertyChanged(); } } }
 
     private long _totalBytes;
-    public long TotalBytes { get => _totalBytes; set { if (_totalBytes != value) { _totalBytes = value; OnPropertyChanged(); OnPropertyChanged(nameof(TrafficMb)); } } }
+    public long TotalBytes { get => _totalBytes; set { if (_totalBytes != value) { _totalBytes = value; OnPropertyChanged(); OnPropertyChanged(nameof(TrafficMb)); OnPropertyChanged(nameof(TotalBytesHuman)); } } }
 
     // rolling samples of packets per update interval
     private readonly Queue<int> _samples = new();
     public IReadOnlyList<int> Samples => _samples.ToArray();
 
+    public int LastSamplePackets => _samples.Count == 0 ? 0 : _samples.Last();
+    public double AvgSamplePackets => _samples.Count == 0 ? 0 : _samples.Average();
+    public int PeakSamplePackets => _samples.Count == 0 ? 0 : _samples.Max();
+
     public Geometry? SparklineGeometry { get => _sparklineGeometry; private set { _sparklineGeometry = value; OnPropertyChanged(); } }
     private Geometry? _sparklineGeometry;
 
     public double TrafficMb => TotalBytes / 1024.0 / 1024.0;
+    public string TotalBytesHuman => FormatBytes(TotalBytes);
 
     public string DisplayName => Pid > 0 ? $"{ProcessName} (PID: {Pid})" : ProcessName;
 
@@ -44,6 +49,22 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
             _samples.Dequeue();
         _samples.Enqueue(value);
         RebuildGeometry();
+
+        OnPropertyChanged(nameof(LastSamplePackets));
+        OnPropertyChanged(nameof(AvgSamplePackets));
+        OnPropertyChanged(nameof(PeakSamplePackets));
+    }
+
+    private static string FormatBytes(long bytes)
+    {
+        const double KB = 1024;
+        const double MB = KB * 1024;
+        const double GB = MB * 1024;
+
+        if (bytes >= GB) return $"{bytes / GB:0.##} GB";
+        if (bytes >= MB) return $"{bytes / MB:0.##} MB";
+        if (bytes >= KB) return $"{bytes / KB:0.##} KB";
+        return $"{bytes:N0} B";
     }
 
     private void RebuildGeometry()
