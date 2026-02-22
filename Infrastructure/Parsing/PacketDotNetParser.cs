@@ -28,7 +28,20 @@ public sealed class PacketDotNetParser : IPacketParser
             _ => DateTime.SpecifyKind(timestamp, DateTimeKind.Utc).ToLocalTime() // Unspecified трактуємо як UTC
         };
 
-        if (rawCapture is not RawCapture raw)
+        LinkLayers linkLayer;
+        byte[]? data;
+
+        if (rawCapture is RawCapture raw)
+        {
+            linkLayer = raw.LinkLayerType;
+            data = raw.Data;
+        }
+        else if (rawCapture is RawPacketData offline)
+        {
+            linkLayer = (LinkLayers)offline.LinkLayerType;
+            data = offline.Data;
+        }
+        else
         {
             return new PacketInfo
             {
@@ -40,11 +53,10 @@ public sealed class PacketDotNetParser : IPacketParser
         }
 
         // Відповідає за збереження типу LinkLayer для коректного повторного парсингу в UI.
-        int linkLayerType = (int)raw.LinkLayerType;
+        int linkLayerType = (int)linkLayer;
 
-        // Save raw bytes into central store. RawBytesStore.Add will make an internal copy
-        // so we can safely pass raw.Data without calling ToArray() here.
-        int? rawId = RawBytesStore.Add(raw.Data);
+        // Save raw bytes into central store. RawBytesStore.Add will make an internal copy.
+        int? rawId = RawBytesStore.Add(data);
 
         // Локальна фабрика: щоб не дублювати RawBytes/LinkLayer у кожному return
         PacketInfo Make(
@@ -85,23 +97,22 @@ public sealed class PacketDotNetParser : IPacketParser
                 ProcessName = processName,
 
                 RawBytesId = rawId,
-                LinkLayer = raw.LinkLayerType.ToString(),
+                LinkLayer = linkLayer.ToString(),
                 LinkLayerType = linkLayerType
             };
         }
 
         try
         {
-            var data = raw.Data;
             if (data is null || data.Length == 0)
                 return Make(protocol: "UNKNOWN", info: "Empty packet");
 
             var span = data.AsSpan();
 
             // Fast path currently supports Ethernet (with optional VLAN). Other link layers fall back.
-            if (raw.LinkLayerType != LinkLayers.Ethernet)
+            if (linkLayer != LinkLayers.Ethernet)
             {
-                return Make(protocol: raw.LinkLayerType.ToString(), info: "Unsupported link-layer (fast path)");
+                return Make(protocol: linkLayer.ToString(), info: "Unsupported link-layer (fast path)");
             }
 
             if (span.Length < 14)

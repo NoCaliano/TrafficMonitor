@@ -1,6 +1,7 @@
 ﻿// Відповідає за: прийом raw пакетів, парсинг через IPacketParser, батчинг і показ у DataGrid.
 using Application.Abstractions;
 using Domain.Models;
+using Microsoft.Win32;
 using PacketDotNet;
 using Presentation.Helpers;
 using Presentation.Services;
@@ -8,6 +9,7 @@ using Presentation.Models;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
@@ -103,7 +105,6 @@ public sealed class MainViewModel : ViewModelBase
             {
                 SelectedFlow = null;
             }
-
             UpdateDetails(value);
 
             OnPropertyChanged(nameof(DetailsContext));
@@ -212,6 +213,8 @@ public sealed class MainViewModel : ViewModelBase
     public ICommand StartCommand { get; }
     public ICommand StopCommand { get; }
     public ICommand ApplyBpfCommand { get; }
+    public ICommand SaveCaptureCommand { get; }
+    public ICommand OpenCaptureCommand { get; }
 
     // ===================== LEFT TABS =====================
 
@@ -309,6 +312,8 @@ public sealed class MainViewModel : ViewModelBase
         StartCommand = new AsyncRelayCommand(StartAsync);
         StopCommand = new AsyncRelayCommand(StopAsync);
         ApplyBpfCommand = new AsyncRelayCommand(ApplyBpfAsync);
+        SaveCaptureCommand = new AsyncRelayCommand(SaveCaptureAsync);
+        OpenCaptureCommand = new AsyncRelayCommand(OpenCaptureAsync);
 
         // Відповідає за команду відкриття вікна Filters (модально по центру).
         OpenFiltersCommand = new RelayCommand(_ => OpenFiltersDialog());
@@ -380,6 +385,179 @@ public sealed class MainViewModel : ViewModelBase
         ProcessStatsView = CollectionViewSource.GetDefaultView(ProcessStats);
 
         RefreshPacketsFilteringUi();
+    }
+
+    private async Task SaveCaptureAsync(CancellationToken ct)
+    {
+        // Export currently displayed packets (i.e., what the CollectionView shows with filters applied).
+        var snapshot = PacketsView.Cast<PacketInfo>().ToList();
+        if (snapshot.Count == 0)
+        {
+            MessageBox.Show("No packets to save.", "TrafficMonitor", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var dlg = new SaveFileDialog
+        {
+            Title = "Save capture",
+            Filter = "pcap (*.pcap)|*.pcap|All files (*.*)|*.*",
+            DefaultExt = ".pcap",
+            AddExtension = true,
+            FileName = $"capture_{DateTime.Now:yyyyMMdd_HHmmss}.pcap"
+        };
+
+        if (dlg.ShowDialog(System.Windows.Application.Current.MainWindow) != true)
+            return;
+
+        string path = dlg.FileName;
+
+        try
+        {
+            StatusText = $"Saving {snapshot.Count:N0} packets...";
+
+            await Task.Run(() =>
+            {
+                ct.ThrowIfCancellationRequested();
+                PcapFileWriter.Write(path, snapshot);
+            }, ct);
+
+            StatusText = $"Saved: {Path.GetFileName(path)}";
+        }
+        catch (OperationCanceledException)
+        {
+            StatusText = "Save canceled";
+        }
+        catch (Exception ex)
+        {
+            StatusText = "Save failed";
+            MessageBox.Show(ex.Message, "Save capture failed", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private async Task OpenCaptureAsync(CancellationToken ct)
+    {
+        var dlg = new OpenFileDialog
+        {
+            Title = "Open capture",
+            Filter = "pcap (*.pcap)|*.pcap|All files (*.*)|*.*",
+            DefaultExt = ".pcap",
+            Multiselect = false
+        };
+
+        if (dlg.ShowDialog(System.Windows.Application.Current.MainWindow) != true)
+            return;
+
+        string path = dlg.FileName;
+
+        try
+        {
+            if (_captureService.IsRunning)
+                await StopAsync(CancellationToken.None);
+
+            StatusText = "Opening...";
+
+            // Reset UI/state (similar to StartAsync, but without starting capture)
+            _packetNo = 0;
+            RawBytesStore.Clear();
+            Packets.Clear();
+            ProcessFilters.Clear();
+            _knownProcessIds.Clear();
+            _processStatsMap.Clear();
+            _processPacketsSinceLastSample.Clear();
+            ProcessStats.Clear();
+            ProcessFilters.Add(ProcessFilterOption.All);
+            SelectedProcessFilter = ProcessFilterOption.All;
+            _flowsVm.Flows.Clear();
+            _flowAggregator.Reset();
+            Stats.Reset();
+
+            _flowFilterService.Clear();
+            _uiFilter = new PacketFilterModel();
+            RefreshPacketsFilteringUi();
+
+            _uiPacketsDropped = 0;
+            _capSw.Reset();
+
+            SelectedPacket = null;
+            ProtocolRoot = null;
+            HexDump = "";
+
+            var loaded = await Task.Run(() =>
+            {
+                ct.ThrowIfCancellationRequested();
+
+                var packets = PcapFileReader.Read(path);
+                var parsed = new List<PacketInfo>(packets.Count);
+
+                long totalBytes = 0;
+                DateTime? first = null;
+                DateTime? last = null;
+
+                foreach (var pkt in packets)
+                {
+                    ct.ThrowIfCancellationRequested();
+
+                    var info = _parser.Parse(pkt.TimestampUtc, pkt.Data.Length, new RawPacketData(pkt.Data, pkt.LinkLayerType));
+                    info.No = Interlocked.Increment(ref _packetNo);
+
+                    parsed.Add(info);
+                    totalBytes += info.Length;
+
+                    first = first is null || info.Timestamp < first ? info.Timestamp : first;
+                    last = last is null || info.Timestamp > last ? info.Timestamp : last;
+
+                    _flowAggregator.Add(info);
+                }
+
+                return (parsed, totalBytes, first, last);
+            }, ct);
+
+            Packets.ReplaceAll(loaded.parsed);
+
+            var pidAgg = loaded.parsed
+                .Where(p => p.Pid is int pid && pid > 0 && !string.IsNullOrWhiteSpace(p.ProcessName))
+                .GroupBy(p => new { Pid = p.Pid!.Value, p.ProcessName })
+                .Select(g => new { g.Key.Pid, g.Key.ProcessName, Count = (long)g.Count(), Bytes = g.Sum(x => (long)x.Length) })
+                .OrderByDescending(x => x.Bytes)
+                .ToList();
+
+            foreach (var a in pidAgg)
+            {
+                _knownProcessIds.Add(a.Pid);
+                ProcessFilters.Add(new ProcessFilterOption(a.Pid, a.ProcessName));
+
+                var row = new ProcessStatRow(a.Pid, a.ProcessName, a.Count, a.Bytes);
+                _processStatsMap[a.Pid] = row;
+                ProcessStats.Add(row);
+            }
+
+            var top = _flowAggregator.SnapshotTop(take: 500);
+            _flowsVm.UpdateFlows(top);
+
+            var elapsed = (loaded.first.HasValue && loaded.last.HasValue)
+                ? (loaded.last.Value - loaded.first.Value)
+                : TimeSpan.Zero;
+
+            Stats.Update(top, new Presentation.Models.CaptureStats
+            {
+                TotalPackets = loaded.parsed.Count,
+                TotalBytes = loaded.totalBytes,
+                FirstSeen = loaded.first,
+                LastSeen = loaded.last,
+                Elapsed = elapsed
+            });
+
+            StatusText = $"Loaded {loaded.parsed.Count:N0} packets";
+        }
+        catch (OperationCanceledException)
+        {
+            StatusText = "Open canceled";
+        }
+        catch (Exception ex)
+        {
+            StatusText = "Open failed";
+            MessageBox.Show(ex.Message, "Open capture failed", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
     }
 
     // ===================== DEVICES =====================
