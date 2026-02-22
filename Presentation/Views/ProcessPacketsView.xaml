@@ -6,24 +6,103 @@
     <UserControl.Resources>
         <!-- Converter to get process icon from PID -->
         <local:ProcessIconConverter x:Key="ProcessIconConverter"/>
+
+        <SolidColorBrush x:Key="PageBg" Color="#FFF3F4F6"/>
+        <SolidColorBrush x:Key="CardBg" Color="#FFFFFFFF"/>
+        <SolidColorBrush x:Key="CardBorder" Color="#FFE5E7EB"/>
+        <SolidColorBrush x:Key="CardBorderHover" Color="#FFBFD7EE"/>
+        <SolidColorBrush x:Key="MutedText" Color="#FF6B7280"/>
+        <SolidColorBrush x:Key="Accent" Color="#FF007ACC"/>
+
+        <Style x:Key="CardStyle" TargetType="Border">
+            <Setter Property="Background" Value="{StaticResource CardBg}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource CardBorder}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="Padding" Value="12"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
+            <Setter Property="Effect">
+                <Setter.Value>
+                    <DropShadowEffect Color="#11000000" BlurRadius="12" ShadowDepth="2" Opacity="1"/>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="BorderBrush" Value="{StaticResource CardBorderHover}"/>
+                    <Setter Property="Effect">
+                        <Setter.Value>
+                            <DropShadowEffect Color="#22000000" BlurRadius="16" ShadowDepth="3" Opacity="1"/>
+                        </Setter.Value>
+                    </Setter>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="ChipButtonStyle" TargetType="Button">
+            <Setter Property="Padding" Value="10,3"/>
+            <Setter Property="Margin" Value="0"/>
+            <Setter Property="Background" Value="#FFF8FAFC"/>
+            <Setter Property="BorderBrush" Value="#FFD1D5DB"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Foreground" Value="#FF111827"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="8"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="#FFEEF6FF"/>
+                                <Setter Property="BorderBrush" Value="#FF9CC7F3"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter Property="Background" Value="#FFE3F0FF"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.55"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </UserControl.Resources>
 
-    <Grid>
+    <Grid Background="{StaticResource PageBg}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <Border Grid.Row="0" Padding="8" Background="#FFF" BorderBrush="#FFE6E6E6" BorderThickness="0,0,0,1">
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                <TextBlock Text="Processes" FontWeight="Bold" FontSize="14"/>
-                <TextBlock Text="  —  "/>
-                <TextBlock Text="Per-process traffic overview" Foreground="#666" VerticalAlignment="Center"/>
-            </StackPanel>
+        <Border Grid.Row="0" Padding="12,10" Background="#FFFFFFFF" BorderBrush="#FFE5E7EB" BorderThickness="0,0,0,1">
+            <DockPanel LastChildFill="True">
+                <StackPanel DockPanel.Dock="Left">
+                    <TextBlock Text="Processes" FontWeight="SemiBold" FontSize="15" Foreground="#FF111827"/>
+                    <TextBlock Foreground="{StaticResource MutedText}" FontSize="11"
+                               Text="{Binding ProcessStats.Count, StringFormat=Discovered: {0}}"/>
+                </StackPanel>
+                <TextBlock DockPanel.Dock="Right" VerticalAlignment="Center" Foreground="{StaticResource MutedText}" FontSize="11"
+                           Text="Tip: use ‘Show’ to filter Packets by PID"/>
+            </DockPanel>
         </Border>
 
-        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="8">
+        <ScrollViewer Grid.Row="1"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled"
+                      Padding="10"
+                      PanningMode="VerticalOnly">
             <ItemsControl ItemsSource="{Binding ProcessStatsView}">
+                <ItemsControl.ItemContainerStyle>
+                    <Style TargetType="ContentPresenter">
+                        <Setter Property="Margin" Value="6"/>
+                    </Style>
+                </ItemsControl.ItemContainerStyle>
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate>
                         <UniformGrid Columns="4" />
@@ -32,12 +111,7 @@
 
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
-                        <Border Margin="6"
-                                Padding="10"
-                                Background="#FFF"
-                                BorderBrush="#FFE1E1E1"
-                                BorderThickness="1"
-                                CornerRadius="8">
+                        <Border Style="{StaticResource CardStyle}" MinHeight="170">
                             <Grid>
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto"/>
@@ -48,8 +122,8 @@
                                 </Grid.RowDefinitions>
 
                                 <DockPanel Grid.Row="0" LastChildFill="True">
-                                    <Border DockPanel.Dock="Left" Width="32" Height="32" CornerRadius="6" Margin="0,0,10,0">
-                                        <Image Width="32" Height="32">
+                                    <Border DockPanel.Dock="Left" Width="36" Height="36" CornerRadius="8" Margin="0,0,10,0" Background="#FFF3F4F6" BorderBrush="#FFE5E7EB" BorderThickness="1">
+                                        <Image Width="20" Height="20" VerticalAlignment="Center" HorizontalAlignment="Center">
                                             <Image.Source>
                                                 <Binding Path="Pid" Converter="{StaticResource ProcessIconConverter}" />
                                             </Image.Source>
@@ -57,28 +131,28 @@
                                     </Border>
 
                                     <StackPanel>
-                                        <TextBlock Text="{Binding ProcessName}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
-                                        <TextBlock Foreground="#666" FontSize="11" Text="{Binding Pid, StringFormat=PID: {0}}"/>
+                                        <TextBlock Text="{Binding ProcessName}" FontWeight="SemiBold" Foreground="#FF111827" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Foreground="{StaticResource MutedText}" FontSize="11" Text="{Binding Pid, StringFormat=PID: {0}}"/>
                                     </StackPanel>
                                 </DockPanel>
 
                                 <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,10,0,0">
-                                    <TextBlock Foreground="#666" FontSize="11" Text="{Binding PacketCount, StringFormat=Packets: {0:N0}}"/>
-                                    <TextBlock Foreground="#666" FontSize="11" Margin="12,0,0,0" Text="{Binding TotalBytesHuman, StringFormat=Traffic: {0}}"/>
+                                    <TextBlock Foreground="{StaticResource MutedText}" FontSize="11" Text="{Binding PacketCount, StringFormat=Packets: {0:N0}}"/>
+                                    <TextBlock Foreground="{StaticResource MutedText}" FontSize="11" Margin="12,0,0,0" Text="{Binding TotalBytesHuman, StringFormat=Traffic: {0}}"/>
                                 </StackPanel>
 
                                 <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,4,0,0">
-                                    <TextBlock Foreground="#666" FontSize="11" Text="{Binding LastSamplePackets, StringFormat=Recent: {0} pkt}"/>
-                                    <TextBlock Foreground="#666" FontSize="11" Margin="12,0,0,0" Text="{Binding PeakSamplePackets, StringFormat=Peak: {0} pkt}"/>
-                                    <TextBlock Foreground="#666" FontSize="11" Margin="12,0,0,0" Text="{Binding AvgSamplePackets, StringFormat=Avg: {0:0.#} pkt}"/>
+                                    <TextBlock Foreground="{StaticResource MutedText}" FontSize="11" Text="{Binding LastSamplePackets, StringFormat=Recent: {0} pkt}"/>
+                                    <TextBlock Foreground="{StaticResource MutedText}" FontSize="11" Margin="12,0,0,0" Text="{Binding PeakSamplePackets, StringFormat=Peak: {0} pkt}"/>
+                                    <TextBlock Foreground="{StaticResource MutedText}" FontSize="11" Margin="12,0,0,0" Text="{Binding AvgSamplePackets, StringFormat=Avg: {0:0.#} pkt}"/>
                                 </StackPanel>
 
-                                <Border Grid.Row="3" Background="#FFF" Padding="6" Margin="0,10,0,0">
+                                <Border Grid.Row="3" Background="#FFF" Padding="6" Margin="0,10,0,0" BorderBrush="#FFE5E7EB" BorderThickness="1" CornerRadius="8">
                                     <Grid Height="44">
                                         <Rectangle Fill="#F5F5F5" RadiusX="6" RadiusY="6"/>
                                         <Viewbox Stretch="Fill">
                                             <Canvas Width="180" Height="24">
-                                                <Path Data="{Binding SparklineGeometry}" Stroke="#007ACC" StrokeThickness="1.5" />
+                                                <Path Data="{Binding SparklineGeometry}" Stroke="{StaticResource Accent}" StrokeThickness="1.5" />
                                             </Canvas>
                                         </Viewbox>
                                     </Grid>
@@ -88,12 +162,12 @@
                                     <Button Content="Show"
                                             Command="{Binding DataContext.ShowPacketsForPidCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                             CommandParameter="{Binding Pid}"
-                                            Padding="10,2"
+                                            Style="{StaticResource ChipButtonStyle}"
                                             Margin="0,0,6,0"/>
                                     <Button Content="Focus"
                                             Command="{Binding DataContext.FocusOnPidCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                             CommandParameter="{Binding Pid}"
-                                            Padding="10,2"/>
+                                            Style="{StaticResource ChipButtonStyle}"/>
                                 </StackPanel>
                             </Grid>
                         </Border>
