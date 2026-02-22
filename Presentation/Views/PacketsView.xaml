@@ -23,6 +23,7 @@
                   SelectedItem="{Binding SelectedPacket}"
                   IsReadOnly="True"
                   AutoGenerateColumns="False"
+                  FontSize="{Binding PacketsTableFontSize}"
                   EnableRowVirtualization="True"
                   EnableColumnVirtualization="True"
                   VirtualizingPanel.IsVirtualizing="True"

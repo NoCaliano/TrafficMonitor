@@ -38,6 +38,10 @@ public sealed class MainViewModel : ViewModelBase
     private readonly Func<Func<bool>, Action, FlowsViewModel> _flowsFactory;
     private readonly Func<PacketFilterModel, FiltersViewModel> _filtersFactory;
 
+    private readonly RelayCommand _followFlowCommand;
+    private readonly RelayCommand _followFlowBothDirectionsCommand;
+    private readonly RelayCommand _clearFlowFilterCommand;
+
     // --- UI batching for incoming packets to avoid flooding the UI thread ---
     private readonly object _pendingLock = new();
     private readonly List<PacketInfo> _pendingPackets = new();
@@ -52,6 +56,13 @@ public sealed class MainViewModel : ViewModelBase
 
     private bool _uiFilterIsEmpty = true;
     private bool _packetsViewHasFilter;
+
+    private double _packetsTableFontSize = 12.0;
+    public double PacketsTableFontSize
+    {
+        get => _packetsTableFontSize;
+        set => Set(ref _packetsTableFontSize, value);
+    }
 
 
 
@@ -243,20 +254,25 @@ public sealed class MainViewModel : ViewModelBase
     // Для сумісності з твоїм XAML (якщо там ще FlowFilterText)
     public string FlowFilterText => FiltersText;
 
-    // Відповідає за команди Follow Flow / Follow Both Directions / Clear (delegated to FlowsViewModel).
-    public ICommand FollowFlowCommand => _flowsVm.FollowFlowCommand;
-    public ICommand FollowFlowBothDirectionsCommand => _flowsVm.FollowFlowBothDirectionsCommand;
-    public ICommand ClearFlowFilterCommand => _flowsVm.ClearFlowFilterCommand;
+    public bool IsFlowFollowActive => _flowFilterService.IsActive;
+
+    // Відповідає за команди Follow Flow / Follow Both Directions / Clear.
+    public ICommand FollowFlowCommand => _followFlowCommand;
+    public ICommand FollowFlowBothDirectionsCommand => _followFlowBothDirectionsCommand;
+    public ICommand ClearFlowFilterCommand => _clearFlowFilterCommand;
     public ICommand ShowPacketsCommand { get; }
     public ICommand OpenFiltersCommand { get; }
     public ICommand ShowFlowsCommand { get; }
     public ICommand OpenStatisticsCommand { get; }
-
     public ICommand ShowProcessPacketsCommand { get; }
     public ICommand ShowPacketsForPidCommand { get; }
     public ICommand FocusOnPidCommand { get; }
     public ICommand SelectPreviousPacketCommand { get; }
     public ICommand SelectNextPacketCommand { get; }
+    public ICommand SelectFirstPacketCommand { get; }
+    public ICommand SelectLastPacketCommand { get; }
+    public ICommand ZoomInPacketsCommand { get; }
+    public ICommand ZoomOutPacketsCommand { get; }
     // ===================== STATS =====================
     public ICollectionView ProcessPacketsView { get; }
     public ObservableCollection<ProcessFilterOption> ProcessFilters { get; } = new();
@@ -325,9 +341,39 @@ public sealed class MainViewModel : ViewModelBase
         FocusOnPidCommand = new RelayCommand(p => FocusOnPid(p));
         SelectPreviousPacketCommand = new RelayCommand(_ => SelectPacketByOffset(-1));
         SelectNextPacketCommand = new RelayCommand(_ => SelectPacketByOffset(1));
+        SelectFirstPacketCommand = new RelayCommand(_ => SelectFirstPacket());
+        SelectLastPacketCommand = new RelayCommand(_ => SelectLastPacket());
+        ZoomInPacketsCommand = new RelayCommand(_ => ZoomPackets(+1));
+        ZoomOutPacketsCommand = new RelayCommand(_ => ZoomPackets(-1));
 
         // FlowsViewModel will manage flow selection and flow commands
         _flowsVm = _flowsFactory(() => !_uiFilterIsEmpty, () => RefreshPacketsFilteringUi());
+
+        _followFlowCommand = new RelayCommand(
+            _ =>
+            {
+                if (_flowsVm.FollowFlowCommand.CanExecute(null))
+                    _flowsVm.FollowFlowCommand.Execute(null);
+                ShowPackets();
+            },
+            _ => _flowsVm.FollowFlowCommand.CanExecute(null));
+
+        _followFlowBothDirectionsCommand = new RelayCommand(
+            _ =>
+            {
+                if (_flowsVm.FollowFlowBothDirectionsCommand.CanExecute(null))
+                    _flowsVm.FollowFlowBothDirectionsCommand.Execute(null);
+                ShowPackets();
+            },
+            _ => _flowsVm.FollowFlowBothDirectionsCommand.CanExecute(null));
+
+        _clearFlowFilterCommand = new RelayCommand(
+            _ =>
+            {
+                if (_flowsVm.ClearFlowFilterCommand.CanExecute(null))
+                    _flowsVm.ClearFlowFilterCommand.Execute(null);
+            },
+            _ => _flowFilterService.IsActive);
 
 
         LoadDevices();
@@ -858,6 +904,9 @@ public sealed class MainViewModel : ViewModelBase
 
         _packetsViewHasFilter = needFilter;
         OnPropertyChanged(nameof(FlowFilterText)); // для сумісності
+
+        OnPropertyChanged(nameof(IsFlowFollowActive));
+        _clearFlowFilterCommand.RaiseCanExecuteChanged();
     }
 
     // Відповідає за перевірку, чи пакет проходить через критерії UI-фільтра (op + value).
@@ -968,5 +1017,35 @@ public sealed class MainViewModel : ViewModelBase
         var nextIndex = Math.Clamp(currentIndex + offset, 0, visiblePackets.Count - 1);
         SelectedPacket = visiblePackets[nextIndex];
         LeftTabIndex = 0;
+    }
+
+    private void SelectFirstPacket()
+    {
+        var visiblePackets = PacketsView.Cast<PacketInfo>().ToList();
+        if (visiblePackets.Count == 0)
+            return;
+
+        SelectedPacket = visiblePackets[0];
+        LeftTabIndex = 0;
+    }
+
+    private void SelectLastPacket()
+    {
+        var visiblePackets = PacketsView.Cast<PacketInfo>().ToList();
+        if (visiblePackets.Count == 0)
+            return;
+
+        SelectedPacket = visiblePackets[^1];
+        LeftTabIndex = 0;
+    }
+
+    private void ZoomPackets(int direction)
+    {
+        const double step = 1.0;
+        const double min = 8.0;
+        const double max = 24.0;
+
+        var next = PacketsTableFontSize + (direction * step);
+        PacketsTableFontSize = Math.Clamp(next, min, max);
     }
 }
