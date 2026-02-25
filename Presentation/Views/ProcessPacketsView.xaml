@@ -35,6 +35,10 @@
                         </Setter.Value>
                     </Setter>
                 </Trigger>
+
+                <DataTrigger Binding="{Binding IsAlive}" Value="False">
+                    <Setter Property="Opacity" Value="0.65"/>
+                </DataTrigger>
             </Style.Triggers>
         </Style>
 
@@ -119,6 +123,7 @@
                                     <RowDefinition Height="Auto"/>
                                     <RowDefinition Height="Auto"/>
                                     <RowDefinition Height="Auto"/>
+                                     <RowDefinition Height="Auto"/>
                                 </Grid.RowDefinitions>
 
                                 <DockPanel Grid.Row="0" LastChildFill="True">
@@ -130,24 +135,43 @@
                                         </Image>
                                     </Border>
 
+                                     <StackPanel DockPanel.Dock="Right" HorizontalAlignment="Right">
+                                         <TextBlock Text="{Binding LivenessLabel}" FontSize="11" FontWeight="SemiBold" Foreground="{Binding LivenessBrush}" HorizontalAlignment="Right"/>
+                                         <TextBlock Text="{Binding RiskLabel}" FontSize="11" FontWeight="SemiBold" Foreground="{Binding RiskBrush}" HorizontalAlignment="Right"/>
+                                         <TextBlock Text="{Binding SignedLabel}" FontSize="11" Foreground="{StaticResource MutedText}" HorizontalAlignment="Right"/>
+                                     </StackPanel>
+
                                     <StackPanel>
                                         <TextBlock Text="{Binding ProcessName}" FontWeight="SemiBold" Foreground="#FF111827" TextTrimming="CharacterEllipsis"/>
                                         <TextBlock Foreground="{StaticResource MutedText}" FontSize="11" Text="{Binding Pid, StringFormat=PID: {0}}"/>
                                     </StackPanel>
                                 </DockPanel>
 
-                                <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,10,0,0">
+                                 <StackPanel Grid.Row="1" Margin="0,8,0,0">
+                                     <TextBlock Foreground="{StaticResource MutedText}" FontSize="11" TextTrimming="CharacterEllipsis" Text="{Binding Publisher, StringFormat=Publisher: {0}}"/>
+                                     <TextBlock Foreground="{StaticResource MutedText}" FontSize="11" TextTrimming="CharacterEllipsis" ToolTip="{Binding ExePath}" Text="{Binding ExePath, StringFormat=Path: {0}}"/>
+                                     <TextBlock Foreground="{StaticResource MutedText}" FontSize="11" TextTrimming="CharacterEllipsis" Text="{Binding ParentDisplay}"/>
+                                     <TextBlock Foreground="{StaticResource MutedText}" FontSize="11" TextTrimming="CharacterEllipsis" Text="{Binding LastSeenLabel}"/>
+                                 </StackPanel>
+
+                                <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,10,0,0">
                                     <TextBlock Foreground="{StaticResource MutedText}" FontSize="11" Text="{Binding PacketCount, StringFormat=Packets: {0:N0}}"/>
                                     <TextBlock Foreground="{StaticResource MutedText}" FontSize="11" Margin="12,0,0,0" Text="{Binding TotalBytesHuman, StringFormat=Traffic: {0}}"/>
+                                    <TextBlock Foreground="{StaticResource MutedText}" FontSize="11" Margin="12,0,0,0" Text="{Binding DistinctRemoteEndpoints, StringFormat=Remotes: {0}}"/>
                                 </StackPanel>
 
-                                <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,4,0,0">
-                                    <TextBlock Foreground="{StaticResource MutedText}" FontSize="11" Text="{Binding LastSamplePackets, StringFormat=Recent: {0} pkt}"/>
-                                    <TextBlock Foreground="{StaticResource MutedText}" FontSize="11" Margin="12,0,0,0" Text="{Binding PeakSamplePackets, StringFormat=Peak: {0} pkt}"/>
-                                    <TextBlock Foreground="{StaticResource MutedText}" FontSize="11" Margin="12,0,0,0" Text="{Binding AvgSamplePackets, StringFormat=Avg: {0:0.#} pkt}"/>
+                                <StackPanel Grid.Row="3" Orientation="Vertical" Margin="0,4,0,0">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Foreground="{StaticResource MutedText}" FontSize="11" Text="{Binding LastSamplePackets, StringFormat=Recent: {0} pkt}"/>
+                                        <TextBlock Foreground="{StaticResource MutedText}" FontSize="11" Margin="12,0,0,0" Text="{Binding PeakSamplePackets, StringFormat=Peak: {0} pkt}"/>
+                                        <TextBlock Foreground="{StaticResource MutedText}" FontSize="11" Margin="12,0,0,0" Text="{Binding AvgSamplePackets, StringFormat=Avg: {0:0.#} pkt}"/>
+                                    </StackPanel>
+
+                                    <TextBlock Foreground="{StaticResource MutedText}" FontSize="11" TextTrimming="CharacterEllipsis" Text="{Binding TopRemoteEndpoint, StringFormat=Top: {0}}"/>
+                                    <TextBlock Foreground="{Binding RiskBrush}" FontSize="11" TextTrimming="CharacterEllipsis" Text="{Binding BeaconLabel}"/>
                                 </StackPanel>
 
-                                <Border Grid.Row="3" Background="#FFF" Padding="6" Margin="0,10,0,0" BorderBrush="#FFE5E7EB" BorderThickness="1" CornerRadius="8">
+                                 <Border Grid.Row="4" Background="#FFF" Padding="6" Margin="0,10,0,0" BorderBrush="#FFE5E7EB" BorderThickness="1" CornerRadius="8">
                                     <Grid Height="44">
                                         <Rectangle Fill="#F5F5F5" RadiusX="6" RadiusY="6"/>
                                         <Viewbox Stretch="Fill">
@@ -158,7 +182,27 @@
                                     </Grid>
                                 </Border>
 
-                                <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,10,0,0" HorizontalAlignment="Right">
+                                 <StackPanel Grid.Row="5" Orientation="Horizontal" Margin="0,10,0,0" HorizontalAlignment="Right">
+                                    <Button Content="Locate"
+                                            Command="{Binding DataContext.LocateProcessCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            CommandParameter="{Binding Pid}"
+                                            Style="{StaticResource ChipButtonStyle}"
+                                            Margin="0,0,6,0"/>
+                                    <Button Content="Block"
+                                            Command="{Binding DataContext.BlockProcessFirewallCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            CommandParameter="{Binding Pid}"
+                                            Style="{StaticResource ChipButtonStyle}"
+                                            Margin="0,0,6,0"/>
+                                    <Button Content="Unblock"
+                                            Command="{Binding DataContext.UnblockProcessFirewallCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            CommandParameter="{Binding Pid}"
+                                            Style="{StaticResource ChipButtonStyle}"
+                                            Margin="0,0,6,0"/>
+                                    <Button Content="Kill"
+                                            Command="{Binding DataContext.KillProcessCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            CommandParameter="{Binding Pid}"
+                                            Style="{StaticResource ChipButtonStyle}"
+                                            Margin="0,0,6,0"/>
                                     <Button Content="Show"
                                             Command="{Binding DataContext.ShowPacketsForPidCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                             CommandParameter="{Binding Pid}"

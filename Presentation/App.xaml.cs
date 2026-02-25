@@ -36,6 +36,7 @@ public partial class App : System.Windows.Application
                 services.AddSingleton<IHexDumpService, HexDumpService>();
                 services.AddSingleton<IPacketFilterService, PacketFilterService>();
                 services.AddSingleton<IFlowFilterService, FlowFilterService>();
+                services.AddSingleton<WindowsRemediationService>();
 
                 // ViewModels
                 services.AddSingleton<MainViewModel>();
