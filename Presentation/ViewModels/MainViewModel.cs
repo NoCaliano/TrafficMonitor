@@ -311,6 +311,7 @@ public sealed class MainViewModel : ViewModelBase
     private void LocateProcess(object? param)
     {
         if (param is not int pid || pid <= 0) return;
+        TrySelectProcess(pid);
 
         var d = _processMapperService.GetProcessDetailsCached(pid);
         if (_remediationService.TryOpenProcessLocation(d.ExePath, out var err))
@@ -322,6 +323,7 @@ public sealed class MainViewModel : ViewModelBase
     private void KillProcess(object? param)
     {
         if (param is not int pid || pid <= 0) return;
+        TrySelectProcess(pid);
 
         var d = _processMapperService.GetProcessDetailsCached(pid);
         var res = MessageBox.Show(
@@ -342,6 +344,7 @@ public sealed class MainViewModel : ViewModelBase
     private void BlockProcessInFirewall(object? param)
     {
         if (param is not int pid || pid <= 0) return;
+        TrySelectProcess(pid);
 
         var d = _processMapperService.GetProcessDetailsCached(pid);
         var res = MessageBox.Show(
@@ -354,7 +357,12 @@ public sealed class MainViewModel : ViewModelBase
             return;
 
         if (_remediationService.TryBlockProgramInFirewall(d.ExePath, rulePrefix: "TrafficMonitor", out var err))
+        {
+            if (_processStatsMap.TryGetValue(pid, out var row))
+                row.RecordFirewallBlock(DateTime.Now);
+
             StatusText = $"Firewall: blocked {d.Name}";
+        }
         else
             StatusText = $"Firewall block failed: {err}";
     }
@@ -362,6 +370,7 @@ public sealed class MainViewModel : ViewModelBase
     private void UnblockProcessInFirewall(object? param)
     {
         if (param is not int pid || pid <= 0) return;
+        TrySelectProcess(pid);
 
         var d = _processMapperService.GetProcessDetailsCached(pid);
         var res = MessageBox.Show(
@@ -374,7 +383,12 @@ public sealed class MainViewModel : ViewModelBase
             return;
 
         if (_remediationService.TryUnblockProgramInFirewall(d.ExePath, rulePrefix: "TrafficMonitor", out var err))
+        {
+            if (_processStatsMap.TryGetValue(pid, out var row))
+                row.RecordFirewallUnblock(DateTime.Now);
+
             StatusText = $"Firewall: unblocked {d.Name}";
+        }
         else
             StatusText = $"Firewall unblock failed: {err}";
     }
@@ -598,6 +612,13 @@ public sealed class MainViewModel : ViewModelBase
     public ObservableCollection<ProcessStatRow> ProcessStats { get; } = new();
     public ICollectionView ProcessStatsView { get; }
 
+    private ProcessStatRow? _selectedProcessStat;
+    public ProcessStatRow? SelectedProcessStat
+    {
+        get => _selectedProcessStat;
+        set => Set(ref _selectedProcessStat, value);
+    }
+
     private ProcessFilterOption? _selectedProcessFilter;
     public ProcessFilterOption? SelectedProcessFilter
     {
@@ -758,6 +779,15 @@ public sealed class MainViewModel : ViewModelBase
         SelectedProcessFilter = ProcessFilterOption.All;
 
         ProcessStatsView = CollectionViewSource.GetDefaultView(ProcessStats);
+        ProcessStatsView.SortDescriptions.Add(new SortDescription(nameof(ProcessStatRow.RiskScore), ListSortDirection.Descending));
+        ProcessStatsView.SortDescriptions.Add(new SortDescription(nameof(ProcessStatRow.TotalBytes), ListSortDirection.Descending));
+
+        if (ProcessStatsView is ICollectionViewLiveShaping liveShaping && liveShaping.CanChangeLiveSorting)
+        {
+            liveShaping.LiveSortingProperties.Add(nameof(ProcessStatRow.RiskScore));
+            liveShaping.LiveSortingProperties.Add(nameof(ProcessStatRow.TotalBytes));
+            liveShaping.IsLiveSorting = true;
+        }
 
         RefreshPacketsFilteringUi();
     }
@@ -839,7 +869,14 @@ public sealed class MainViewModel : ViewModelBase
             _knownProcessIds.Clear();
             _processStatsMap.Clear();
             _processPacketsSinceLastSample.Clear();
+            _distinctRemotes.Clear();
+            _endpointBytes.Clear();
+            _topRemoteByBytes.Clear();
+            _beaconStates.Clear();
+            _bestBeaconByPid.Clear();
+            _udpFlowLastSeenUtc.Clear();
             ProcessStats.Clear();
+            SelectedProcessStat = null;
             ProcessFilters.Add(ProcessFilterOption.All);
             SelectedProcessFilter = ProcessFilterOption.All;
             _flowsVm.Flows.Clear();
@@ -904,6 +941,7 @@ public sealed class MainViewModel : ViewModelBase
                 var row = new ProcessStatRow(a.Pid, a.ProcessName, a.Count, a.Bytes);
                 _processStatsMap[a.Pid] = row;
                 ProcessStats.Add(row);
+                SelectedProcessStat ??= row;
             }
 
             var top = _flowAggregator.SnapshotTop(take: 500);
@@ -962,7 +1000,16 @@ public sealed class MainViewModel : ViewModelBase
         Packets.Clear();
         ProcessFilters.Clear();
         _knownProcessIds.Clear();
+        _processStatsMap.Clear();
+        _processPacketsSinceLastSample.Clear();
+        _distinctRemotes.Clear();
+        _endpointBytes.Clear();
+        _topRemoteByBytes.Clear();
+        _beaconStates.Clear();
+        _bestBeaconByPid.Clear();
+        _udpFlowLastSeenUtc.Clear();
         ProcessStats.Clear();
+        SelectedProcessStat = null;
         ProcessFilters.Add(ProcessFilterOption.All);
         SelectedProcessFilter = ProcessFilterOption.All;
         _flowsVm.Flows.Clear();
@@ -1081,7 +1128,13 @@ public sealed class MainViewModel : ViewModelBase
             foreach (var kvp in _processPacketsSinceLastSample)
             {
                 if (_processStatsMap.TryGetValue(kvp.Key, out var row))
+                {
+                    int previousPeak = row.PeakSamplePackets;
                     row.AddSample(kvp.Value);
+
+                    if (kvp.Value > previousPeak)
+                        row.RecordTrafficPeak(row.LastSeen == default ? DateTime.Now : row.LastSeen, kvp.Value);
+                }
             }
 
             var dropped = Interlocked.Read(ref _uiPacketsDropped);
@@ -1306,6 +1359,7 @@ public sealed class MainViewModel : ViewModelBase
     private void FocusOnPid(object? param)
     {
         if (param is not int pid) return;
+        TrySelectProcess(pid);
 
         // find first packet with this pid and select it in PacketsView
         var first = Packets.FirstOrDefault(p => p.Pid == pid);
@@ -1319,6 +1373,9 @@ public sealed class MainViewModel : ViewModelBase
     {
         if (p.Pid is not int pid || string.IsNullOrWhiteSpace(p.ProcessName))
             return;
+
+        TrySelectProcess(pid);
+
         if (!_processStatsMap.TryGetValue(pid, out var row))
         {
             row = new ProcessStatRow(pid, p.ProcessName, 0, 0);
@@ -1326,9 +1383,11 @@ public sealed class MainViewModel : ViewModelBase
             var d = _processMapperService.GetProcessDetailsCached(pid);
             var parentName = d.ParentPid > 0 ? _processMapperService.GetProcessNameCached(d.ParentPid) : "";
             row.UpdateIdentity(d.ExePath, d.Publisher, d.IsSigned, d.SignerSubject, d.ParentPid, parentName);
+            TryPopulateProcessStart(row);
 
             _processStatsMap[pid] = row;
             ProcessStats.Add(row);
+            SelectedProcessStat ??= row;
         }
         else if (row.ExePathIsEmpty)
         {
@@ -1338,14 +1397,23 @@ public sealed class MainViewModel : ViewModelBase
             {
                 var parentName = d.ParentPid > 0 ? _processMapperService.GetProcessNameCached(d.ParentPid) : "";
                 row.UpdateIdentity(d.ExePath, d.Publisher, d.IsSigned, d.SignerSubject, d.ParentPid, parentName);
+                TryPopulateProcessStart(row);
             }
         }
 
+        bool isFirstPacket = row.PacketCount == 0;
         row.PacketCount++;
         row.TotalBytes += p.Length;
         row.LastSeen = p.Timestamp;
 
         UpdateForensics(p, row);
+
+        if (isFirstPacket)
+            row.RecordFirstPacket(p.Timestamp, BuildPacketTimelineDetail(p));
+
+        var firstDomain = TryExtractDomain(p);
+        if (!string.IsNullOrWhiteSpace(firstDomain))
+            row.RecordFirstDomain(p.Timestamp, firstDomain);
 
 
         // Sampling for sparklines is batched in FlushPending() to avoid rebuilding geometry per packet.
@@ -1388,11 +1456,106 @@ public sealed class MainViewModel : ViewModelBase
     private void ShowPacketsForPid(object? param)
     {
         if (param is not int pid) return;
+        TrySelectProcess(pid);
 
         _uiFilter.PidOp = NumberMatchOp.Equals;
         _uiFilter.PidValue = pid;
         RefreshPacketsFilteringUi();
         LeftTabIndex = 0;
+    }
+
+    private void TrySelectProcess(int pid)
+    {
+        if (pid <= 0)
+            return;
+
+        if (_processStatsMap.TryGetValue(pid, out var row))
+            SelectedProcessStat = row;
+    }
+
+    private static string BuildPacketTimelineDetail(PacketInfo packet)
+    {
+        string protocol = string.IsNullOrWhiteSpace(packet.Protocol) ? "Packet" : packet.Protocol;
+        string src = FormatEndpoint(packet.SrcIp, packet.SrcPort);
+        string dst = FormatEndpoint(packet.DstIp, packet.DstPort);
+        return $"{protocol} {src} -> {dst}";
+    }
+
+    private static string FormatEndpoint(string ip, int? port)
+    {
+        if (string.IsNullOrWhiteSpace(ip))
+            return "?";
+
+        return port is int value && value > 0 ? $"{ip}:{value}" : ip;
+    }
+
+    private static string? TryExtractDomain(PacketInfo packet)
+    {
+        if (!string.Equals(packet.Protocol, "DNS", StringComparison.OrdinalIgnoreCase)
+            && packet.SrcPort != 53
+            && packet.DstPort != 53)
+        {
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(packet.Info))
+            return null;
+
+        string info = packet.Info.Trim();
+        const string queryPrefix = "Query ";
+        const string responsePrefix = "Response ";
+
+        if (info.StartsWith(queryPrefix, StringComparison.OrdinalIgnoreCase))
+            info = info[queryPrefix.Length..];
+        else if (info.StartsWith(responsePrefix, StringComparison.OrdinalIgnoreCase))
+            info = info[responsePrefix.Length..];
+        else
+            return null;
+
+        int typeSeparator = info.IndexOf(' ');
+        string candidate = typeSeparator > 0 ? info[..typeSeparator] : info;
+        if (string.IsNullOrWhiteSpace(candidate) || !candidate.Contains('.'))
+            return null;
+
+        return candidate;
+    }
+
+    private static void TryPopulateProcessStart(ProcessStatRow row)
+    {
+        if (row.Pid <= 0)
+            return;
+
+        try
+        {
+            using var proc = Process.GetProcessById(row.Pid);
+
+            string liveExePath = "";
+            try
+            {
+                liveExePath = proc.MainModule?.FileName ?? "";
+            }
+            catch
+            {
+                // ignore path access problems
+            }
+
+            if (!string.IsNullOrWhiteSpace(row.ExePath)
+                && !string.IsNullOrWhiteSpace(liveExePath)
+                && !string.Equals(row.ExePath, liveExePath, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            string detail = string.IsNullOrWhiteSpace(row.ExePathShort)
+                ? $"{row.ProcessName} (PID {row.Pid}) started."
+                : $"{row.ExePathShort} (PID {row.Pid}) started.";
+
+            row.RecordProcessStart(proc.StartTime, detail);
+        }
+        catch
+        {
+            // ignore: process may have already exited or be inaccessible
+        }
     }
 
     public sealed record ProcessFilterOption(int? Pid, string ProcessName)

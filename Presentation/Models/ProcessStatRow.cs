@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
@@ -11,6 +12,19 @@ namespace Presentation.Models;
 public sealed class ProcessStatRow : INotifyPropertyChanged
 {
     private const int MaxSamples = 30;
+
+    public sealed record RiskReason(string Summary, int Points)
+    {
+        public string PointsLabel => $"+{Points}";
+    }
+
+    private readonly record struct RiskSignal(string Summary, int Points);
+
+    public sealed record InvestigationTimelineEvent(string Key, DateTime Timestamp, string Title, string Detail)
+    {
+        public string TimeLabel => Timestamp == default ? "" : Timestamp.ToString("HH:mm:ss");
+        public string DateLabel => Timestamp == default ? "" : Timestamp.ToString("dd MMM");
+    }
 
     public int Pid { get; }
     public string ProcessName { get; }
@@ -54,6 +68,27 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
 
     private int _riskScore;
     public int RiskScore { get => _riskScore; private set { if (_riskScore != value) { _riskScore = value; OnPropertyChanged(); OnPropertyChanged(nameof(RiskLabel)); OnPropertyChanged(nameof(RiskBrush)); } } }
+
+    private IReadOnlyList<RiskReason> _riskReasons = Array.Empty<RiskReason>();
+    public IReadOnlyList<RiskReason> RiskReasons
+    {
+        get => _riskReasons;
+        private set
+        {
+            _riskReasons = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(HasRiskReasons));
+            OnPropertyChanged(nameof(RiskEmptyState));
+        }
+    }
+
+    public bool HasRiskReasons => _riskReasons.Count > 0;
+    public string WhyFlaggedLabel => "Why flagged";
+    public string RiskEmptyState => HasRiskReasons ? "" : "No active risk signals.";
+    public ObservableCollection<InvestigationTimelineEvent> TimelineEvents { get; } = new();
+    public bool HasTimelineEvents => TimelineEvents.Count > 0;
+    public string TimelineEmptyState => HasTimelineEvents ? "" : "No investigation events recorded yet.";
+    public string TimelineTitle => "Investigation timeline";
 
     public string RiskLabel
     {
@@ -206,14 +241,12 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
 
     private void RecomputeRisk()
     {
-        // MVP heuristics (process-centric triage):
-        // - unsigned binaries are more suspicious
-        // - running from user-writable locations is more suspicious
-        // - extreme short-term packet burst is more suspicious
-        int score = 0;
+        // Explainable heuristics: every score contribution must map to a visible reason in the UI.
+        var signals = new List<RiskSignal>(5);
 
         if (Pid <= 0)
         {
+            RiskReasons = Array.Empty<RiskReason>();
             RiskScore = 0;
             return;
         }
@@ -221,33 +254,142 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
         if (!string.IsNullOrWhiteSpace(ExePath))
         {
             if (!IsSigned)
-                score += 45;
+                signals.Add(new RiskSignal("Unsigned executable", 25));
 
-            var p = ExePath.Replace('/', '\\');
-            if (p.Contains("\\AppData\\", StringComparison.OrdinalIgnoreCase)
-                || p.Contains("\\Temp\\", StringComparison.OrdinalIgnoreCase)
-                || p.Contains("\\Downloads\\", StringComparison.OrdinalIgnoreCase)
-                || p.Contains("\\Desktop\\", StringComparison.OrdinalIgnoreCase))
-            {
-                score += 20;
-            }
+            var riskyLocation = GetRiskyLocationLabel(ExePath);
+            if (!string.IsNullOrWhiteSpace(riskyLocation))
+                signals.Add(new RiskSignal(riskyLocation, 15));
         }
         else
         {
-            // If we can't resolve the executable path, keep a small uncertainty score.
-            score += 5;
+            signals.Add(new RiskSignal("Executable path could not be resolved", 5));
         }
 
         // Packet burst heuristic based on the last sampling interval.
-        if (LastSamplePackets >= 2000) score += 35;
-        else if (LastSamplePackets >= 800) score += 20;
-        else if (LastSamplePackets >= 300) score += 10;
+        if (LastSamplePackets >= 2000)
+            signals.Add(new RiskSignal($"Extreme burst in the last interval ({LastSamplePackets:N0} packets)", 25));
+        else if (LastSamplePackets >= 800)
+            signals.Add(new RiskSignal($"Large burst in the last interval ({LastSamplePackets:N0} packets)", 20));
+        else if (LastSamplePackets >= 300)
+            signals.Add(new RiskSignal($"Noticeable burst in the last interval ({LastSamplePackets:N0} packets)", 10));
 
-        if (DistinctRemoteEndpoints >= 1000) score += 20;
-        else if (DistinctRemoteEndpoints >= 200) score += 10;
+        if (DistinctRemoteEndpoints >= 1000)
+            signals.Add(new RiskSignal($"Talks to a very wide set of remote endpoints ({DistinctRemoteEndpoints:N0})", 15));
+        else if (DistinctRemoteEndpoints >= 200)
+            signals.Add(new RiskSignal($"Talks to many remote endpoints ({DistinctRemoteEndpoints:N0})", 10));
 
-        if (BeaconSuspected) score += 25;
+        if (BeaconSuspected)
+        {
+            string summary = BeaconIntervalSec > 0
+                ? $"Beacon-like periodic traffic (~{BeaconIntervalSec:0.#}s cadence)"
+                : "Beacon-like periodic traffic pattern";
 
-        RiskScore = Math.Clamp(score, 0, 100);
+            signals.Add(new RiskSignal(summary, 20));
+        }
+
+        RiskReasons = signals
+            .Select(signal => new RiskReason(signal.Summary, signal.Points))
+            .ToArray();
+
+        RiskScore = signals.Sum(signal => signal.Points);
+    }
+
+    public void RecordProcessStart(DateTime timestamp, string detail)
+        => UpsertTimelineEvent("process-start", timestamp, "Process start", detail);
+
+    public void RecordFirstPacket(DateTime timestamp, string detail)
+        => AddTimelineEventIfMissing("first-packet", timestamp, "First packet", detail);
+
+    public void RecordFirstDomain(DateTime timestamp, string domain)
+        => AddTimelineEventIfMissing("first-domain", timestamp, "First domain", domain);
+
+    public void RecordTrafficPeak(DateTime timestamp, int packetsPerInterval)
+    {
+        if (packetsPerInterval <= 0)
+            return;
+
+        string detail = AvgSamplePackets > 0
+            ? $"Burst of {packetsPerInterval:N0} packets in one interval (avg {AvgSamplePackets:0.#})."
+            : $"Burst of {packetsPerInterval:N0} packets in one interval.";
+
+        UpsertTimelineEvent("traffic-peak", timestamp, "Traffic peak", detail);
+    }
+
+    public void RecordFirewallBlock(DateTime timestamp)
+        => AppendTimelineEvent($"firewall-block-{timestamp.Ticks}", timestamp, "Firewall block applied", "TrafficMonitor added Windows Firewall rules for this executable.");
+
+    public void RecordFirewallUnblock(DateTime timestamp)
+        => AppendTimelineEvent($"firewall-unblock-{timestamp.Ticks}", timestamp, "Firewall block removed", "TrafficMonitor removed its Windows Firewall rules for this executable.");
+
+    private void AddTimelineEventIfMissing(string key, DateTime timestamp, string title, string detail)
+    {
+        if (HasTimelineEvent(key))
+            return;
+
+        AppendTimelineEvent(key, timestamp, title, detail);
+    }
+
+    private void UpsertTimelineEvent(string key, DateTime timestamp, string title, string detail)
+    {
+        if (timestamp == default)
+            return;
+
+        var entry = new InvestigationTimelineEvent(key, timestamp, title, detail);
+        int existingIndex = FindTimelineEventIndex(key);
+        if (existingIndex >= 0)
+            TimelineEvents.RemoveAt(existingIndex);
+
+        InsertTimelineEvent(entry);
+    }
+
+    private void AppendTimelineEvent(string key, DateTime timestamp, string title, string detail)
+    {
+        if (timestamp == default)
+            return;
+
+        InsertTimelineEvent(new InvestigationTimelineEvent(key, timestamp, title, detail));
+    }
+
+    private void InsertTimelineEvent(InvestigationTimelineEvent entry)
+    {
+        int insertIndex = 0;
+        while (insertIndex < TimelineEvents.Count && TimelineEvents[insertIndex].Timestamp <= entry.Timestamp)
+            insertIndex++;
+
+        TimelineEvents.Insert(insertIndex, entry);
+        OnPropertyChanged(nameof(HasTimelineEvents));
+        OnPropertyChanged(nameof(TimelineEmptyState));
+    }
+
+    private bool HasTimelineEvent(string key) => FindTimelineEventIndex(key) >= 0;
+
+    private int FindTimelineEventIndex(string key)
+    {
+        for (int i = 0; i < TimelineEvents.Count; i++)
+        {
+            if (string.Equals(TimelineEvents[i].Key, key, StringComparison.Ordinal))
+                return i;
+        }
+
+        return -1;
+    }
+
+    private static string? GetRiskyLocationLabel(string exePath)
+    {
+        var path = exePath.Replace('/', '\\');
+
+        if (path.Contains("\\AppData\\", StringComparison.OrdinalIgnoreCase))
+            return "Runs from AppData (user-writable path)";
+
+        if (path.Contains("\\Temp\\", StringComparison.OrdinalIgnoreCase))
+            return "Runs from Temp (user-writable path)";
+
+        if (path.Contains("\\Downloads\\", StringComparison.OrdinalIgnoreCase))
+            return "Runs from Downloads (user-writable path)";
+
+        if (path.Contains("\\Desktop\\", StringComparison.OrdinalIgnoreCase))
+            return "Runs from Desktop (user-writable path)";
+
+        return null;
     }
 }
