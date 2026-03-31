@@ -79,8 +79,8 @@
         <Border DockPanel.Dock="Top"
                 Margin="8,8,8,0"
                 Padding="6,4"
-                Background="{StaticResource ShellBackgroundBrush}"
-                BorderBrush="{StaticResource BorderBrushSoft}"
+                Background="{StaticResource CaptureToolbarBackgroundBrush}"
+                BorderBrush="{StaticResource CaptureToolbarBorderBrush}"
                 BorderThickness="1"
                 CornerRadius="12">
             <ToolBarTray IsLocked="True">

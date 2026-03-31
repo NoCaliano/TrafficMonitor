@@ -5,6 +5,10 @@
 
     <SolidColorBrush x:Key="AppBackgroundBrush" Color="#FFEAF1F7"/>
     <SolidColorBrush x:Key="ShellBackgroundBrush" Color="#FFF4F8FB"/>
+    <SolidColorBrush x:Key="CaptureToolbarBackgroundBrush" Color="#FFEAF4FB"/>
+    <SolidColorBrush x:Key="CaptureToolbarBorderBrush" Color="#FFC8DAEA"/>
+    <SolidColorBrush x:Key="FilterToolbarBackgroundBrush" Color="#FFF1F7EC"/>
+    <SolidColorBrush x:Key="FilterToolbarBorderBrush" Color="#FFCADDBD"/>
     <SolidColorBrush x:Key="SurfaceBrush" Color="#FFF8FBFE"/>
     <SolidColorBrush x:Key="CardBrush" Color="#FFFFFFFF"/>
     <SolidColorBrush x:Key="CardAltBrush" Color="#FFF1F6FB"/>

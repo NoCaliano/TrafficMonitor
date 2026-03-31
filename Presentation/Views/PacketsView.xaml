@@ -6,6 +6,7 @@
     
     <UserControl.Resources>
         <helpers:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter"/>
+        <helpers:ProtocolBrushConverter x:Key="ProtocolBrushConverter"/>
         <!-- Freezable proxy to allow DataGridColumn (not in visual tree) to bind to the UserControl DataContext -->
         <helpers:BindingProxy x:Key="ViewModelProxy" Data="{Binding}" />
         <Style x:Key="PacketsFilterButtonStyle" TargetType="Button" BasedOn="{StaticResource ToolbarButtonStyle}">
@@ -43,8 +44,8 @@
         <Border Grid.Row="0"
                 Margin="0,0,0,8"
                 Padding="5,3"
-                Background="{StaticResource ShellBackgroundBrush}"
-                BorderBrush="{StaticResource BorderBrushSoft}"
+                Background="{StaticResource FilterToolbarBackgroundBrush}"
+                BorderBrush="{StaticResource FilterToolbarBorderBrush}"
                 BorderThickness="1"
                 CornerRadius="12">
             <Grid>
@@ -117,7 +118,23 @@
                     <DataGridTextColumn Header="Time" Binding="{Binding Timestamp, StringFormat=HH:mm:ss.fff}" Width="110" Visibility="{Binding Data.IsTimeColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
                     <DataGridTextColumn Header="Src" Binding="{Binding SrcIp}" Width="140" Visibility="{Binding Data.IsSrcColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
                     <DataGridTextColumn Header="Dst" Binding="{Binding DstIp}" Width="140" Visibility="{Binding Data.IsDstColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                    <DataGridTextColumn Header="Proto" Binding="{Binding Protocol}" Width="80" Visibility="{Binding Data.IsProtoColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                    <DataGridTemplateColumn Header="Proto" Width="84" Visibility="{Binding Data.IsProtoColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <Border Background="{Binding Protocol, Converter={StaticResource ProtocolBrushConverter}}"
+                                        BorderBrush="{Binding Protocol, Converter={StaticResource ProtocolBrushConverter}, ConverterParameter=Border}"
+                                        BorderThickness="1"
+                                        CornerRadius="8"
+                                        Padding="6,2"
+                                        HorizontalAlignment="Left">
+                                    <TextBlock Text="{Binding Protocol}"
+                                               FontSize="11"
+                                               FontWeight="SemiBold"
+                                               Foreground="{StaticResource TextPrimaryBrush}"/>
+                                </Border>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
                     <DataGridTextColumn Header="SPort" Binding="{Binding SrcPort}" Width="60" Visibility="{Binding Data.IsSPortColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
                     <DataGridTextColumn Header="DPort" Binding="{Binding DstPort}" Width="60" Visibility="{Binding Data.IsDPortColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
                     <DataGridTextColumn Header="Len" Binding="{Binding Length}" Width="70" Visibility="{Binding Data.IsLenColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
