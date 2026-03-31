@@ -181,7 +181,6 @@
                     </ControlTemplate>
                 </TabControl.Template>
 
-                <!-- Используем готовые UserControl'ы вместо дублирования -->
                 <TabItem Header="Packets">
                     <views:PacketsView />
                 </TabItem>

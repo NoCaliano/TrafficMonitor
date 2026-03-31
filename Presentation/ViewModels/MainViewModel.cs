@@ -214,6 +214,75 @@ public sealed class MainViewModel : ViewModelBase
         set => Set(ref _bpfFilter, value);
     }
 
+    private string _displayFilterText = "";
+    public string DisplayFilterText
+    {
+        get => _displayFilterText;
+        set
+        {
+            if (!Set(ref _displayFilterText, value))
+                return;
+
+            ApplyDisplayFilterText();
+        }
+    }
+
+    private string _displayFilterError = "";
+    public string DisplayFilterError
+    {
+        get => _displayFilterError;
+        private set
+        {
+            if (!Set(ref _displayFilterError, value))
+                return;
+
+            OnPropertyChanged(nameof(HasDisplayFilterError));
+            OnPropertyChanged(nameof(DisplayFilterHint));
+        }
+    }
+
+    public bool HasDisplayFilterError => !string.IsNullOrWhiteSpace(DisplayFilterError);
+
+    public string DisplayFilterHint => HasDisplayFilterError
+        ? DisplayFilterError
+        : "Wireshark-like examples: arp, dns, tcp && ip.addr == 1.1.1.1, tcp.port == 443, process contains chrome";
+
+    public IReadOnlyList<string> DisplayFilterExamples { get; } =
+    [
+        "arp",
+        "dns",
+        "tcp && ip.addr == 1.1.1.1",
+        "tcp.port == 443",
+        "process contains chrome",
+        "frame.len > 512 && not arp"
+    ];
+
+    private bool _isDisplayFilterExamplesOpen;
+    public bool IsDisplayFilterExamplesOpen
+    {
+        get => _isDisplayFilterExamplesOpen;
+        set => Set(ref _isDisplayFilterExamplesOpen, value);
+    }
+
+    private string? _selectedDisplayFilterExample;
+    public string? SelectedDisplayFilterExample
+    {
+        get => _selectedDisplayFilterExample;
+        set
+        {
+            if (!Set(ref _selectedDisplayFilterExample, value))
+                return;
+
+            if (string.IsNullOrWhiteSpace(value))
+                return;
+
+            DisplayFilterText = value;
+            IsDisplayFilterExamplesOpen = false;
+            _selectedDisplayFilterExample = null;
+            OnPropertyChanged();
+        }
+    }
+
     private string _statusText = "Idle";
     public string StatusText
     {
@@ -242,6 +311,8 @@ public sealed class MainViewModel : ViewModelBase
     // Flow filter is handled by FlowFilterService
 
     private PacketFilterModel _uiFilter = new();
+    private Func<PacketInfo, bool>? _displayFilterPredicate;
+    private bool _hasValidDisplayFilter;
 
     // Відповідає за текст активних фільтрів у UI (Flow + UI).
     private string _filtersText = "";
@@ -271,6 +342,7 @@ public sealed class MainViewModel : ViewModelBase
     public ICommand SelectLastPacketCommand { get; }
     public ICommand ZoomInPacketsCommand { get; }
     public ICommand ZoomOutPacketsCommand { get; }
+    public ICommand ToggleDisplayFilterExamplesCommand { get; }
 
     public StatsViewModel Stats { get; }
     private long _capTotalPackets;
@@ -325,6 +397,7 @@ public sealed class MainViewModel : ViewModelBase
         SelectLastPacketCommand = new RelayCommand(_ => SelectLastPacket());
         ZoomInPacketsCommand = new RelayCommand(_ => ZoomPackets(+1));
         ZoomOutPacketsCommand = new RelayCommand(_ => ZoomPackets(-1));
+        ToggleDisplayFilterExamplesCommand = new RelayCommand(_ => ToggleDisplayFilterExamples());
         ProcessPackets.ConfigureActions(ApplyProcessPacketFilter, FocusPacketsForProcess, message => StatusText = message);
 
         // FlowsViewModel will manage flow selection and flow commands
@@ -486,6 +559,7 @@ public sealed class MainViewModel : ViewModelBase
 
             _flowFilterService.Clear();
             _uiFilter = new PacketFilterModel();
+            DisplayFilterText = "";
             RefreshPacketsFilteringUi();
 
             _uiPacketsDropped = 0;
@@ -602,6 +676,7 @@ public sealed class MainViewModel : ViewModelBase
         // Скидаємо фільтри
         _flowFilterService.Clear();
         _uiFilter = new PacketFilterModel();
+        DisplayFilterText = "";
         RefreshPacketsFilteringUi();
 
 
@@ -820,12 +895,16 @@ public sealed class MainViewModel : ViewModelBase
         if (_flowFilterService.IsActive && !_flowFilterService.Matches(p))
             return false;
 
-        // 2) UI filter
+        // 2) Advanced UI filter
         if (!_uiFilterIsEmpty)
         {
             if (!_packetFilterService.MatchesUiFilter(p, _uiFilter))
                 return false;
         }
+
+        // 3) Quick display filter
+        if (_hasValidDisplayFilter && _displayFilterPredicate is not null && !_displayFilterPredicate(p))
+            return false;
 
         return true;
     }
@@ -834,8 +913,9 @@ public sealed class MainViewModel : ViewModelBase
     private void RefreshPacketsFilteringUi()
     {
         _uiFilterIsEmpty = _uiFilter.IsEmpty;
+        bool hasDisplayFilter = _hasValidDisplayFilter && !string.IsNullOrWhiteSpace(DisplayFilterText);
 
-        bool needFilter = _flowFilterService.IsActive || !_uiFilterIsEmpty;
+        bool needFilter = _flowFilterService.IsActive || !_uiFilterIsEmpty || hasDisplayFilter;
         if (needFilter)
         {
             PacketsView.Filter = obj => obj is PacketInfo p && PassesCombinedFilters(p);
@@ -853,6 +933,9 @@ public sealed class MainViewModel : ViewModelBase
         if (!_uiFilter.IsEmpty)
             parts.Add("UI Filter: active");
 
+        if (!string.IsNullOrWhiteSpace(DisplayFilterText))
+            parts.Add(hasDisplayFilter ? $"Display: {DisplayFilterText}" : "Display: invalid");
+
         FiltersText = parts.Count == 0 ? "" : string.Join(" | ", parts);
 
         // Refreshing a large CollectionView is expensive; only do it when we actually have a filter.
@@ -864,6 +947,41 @@ public sealed class MainViewModel : ViewModelBase
 
         OnPropertyChanged(nameof(IsFlowFollowActive));
         _clearFlowFilterCommand.RaiseCanExecuteChanged();
+    }
+
+    private void ApplyDisplayFilterText()
+    {
+        var text = (DisplayFilterText ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            _displayFilterPredicate = null;
+            _hasValidDisplayFilter = false;
+            DisplayFilterError = "";
+            RefreshPacketsFilteringUi();
+            return;
+        }
+
+        if (_packetFilterService.TryCompileDisplayFilter(text, out var predicate, out var error))
+        {
+            _displayFilterPredicate = predicate;
+            _hasValidDisplayFilter = predicate is not null;
+            DisplayFilterError = "";
+        }
+        else
+        {
+            _displayFilterPredicate = null;
+            _hasValidDisplayFilter = false;
+            DisplayFilterError = error ?? "Invalid display filter.";
+        }
+
+        RefreshPacketsFilteringUi();
+    }
+
+    private void ToggleDisplayFilterExamples()
+    {
+        IsDisplayFilterExamplesOpen = !IsDisplayFilterExamplesOpen;
+        if (IsDisplayFilterExamplesOpen)
+            SelectedDisplayFilterExample = null;
     }
 
     // Відповідає за перевірку, чи пакет проходить через критерії UI-фільтра (op + value).

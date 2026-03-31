@@ -12,6 +12,24 @@
             <Setter Property="Padding" Value="8,3"/>
             <Setter Property="MinHeight" Value="26"/>
         </Style>
+        <Style x:Key="DisplayFilterToggleButtonStyle" TargetType="Button" BasedOn="{StaticResource ToolbarButtonStyle}">
+            <Setter Property="Padding" Value="6,3"/>
+            <Setter Property="MinHeight" Value="26"/>
+            <Setter Property="MinWidth" Value="28"/>
+        </Style>
+        <Style x:Key="DisplayFilterTextBoxStyle" TargetType="TextBox">
+            <Setter Property="MinHeight" Value="26"/>
+            <Setter Property="Padding" Value="8,3"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="ToolTip" Value="{Binding DisplayFilterHint}"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding HasDisplayFilterError}" Value="True">
+                    <Setter Property="BorderBrush" Value="#D96C6C"/>
+                    <Setter Property="BorderThickness" Value="1.5"/>
+                    <Setter Property="Background" Value="#FFF7F0"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
     </UserControl.Resources>
     
     <Grid Background="{StaticResource AppBackgroundBrush}">
@@ -30,30 +48,50 @@
                 BorderThickness="1"
                 CornerRadius="12">
             <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="8"/>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="8"/>
                     <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="8"/>
+                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
-                <TextBlock Grid.Column="0"
+                <TextBlock Grid.Row="0" Grid.Column="0"
                            VerticalAlignment="Center"
                            Style="{StaticResource SectionCaptionTextStyle}"
-                           Text="Capture filter"/>
+                           Text="Display filter"/>
 
-                <Button Grid.Column="2"
+                <Button Grid.Row="0" Grid.Column="2"
                         Content="Filters..."
                         Command="{Binding OpenFiltersCommand}"
                         Style="{StaticResource PacketsFilterButtonStyle}"/>
 
-                <TextBox Grid.Column="4"
-                         MinHeight="26"
-                         Padding="8,3"
-                         VerticalContentAlignment="Center"
-                         Text="{Binding BpfFilter}"
-                         ToolTip="BPF filter (наприклад: tcp port 443)"/>
+                <TextBox Grid.Row="0" Grid.Column="4"
+                         Style="{StaticResource DisplayFilterTextBoxStyle}"
+                         Text="{Binding DisplayFilterText, UpdateSourceTrigger=PropertyChanged, Delay=350}"
+                         ToolTip="{Binding DisplayFilterHint}"/>
+
+                <Button Grid.Row="0" Grid.Column="6"
+                        Content="🔽"
+                        Command="{Binding ToggleDisplayFilterExamplesCommand}"
+                        Style="{StaticResource DisplayFilterToggleButtonStyle}"/>
+
+                <ComboBox Grid.Row="1"
+                          Grid.Column="4"
+                          Grid.ColumnSpan="3"
+                          Margin="0,6,0,0"
+                          MinHeight="28"
+                          ItemsSource="{Binding DisplayFilterExamples}"
+                          SelectedItem="{Binding SelectedDisplayFilterExample, Mode=TwoWay}"
+                          IsDropDownOpen="{Binding IsDisplayFilterExamplesOpen, Mode=TwoWay}"
+                          MaxDropDownHeight="220"
+                          Visibility="{Binding IsDisplayFilterExamplesOpen, Converter={StaticResource BoolToVisibilityConverter}}"/>
             </Grid>
         </Border>
 
