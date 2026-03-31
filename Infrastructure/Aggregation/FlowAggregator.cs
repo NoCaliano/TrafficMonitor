@@ -195,6 +195,7 @@ public sealed class FlowAggregator : IFlowAggregator
     // Відповідає за створення НОРМАЛІЗОВАНОГО bi-directional ключа (один ключ на A<->B).
     private static FlowKey MakeNormalizedKey(PacketInfo p)
     {
+        string protocol = string.IsNullOrWhiteSpace(p.TransportProtocol) ? p.Protocol : p.TransportProtocol;
         var aIp = p.SrcIp;
         var aPort = p.SrcPort;
         var bIp = p.DstIp;
@@ -207,7 +208,7 @@ public sealed class FlowAggregator : IFlowAggregator
             (aPort, bPort) = (bPort, aPort);
         }
 
-        return new FlowKey(p.Protocol, aIp, aPort, bIp, bPort);
+        return new FlowKey(protocol, aIp, aPort, bIp, bPort);
     }
 
     // Відповідає за перевірку, чи пакет іде A->B у нормалізованому ключі.

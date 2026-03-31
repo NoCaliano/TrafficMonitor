@@ -5,11 +5,26 @@
         xmlns:helpers="clr-namespace:Presentation.Helpers"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="TrafficMonitor"
-        Height="650"
-        Width="1200">
+        Height="720"
+        Width="1280"
+        MinHeight="680"
+        MinWidth="1120">
 
     <Window.Resources>
         <helpers:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter"/>
+        <Style x:Key="CompactToolbarButtonStyle" TargetType="Button" BasedOn="{StaticResource ToolbarButtonStyle}">
+            <Setter Property="Padding" Value="10,5"/>
+            <Setter Property="MinHeight" Value="30"/>
+            <Setter Property="Margin" Value="0,0,6,0"/>
+        </Style>
+        <Style x:Key="IconToolbarButtonStyle" TargetType="Button" BasedOn="{StaticResource ToolbarButtonStyle}">
+            <Setter Property="Padding" Value="8,5"/>
+            <Setter Property="MinHeight" Value="30"/>
+            <Setter Property="MinWidth" Value="34"/>
+            <Setter Property="Margin" Value="0,0,6,0"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontFamily" Value="Segoe UI Emoji"/>
+        </Style>
     </Window.Resources>
 
     <Window.InputBindings>
@@ -17,18 +32,17 @@
         <KeyBinding Modifiers="Control" Key="S" Command="{Binding SaveCaptureCommand}" />
     </Window.InputBindings>
 
-    <DockPanel LastChildFill="True" Margin="0">
+    <DockPanel LastChildFill="True" Margin="0" Background="{StaticResource AppBackgroundBrush}">
 
         <!-- ===== TOP MENU ===== -->
-        <Border DockPanel.Dock="Top" Background="White" BorderBrush="#FFD0D0D0" BorderThickness="0,0,0,1">
-            <Menu Background="White" BorderThickness="0" Padding="2,0" FontSize="12">
-                <Menu.Resources>
-                    <Style TargetType="{x:Type MenuItem}">
-                        <Setter Property="Padding" Value="8,2"/>
-                        <Setter Property="Margin" Value="0"/>
-                    </Style>
-                </Menu.Resources>
-
+        <Border DockPanel.Dock="Top"
+                Margin="8,8,8,0"
+                Padding="4,1"
+                Background="{StaticResource ShellBackgroundBrush}"
+                BorderBrush="{StaticResource BorderBrushSoft}"
+                BorderThickness="1"
+                CornerRadius="12">
+            <Menu Padding="0" FontSize="12">
                 <MenuItem Header="_File">
                     <MenuItem Header="_Open..." Command="{Binding OpenCaptureCommand}" InputGestureText="Ctrl+O"/>
                     <MenuItem Header="Save _As..." Command="{Binding SaveCaptureCommand}" InputGestureText="Ctrl+S"/>
@@ -56,26 +70,32 @@
         </Border>
 
         <!-- ===== CAPTURE TOOLBAR ===== -->
-        <Border DockPanel.Dock="Top" Background="#FFF7F7F7" BorderBrush="#FFD0D0D0" BorderThickness="0,0,0,1">
-            <ToolBarTray Background="#FFF7F7F7" IsLocked="True">
-                <ToolBar Background="#FFF7F7F7" BorderThickness="0" Padding="2" MinHeight="28">
+        <Border DockPanel.Dock="Top"
+                Margin="8,8,8,0"
+                Padding="8"
+                Background="{StaticResource ShellBackgroundBrush}"
+                BorderBrush="{StaticResource BorderBrushSoft}"
+                BorderThickness="1"
+                CornerRadius="12">
+            <ToolBarTray IsLocked="True">
+                <ToolBar Padding="0" MinHeight="30">
                     <ToolBar.Resources>
-                        <Style TargetType="{x:Type Button}">
-                            <Setter Property="Padding" Value="10,2"/>
-                            <Setter Property="Margin" Value="2,0"/>
-                            <Setter Property="MinHeight" Value="24"/>
+                        <Style TargetType="{x:Type Button}" BasedOn="{StaticResource CompactToolbarButtonStyle}">
+                            <Setter Property="Margin" Value="0,0,6,0"/>
                         </Style>
                         <Style TargetType="{x:Type TextBox}">
-                            <Setter Property="Margin" Value="2,0"/>
-                            <Setter Property="MinHeight" Value="24"/>
+                            <Setter Property="Margin" Value="0,0,6,0"/>
+                            <Setter Property="MinHeight" Value="30"/>
                         </Style>
                         <Style TargetType="{x:Type ComboBox}">
-                            <Setter Property="Margin" Value="2,0"/>
-                            <Setter Property="MinHeight" Value="24"/>
+                            <Setter Property="Margin" Value="0,0,6,0"/>
+                            <Setter Property="MinWidth" Value="220"/>
+                            <Setter Property="MinHeight" Value="30"/>
                         </Style>
                         <Style TargetType="{x:Type TextBlock}">
                             <Setter Property="Margin" Value="6,0,0,0"/>
                             <Setter Property="VerticalAlignment" Value="Center"/>
+                            <Setter Property="FontSize" Value="12"/>
                         </Style>
                     </ToolBar.Resources>
 
@@ -88,50 +108,59 @@
 
                     <Separator/>
 
-                    <Button Content="▶️" Command="{Binding StartCommand}" />
-                    <Button Content="⏸️"  Command="{Binding StopCommand}" />
+                    <Button Content="Start" Command="{Binding StartCommand}" Style="{StaticResource PrimaryButtonStyle}" Padding="10,5"/>
+                    <Button Content="Stop" Command="{Binding StopCommand}" />
                     <Button Content="Unfollow Flow"
                             Command="{Binding ClearFlowFilterCommand}"
                             Visibility="{Binding IsFlowFollowActive, Converter={StaticResource BoolToVisibilityConverter}}" />
 
                     <Separator/>
 
-                    <TextBlock Foreground="DarkOrange" Text="{Binding FiltersText}"/>
+                    <TextBlock Foreground="{StaticResource TextSecondaryBrush}" Text="{Binding FiltersText}"/>
 
                     <Separator/>
 
                     <Button Content="Show Packets" Command="{Binding ShowPacketsCommand}" />
                     <Button Content="Show Flows" Command="{Binding ShowFlowsCommand}" />
                     <Button Content="Process Packets" Command="{Binding ShowProcessPacketsCommand}" />
-                    <Button Content="🔍-" Command="{Binding ZoomOutPacketsCommand}" ToolTip="Зменшити масштаб" />
-                    <Button Content="🔍+" Command="{Binding ZoomInPacketsCommand}" ToolTip="Збільшити масштаб" />
-                    <Button Content="🔼" Command="{Binding SelectFirstPacketCommand}" ToolTip="Перший пакет" />
-                    <Button Content="⏪" Command="{Binding SelectPreviousPacketCommand}" ToolTip="Попередній пакет" />
-                    <Button Content="⏩" Command="{Binding SelectNextPacketCommand}" ToolTip="Наступний пакет" />
-                    <Button Content="🔽" Command="{Binding SelectLastPacketCommand}" ToolTip="Останній пакет" />
+                    <Button Content="🔍−" Command="{Binding ZoomOutPacketsCommand}" ToolTip="Зменшити масштаб" Style="{StaticResource IconToolbarButtonStyle}" />
+                    <Button Content="🔍+" Command="{Binding ZoomInPacketsCommand}" ToolTip="Збільшити масштаб" Style="{StaticResource IconToolbarButtonStyle}" />
+                    <Button Content="⏮" Command="{Binding SelectFirstPacketCommand}" ToolTip="Перший пакет" Style="{StaticResource IconToolbarButtonStyle}" />
+                    <Button Content="◀" Command="{Binding SelectPreviousPacketCommand}" ToolTip="Попередній пакет" Style="{StaticResource IconToolbarButtonStyle}" />
+                    <Button Content="▶" Command="{Binding SelectNextPacketCommand}" ToolTip="Наступний пакет" Style="{StaticResource IconToolbarButtonStyle}" />
+                    <Button Content="⏭" Command="{Binding SelectLastPacketCommand}" ToolTip="Останній пакет" Style="{StaticResource IconToolbarButtonStyle}" />
                     
                 </ToolBar>
             </ToolBarTray>
         </Border>
 
         <!-- ===== BPF FILTER (separate row under toolbar) ===== -->
-        <Border DockPanel.Dock="Top" Background="#FFF7F7F7" BorderBrush="#FFD0D0D0" BorderThickness="0,0,0,1">
-            <Grid Margin="4,2">
+        <Border DockPanel.Dock="Top"
+                Margin="8,8,8,0"
+                Padding="8"
+                Background="{StaticResource ShellBackgroundBrush}"
+                BorderBrush="{StaticResource BorderBrushSoft}"
+                BorderThickness="1"
+                CornerRadius="12">
+            <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="8"/>
                     <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="8"/>
+                    <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
 
-                <Button Grid.Column="1"
+                <TextBlock Grid.Column="0"
+                           VerticalAlignment="Center"
+                           Style="{StaticResource SectionCaptionTextStyle}"
+                           Text="Capture filter"/>
+
+                <Button Grid.Column="2"
                         Content="Filters..."
                         Command="{Binding OpenFiltersCommand}"
-                        MinHeight="24"
-                        Padding="10,2"
-                        Margin="6,0,2,0"/>
-                <TextBox Grid.Column="2"
-                         Width="800"
-                         MinHeight="24"
+                        Style="{StaticResource CompactToolbarButtonStyle}"/>
+                <TextBox Grid.Column="4"
                          Text="{Binding BpfFilter}"
                          ToolTip="BPF filter (наприклад: tcp port 443)"/>
                 
@@ -140,10 +169,8 @@
 
         <!-- ===== BOTTOM STATUS BAR ===== -->
         <StatusBar DockPanel.Dock="Bottom"
-                   Background="#FFF7F7F7"
-                   BorderBrush="#FFD0D0D0"
-                   BorderThickness="1,0,0,0"
-                   Padding="4,1">
+                   Margin="8,8,8,8"
+                   Padding="2,0">
             <StatusBarItem HorizontalContentAlignment="Stretch">
                 <Grid>
                     <Grid.ColumnDefinitions>
@@ -153,11 +180,11 @@
 
                     <StackPanel Grid.Column="0" Orientation="Horizontal">
                         <TextBlock FontWeight="SemiBold" Text="Capture:"/>
-                        <Border Width="1" Height="14" Background="#FFD0D0D0" Margin="10,0" VerticalAlignment="Center"/>
+                        <Border Width="1" Height="14" Background="{StaticResource BorderBrushSoft}" Margin="10,0" VerticalAlignment="Center"/>
                         <TextBlock Text="{Binding Stats.SummaryTotalPackets, StringFormat=Packets: {0:N0}}"/>
-                        <Border Width="1" Height="14" Background="#FFD0D0D0" Margin="10,0" VerticalAlignment="Center"/>
+                        <Border Width="1" Height="14" Background="{StaticResource BorderBrushSoft}" Margin="10,0" VerticalAlignment="Center"/>
                         <TextBlock Text="{Binding Stats.SummaryPacketsPerSec, StringFormat=Rate: {0}}"/>
-                        <Border Width="1" Height="14" Background="#FFD0D0D0" Margin="10,0" VerticalAlignment="Center"/>
+                        <Border Width="1" Height="14" Background="{StaticResource BorderBrushSoft}" Margin="10,0" VerticalAlignment="Center"/>
                         <TextBlock Text="{Binding Stats.SummaryTotalBytesHuman, StringFormat=Size: {0}}"/>
                     </StackPanel>
 
@@ -170,7 +197,7 @@
         </StatusBar>
 
         <!-- ===== MAIN CONTENT (edge-to-edge) ===== -->
-        <Grid Margin="0">
+        <Grid Margin="8,8,8,0">
             <TabControl SelectedIndex="{Binding LeftTabIndex}" Margin="0" Padding="0">
                 <TabControl.Template>
                     <ControlTemplate TargetType="{x:Type TabControl}">

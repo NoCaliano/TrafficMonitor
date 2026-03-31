@@ -224,7 +224,9 @@ public sealed class MainViewModel : ViewModelBase
     private bool IsNewOutboundFlowStart(int pid, PacketInfo p, RemoteEndpointKey endpoint, DateTime utc)
     {
         // TCP: treat SYN (without ACK) as a new connection attempt.
-        if (p.Protocol == "TCP")
+        var transportProtocol = string.IsNullOrWhiteSpace(p.TransportProtocol) ? p.Protocol : p.TransportProtocol;
+
+        if (transportProtocol == "TCP")
         {
             if (endpoint.Port <= 0)
                 return false;
@@ -237,7 +239,7 @@ public sealed class MainViewModel : ViewModelBase
         }
 
         // UDP: treat a new flow start if we haven't seen this 4-tuple recently.
-        if (p.Protocol == "UDP")
+        if (transportProtocol == "UDP")
         {
             if (endpoint.Port <= 0)
                 return false;

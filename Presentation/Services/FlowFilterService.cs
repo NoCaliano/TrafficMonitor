@@ -27,8 +27,9 @@ internal sealed class FlowFilterService : IFlowFilterService
         if (!_active.HasValue) return true;
 
         var key = _active.Value;
+        var packetProtocol = string.IsNullOrWhiteSpace(p.TransportProtocol) ? p.Protocol : p.TransportProtocol;
 
-        if (!string.Equals(p.Protocol, key.Protocol, StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(packetProtocol, key.Protocol, StringComparison.OrdinalIgnoreCase))
             return false;
 
         bool direct =

@@ -7,94 +7,25 @@
         <!-- Converter to get process icon from PID -->
         <local:ProcessIconConverter x:Key="ProcessIconConverter"/>
 
-        <SolidColorBrush x:Key="PageBg" Color="#FFF3F4F6"/>
-        <SolidColorBrush x:Key="CardBg" Color="#FFFFFFFF"/>
-        <SolidColorBrush x:Key="CardBorder" Color="#FFE5E7EB"/>
-        <SolidColorBrush x:Key="CardBorderHover" Color="#FFBFD7EE"/>
-        <SolidColorBrush x:Key="MutedText" Color="#FF6B7280"/>
-        <SolidColorBrush x:Key="Accent" Color="#FF007ACC"/>
-
-        <Style x:Key="CardStyle" TargetType="Border">
-            <Setter Property="Background" Value="{StaticResource CardBg}"/>
-            <Setter Property="BorderBrush" Value="{StaticResource CardBorder}"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="CornerRadius" Value="10"/>
-            <Setter Property="Padding" Value="12"/>
-            <Setter Property="SnapsToDevicePixels" Value="True"/>
-            <Setter Property="Effect">
-                <Setter.Value>
-                    <DropShadowEffect Color="#11000000" BlurRadius="12" ShadowDepth="2" Opacity="1"/>
-                </Setter.Value>
-            </Setter>
+        <Style x:Key="ProcessCardStyle" TargetType="Border" BasedOn="{StaticResource SectionCardStyle}">
             <Style.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="BorderBrush" Value="{StaticResource CardBorderHover}"/>
-                    <Setter Property="Effect">
-                        <Setter.Value>
-                            <DropShadowEffect Color="#22000000" BlurRadius="16" ShadowDepth="3" Opacity="1"/>
-                        </Setter.Value>
-                    </Setter>
+                    <Setter Property="BorderBrush" Value="{StaticResource BorderBrushStrong}"/>
                 </Trigger>
-
                 <DataTrigger Binding="{Binding IsAlive}" Value="False">
-                    <Setter Property="Opacity" Value="0.65"/>
+                    <Setter Property="Opacity" Value="0.7"/>
                 </DataTrigger>
             </Style.Triggers>
         </Style>
-
-        <Style x:Key="ChipButtonStyle" TargetType="Button">
-            <Setter Property="Padding" Value="10,3"/>
-            <Setter Property="Margin" Value="0"/>
-            <Setter Property="Background" Value="#FFF8FAFC"/>
-            <Setter Property="BorderBrush" Value="#FFD1D5DB"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Foreground" Value="#FF111827"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border Background="{TemplateBinding Background}"
-                                BorderBrush="{TemplateBinding BorderBrush}"
-                                BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="8"
-                                Padding="{TemplateBinding Padding}">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter Property="Background" Value="#FFEEF6FF"/>
-                                <Setter Property="BorderBrush" Value="#FF9CC7F3"/>
-                            </Trigger>
-                            <Trigger Property="IsPressed" Value="True">
-                                <Setter Property="Background" Value="#FFE3F0FF"/>
-                            </Trigger>
-                            <Trigger Property="IsEnabled" Value="False">
-                                <Setter Property="Opacity" Value="0.55"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
     </UserControl.Resources>
 
-    <Grid Background="{StaticResource PageBg}">
+    <Grid Background="{StaticResource AppBackgroundBrush}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <Border Grid.Row="0" Padding="12,10" Background="#FFFFFFFF" BorderBrush="#FFE5E7EB" BorderThickness="0,0,0,1">
-            <DockPanel LastChildFill="True">
-                <StackPanel DockPanel.Dock="Left">
-                    <TextBlock Text="Processes" FontWeight="SemiBold" FontSize="15" Foreground="#FF111827"/>
-                    <TextBlock Foreground="{StaticResource MutedText}" FontSize="11"
-                               Text="{Binding ProcessStats.Count, StringFormat=Discovered: {0}}"/>
-                </StackPanel>
-                <TextBlock DockPanel.Dock="Right" VerticalAlignment="Center" Foreground="{StaticResource MutedText}" FontSize="11"
-                           Text="Tip: use ‘Show’ to filter Packets by PID"/>
-            </DockPanel>
-        </Border>
+        
 
         <ScrollViewer Grid.Row="1"
                       VerticalScrollBarVisibility="Auto"
@@ -115,7 +46,7 @@
 
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
-                        <Border Style="{StaticResource CardStyle}" MinHeight="170">
+                        <Border Style="{StaticResource ProcessCardStyle}" MinHeight="170">
                             <Grid>
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto"/>
@@ -127,7 +58,7 @@
                                 </Grid.RowDefinitions>
 
                                 <DockPanel Grid.Row="0" LastChildFill="True">
-                                    <Border DockPanel.Dock="Left" Width="36" Height="36" CornerRadius="8" Margin="0,0,10,0" Background="#FFF3F4F6" BorderBrush="#FFE5E7EB" BorderThickness="1">
+                                    <Border DockPanel.Dock="Left" Width="36" Height="36" CornerRadius="8" Margin="0,0,10,0" Background="{StaticResource CardAltBrush}" BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="1">
                                         <Image Width="20" Height="20" VerticalAlignment="Center" HorizontalAlignment="Center">
                                             <Image.Source>
                                                 <Binding Path="Pid" Converter="{StaticResource ProcessIconConverter}" />
@@ -138,45 +69,45 @@
                                      <StackPanel DockPanel.Dock="Right" HorizontalAlignment="Right">
                                          <TextBlock Text="{Binding LivenessLabel}" FontSize="11" FontWeight="SemiBold" Foreground="{Binding LivenessBrush}" HorizontalAlignment="Right"/>
                                          <TextBlock Text="{Binding RiskLabel}" FontSize="11" FontWeight="SemiBold" Foreground="{Binding RiskBrush}" HorizontalAlignment="Right"/>
-                                         <TextBlock Text="{Binding SignedLabel}" FontSize="11" Foreground="{StaticResource MutedText}" HorizontalAlignment="Right"/>
+                                         <TextBlock Text="{Binding SignedLabel}" FontSize="11" Foreground="{StaticResource TextMutedBrush}" HorizontalAlignment="Right"/>
                                      </StackPanel>
 
                                     <StackPanel>
-                                        <TextBlock Text="{Binding ProcessName}" FontWeight="SemiBold" Foreground="#FF111827" TextTrimming="CharacterEllipsis"/>
-                                        <TextBlock Foreground="{StaticResource MutedText}" FontSize="11" Text="{Binding Pid, StringFormat=PID: {0}}"/>
+                                        <TextBlock Text="{Binding ProcessName}" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Foreground="{StaticResource TextMutedBrush}" FontSize="11" Text="{Binding Pid, StringFormat=PID: {0}}"/>
                                     </StackPanel>
                                 </DockPanel>
 
                                  <StackPanel Grid.Row="1" Margin="0,8,0,0">
-                                     <TextBlock Foreground="{StaticResource MutedText}" FontSize="11" TextTrimming="CharacterEllipsis" Text="{Binding Publisher, StringFormat=Publisher: {0}}"/>
-                                     <TextBlock Foreground="{StaticResource MutedText}" FontSize="11" TextTrimming="CharacterEllipsis" ToolTip="{Binding ExePath}" Text="{Binding ExePath, StringFormat=Path: {0}}"/>
-                                     <TextBlock Foreground="{StaticResource MutedText}" FontSize="11" TextTrimming="CharacterEllipsis" Text="{Binding ParentDisplay}"/>
-                                     <TextBlock Foreground="{StaticResource MutedText}" FontSize="11" TextTrimming="CharacterEllipsis" Text="{Binding LastSeenLabel}"/>
+                                     <TextBlock Foreground="{StaticResource TextMutedBrush}" FontSize="11" TextTrimming="CharacterEllipsis" Text="{Binding Publisher, StringFormat=Publisher: {0}}"/>
+                                     <TextBlock Foreground="{StaticResource TextMutedBrush}" FontSize="11" TextTrimming="CharacterEllipsis" ToolTip="{Binding ExePath}" Text="{Binding ExePath, StringFormat=Path: {0}}"/>
+                                     <TextBlock Foreground="{StaticResource TextMutedBrush}" FontSize="11" TextTrimming="CharacterEllipsis" Text="{Binding ParentDisplay}"/>
+                                     <TextBlock Foreground="{StaticResource TextMutedBrush}" FontSize="11" TextTrimming="CharacterEllipsis" Text="{Binding LastSeenLabel}"/>
                                  </StackPanel>
 
                                 <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,10,0,0">
-                                    <TextBlock Foreground="{StaticResource MutedText}" FontSize="11" Text="{Binding PacketCount, StringFormat=Packets: {0:N0}}"/>
-                                    <TextBlock Foreground="{StaticResource MutedText}" FontSize="11" Margin="12,0,0,0" Text="{Binding TotalBytesHuman, StringFormat=Traffic: {0}}"/>
-                                    <TextBlock Foreground="{StaticResource MutedText}" FontSize="11" Margin="12,0,0,0" Text="{Binding DistinctRemoteEndpoints, StringFormat=Remotes: {0}}"/>
+                                    <TextBlock Foreground="{StaticResource TextMutedBrush}" FontSize="11" Text="{Binding PacketCount, StringFormat=Packets: {0:N0}}"/>
+                                    <TextBlock Foreground="{StaticResource TextMutedBrush}" FontSize="11" Margin="12,0,0,0" Text="{Binding TotalBytesHuman, StringFormat=Traffic: {0}}"/>
+                                    <TextBlock Foreground="{StaticResource TextMutedBrush}" FontSize="11" Margin="12,0,0,0" Text="{Binding DistinctRemoteEndpoints, StringFormat=Remotes: {0}}"/>
                                 </StackPanel>
 
                                 <StackPanel Grid.Row="3" Orientation="Vertical" Margin="0,4,0,0">
                                     <StackPanel Orientation="Horizontal">
-                                        <TextBlock Foreground="{StaticResource MutedText}" FontSize="11" Text="{Binding LastSamplePackets, StringFormat=Recent: {0} pkt}"/>
-                                        <TextBlock Foreground="{StaticResource MutedText}" FontSize="11" Margin="12,0,0,0" Text="{Binding PeakSamplePackets, StringFormat=Peak: {0} pkt}"/>
-                                        <TextBlock Foreground="{StaticResource MutedText}" FontSize="11" Margin="12,0,0,0" Text="{Binding AvgSamplePackets, StringFormat=Avg: {0:0.#} pkt}"/>
+                                        <TextBlock Foreground="{StaticResource TextMutedBrush}" FontSize="11" Text="{Binding LastSamplePackets, StringFormat=Recent: {0} pkt}"/>
+                                        <TextBlock Foreground="{StaticResource TextMutedBrush}" FontSize="11" Margin="12,0,0,0" Text="{Binding PeakSamplePackets, StringFormat=Peak: {0} pkt}"/>
+                                        <TextBlock Foreground="{StaticResource TextMutedBrush}" FontSize="11" Margin="12,0,0,0" Text="{Binding AvgSamplePackets, StringFormat=Avg: {0:0.#} pkt}"/>
                                     </StackPanel>
 
-                                    <TextBlock Foreground="{StaticResource MutedText}" FontSize="11" TextTrimming="CharacterEllipsis" Text="{Binding TopRemoteEndpoint, StringFormat=Top: {0}}"/>
+                                    <TextBlock Foreground="{StaticResource TextMutedBrush}" FontSize="11" TextTrimming="CharacterEllipsis" Text="{Binding TopRemoteEndpoint, StringFormat=Top: {0}}"/>
                                     <TextBlock Foreground="{Binding RiskBrush}" FontSize="11" TextTrimming="CharacterEllipsis" Text="{Binding BeaconLabel}"/>
                                 </StackPanel>
 
-                                 <Border Grid.Row="4" Background="#FFF" Padding="6" Margin="0,10,0,0" BorderBrush="#FFE5E7EB" BorderThickness="1" CornerRadius="8">
+                                 <Border Grid.Row="4" Background="{StaticResource SurfaceBrush}" Padding="6" Margin="0,10,0,0" BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="1" CornerRadius="8">
                                     <Grid Height="44">
-                                        <Rectangle Fill="#F5F5F5" RadiusX="6" RadiusY="6"/>
+                                        <Rectangle Fill="{StaticResource CardAltBrush}" RadiusX="6" RadiusY="6"/>
                                         <Viewbox Stretch="Fill">
                                             <Canvas Width="180" Height="24">
-                                                <Path Data="{Binding SparklineGeometry}" Stroke="{StaticResource Accent}" StrokeThickness="1.5" />
+                                                <Path Data="{Binding SparklineGeometry}" Stroke="{StaticResource AccentBrush}" StrokeThickness="1.5" />
                                             </Canvas>
                                         </Viewbox>
                                     </Grid>

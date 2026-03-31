@@ -9,7 +9,7 @@
         WindowStyle="ToolWindow"
         ShowInTaskbar="False">
 
-    <Border Padding="12">
+    <Border Padding="18" Background="{StaticResource WindowBackgroundBrush}">
         <Grid>
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
@@ -18,7 +18,10 @@
             </Grid.RowDefinitions>
 
             <!-- Заголовок -->
-            <TextBlock FontWeight="Bold" Text="Packet Filters (UI-only)"/>
+            <StackPanel>
+                <TextBlock Text="Packet Filters" Style="{StaticResource ViewTitleTextStyle}"/>
+                <TextBlock Margin="0,4,0,0" Style="{StaticResource SectionCaptionTextStyle}" Text="UI-only filtering for the packets table"/>
+            </StackPanel>
 
             <Grid Grid.Row="2">
                 <Grid.RowDefinitions>
@@ -104,7 +107,7 @@
                         <!-- Підказка -->
                         <TextBlock Grid.Row="2" Grid.Column="5" Grid.ColumnSpan="4"
                                    VerticalAlignment="Center"
-                                   Foreground="Gray"
+                                   Foreground="{StaticResource TextMutedBrush}"
                                    Text="Any IP checks either Src or Dst"/>
                     </Grid>
                 </GroupBox>
@@ -195,7 +198,7 @@
                                  ToolTip="Formats: HH:mm:ss or yyyy-MM-dd HH:mm:ss"/>
 
                         <TextBlock Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="5"
-                                   Foreground="Gray"
+                                   Foreground="{StaticResource TextMutedBrush}"
                                    Text="Tip: If you enter only HH:mm:ss, today's date will be assumed."/>
                     </Grid>
                 </GroupBox>
@@ -292,7 +295,7 @@
 
                         <TextBlock Grid.Row="6" Grid.Column="8"
                                    VerticalAlignment="Center"
-                                   Foreground="Gray"
+                                   Foreground="{StaticResource TextMutedBrush}"
                                    Text="Leave empty = no limit"/>
                     </Grid>
                 </GroupBox>
@@ -306,7 +309,7 @@
                             Command="{Binding CancelCommand}"
                             CommandParameter="{Binding RelativeSource={RelativeSource AncestorType=Window}}"/>
 
-                    <Button Content="Apply" MinWidth="90"
+                    <Button Content="Apply" MinWidth="90" Style="{StaticResource PrimaryButtonStyle}"
                             Command="{Binding ApplyCommand}"
                             CommandParameter="{Binding RelativeSource={RelativeSource AncestorType=Window}}"/>
                 </StackPanel>

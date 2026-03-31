@@ -20,7 +20,8 @@ public sealed class PacketInfo
     public IPAddress? SrcIpAddress { get; init; }
     public IPAddress? DstIpAddress { get; init; }
 
-    public string Protocol { get; init; } = "";   // "TCP", "UDP", "ICMP", "ARP", ...
+    public string Protocol { get; init; } = "";   // "TCP", "DNS", "TLSv1.2", "QUIC", ...
+    public string TransportProtocol { get; init; } = "";   // "TCP", "UDP", "IGMP", ...
     public int? SrcPort { get; init; }
     public int? DstPort { get; init; }
     public int? Pid { get; init; }

@@ -10,40 +10,42 @@
         <helpers:BindingProxy x:Key="ViewModelProxy" Data="{Binding}" />
     </UserControl.Resources>
     
-    <Grid>
+    <Grid Background="{StaticResource AppBackgroundBrush}">
         <Grid.RowDefinitions>
             <RowDefinition Height="*"/>
             <RowDefinition Height="6"/>
-            <RowDefinition Height="260"/>
+            <RowDefinition Height="210"/>
         </Grid.RowDefinitions>
 
         <!-- Packets table -->
-        <DataGrid x:Name="PacketsDataGrid" Grid.Row="0"
-                  ItemsSource="{Binding PacketsView}"
-                  SelectedItem="{Binding SelectedPacket}"
-                  IsReadOnly="True"
-                  AutoGenerateColumns="False"
-                  FontSize="{Binding PacketsTableFontSize}"
-                  EnableRowVirtualization="True"
-                  EnableColumnVirtualization="True"
-                  VirtualizingPanel.IsVirtualizing="True"
-                  VirtualizingPanel.VirtualizationMode="Recycling">
+        <Border Grid.Row="0" Style="{StaticResource SectionCardStyle}">
+            <DataGrid x:Name="PacketsDataGrid"
+                      ItemsSource="{Binding PacketsView}"
+                      SelectedItem="{Binding SelectedPacket}"
+                      IsReadOnly="True"
+                      AutoGenerateColumns="False"
+                      FontSize="{Binding PacketsTableFontSize}"
+                      EnableRowVirtualization="True"
+                      EnableColumnVirtualization="True"
+                      VirtualizingPanel.IsVirtualizing="True"
+                      VirtualizingPanel.VirtualizationMode="Recycling">
 
-            <DataGrid.Columns>
-                <DataGridTextColumn Header="No" Binding="{Binding No}" Width="60" Visibility="{Binding Data.IsNoColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                <DataGridTextColumn Header="Time" Binding="{Binding Timestamp, StringFormat=HH:mm:ss.fff}" Width="110" Visibility="{Binding Data.IsTimeColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                <DataGridTextColumn Header="Src" Binding="{Binding SrcIp}" Width="140" Visibility="{Binding Data.IsSrcColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                <DataGridTextColumn Header="Dst" Binding="{Binding DstIp}" Width="140" Visibility="{Binding Data.IsDstColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                <DataGridTextColumn Header="Proto" Binding="{Binding Protocol}" Width="60" Visibility="{Binding Data.IsProtoColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                <DataGridTextColumn Header="SPort" Binding="{Binding SrcPort}" Width="60" Visibility="{Binding Data.IsSPortColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                <DataGridTextColumn Header="DPort" Binding="{Binding DstPort}" Width="60" Visibility="{Binding Data.IsDPortColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                <DataGridTextColumn Header="Len" Binding="{Binding Length}" Width="70" Visibility="{Binding Data.IsLenColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                <DataGridTextColumn Header="Flags" Binding="{Binding TcpFlags}" Width="110" Visibility="{Binding Data.IsFlagsColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                <DataGridTextColumn Header="PID" Binding="{Binding Pid}" Width="70" Visibility="{Binding Data.IsPidColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                <DataGridTextColumn Header="Process" Binding="{Binding ProcessName}" Width="130" Visibility="{Binding Data.IsProcessColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                <DataGridTextColumn Header="Info" Binding="{Binding Info}" Width="*" Visibility="{Binding Data.IsInfoColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
-            </DataGrid.Columns>
-        </DataGrid>
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="No" Binding="{Binding No}" Width="60" Visibility="{Binding Data.IsNoColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                    <DataGridTextColumn Header="Time" Binding="{Binding Timestamp, StringFormat=HH:mm:ss.fff}" Width="110" Visibility="{Binding Data.IsTimeColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                    <DataGridTextColumn Header="Src" Binding="{Binding SrcIp}" Width="140" Visibility="{Binding Data.IsSrcColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                    <DataGridTextColumn Header="Dst" Binding="{Binding DstIp}" Width="140" Visibility="{Binding Data.IsDstColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                    <DataGridTextColumn Header="Proto" Binding="{Binding Protocol}" Width="80" Visibility="{Binding Data.IsProtoColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                    <DataGridTextColumn Header="SPort" Binding="{Binding SrcPort}" Width="60" Visibility="{Binding Data.IsSPortColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                    <DataGridTextColumn Header="DPort" Binding="{Binding DstPort}" Width="60" Visibility="{Binding Data.IsDPortColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                    <DataGridTextColumn Header="Len" Binding="{Binding Length}" Width="70" Visibility="{Binding Data.IsLenColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                    <DataGridTextColumn Header="Flags" Binding="{Binding TcpFlags}" Width="110" Visibility="{Binding Data.IsFlagsColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                    <DataGridTextColumn Header="PID" Binding="{Binding Pid}" Width="70" Visibility="{Binding Data.IsPidColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                    <DataGridTextColumn Header="Process" Binding="{Binding ProcessName}" Width="130" Visibility="{Binding Data.IsProcessColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                    <DataGridTextColumn Header="Info" Binding="{Binding Info}" Width="*" Visibility="{Binding Data.IsInfoColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                </DataGrid.Columns>
+            </DataGrid>
+        </Border>
 
         <GridSplitter Grid.Row="1" Height="6" HorizontalAlignment="Stretch"/>
 
