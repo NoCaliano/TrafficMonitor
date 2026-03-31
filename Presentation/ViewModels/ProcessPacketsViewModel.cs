@@ -33,7 +33,13 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
     public ProcessStatRow? SelectedProcessStat
     {
         get => _selectedProcessStat;
-        set => Set(ref _selectedProcessStat, value);
+        set
+        {
+            if (!Set(ref _selectedProcessStat, value))
+                return;
+
+            RefreshSelectedProcessDetails();
+        }
     }
 
     public ICommand ShowPacketsForPidCommand { get; }
@@ -117,8 +123,6 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
         if (packet.Pid is not int pid || string.IsNullOrWhiteSpace(packet.ProcessName))
             return;
 
-        SelectProcess(pid);
-
         var row = GetOrCreateProcessRow(pid, packet.ProcessName);
         bool isFirstPacket = row.PacketCount == 0;
 
@@ -154,6 +158,8 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
             if (kvp.Value > previousPeak)
                 row.RecordTrafficPeak(row.LastSeen == default ? DateTime.Now : row.LastSeen, kvp.Value);
         }
+
+        RefreshSelectedProcessDetails();
     }
 
     public void SelectProcess(int pid)
@@ -163,6 +169,15 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
 
         if (_processStatsMap.TryGetValue(pid, out var row))
             SelectedProcessStat = row;
+    }
+
+    private void RefreshSelectedProcessDetails()
+    {
+        if (SelectedProcessStat is null)
+            return;
+
+        SelectedProcessStat.UpdateConversations(_forensicsTracker.GetConversationSnapshot(SelectedProcessStat.Pid));
+        SelectedProcessStat.UpdateSessionClusters(_forensicsTracker.GetSessionClusterSnapshot(SelectedProcessStat.Pid));
     }
 
     private ProcessStatRow GetOrCreateProcessRow(int pid, string processName)

@@ -89,6 +89,14 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
     public bool HasTimelineEvents => TimelineEvents.Count > 0;
     public string TimelineEmptyState => HasTimelineEvents ? "" : "No investigation events recorded yet.";
     public string TimelineTitle => "Investigation timeline";
+    public ObservableCollection<ProcessConversationRow> Conversations { get; } = new();
+    public bool HasConversations => Conversations.Count > 0;
+    public string ConversationTitle => "Conversation view";
+    public string ConversationEmptyState => HasConversations ? "" : "No conversation partners recorded yet.";
+    public ObservableCollection<ProcessSessionClusterRow> SessionClusters { get; } = new();
+    public bool HasSessionClusters => SessionClusters.Count > 0;
+    public string SessionClustersTitle => "Session clusters";
+    public string SessionClustersEmptyState => HasSessionClusters ? "" : "No activity sessions recorded yet.";
 
     public string RiskLabel
     {
@@ -320,6 +328,26 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
 
     public void RecordFirewallUnblock(DateTime timestamp)
         => AppendTimelineEvent($"firewall-unblock-{timestamp.Ticks}", timestamp, "Firewall block removed", "TrafficMonitor removed its Windows Firewall rules for this executable.");
+
+    public void UpdateConversations(IEnumerable<ProcessConversationRow> conversations)
+    {
+        Conversations.Clear();
+        foreach (var conversation in conversations)
+            Conversations.Add(conversation);
+
+        OnPropertyChanged(nameof(HasConversations));
+        OnPropertyChanged(nameof(ConversationEmptyState));
+    }
+
+    public void UpdateSessionClusters(IEnumerable<ProcessSessionClusterRow> sessionClusters)
+    {
+        SessionClusters.Clear();
+        foreach (var sessionCluster in sessionClusters)
+            SessionClusters.Add(sessionCluster);
+
+        OnPropertyChanged(nameof(HasSessionClusters));
+        OnPropertyChanged(nameof(SessionClustersEmptyState));
+    }
 
     private void AddTimelineEventIfMissing(string key, DateTime timestamp, string title, string detail)
     {

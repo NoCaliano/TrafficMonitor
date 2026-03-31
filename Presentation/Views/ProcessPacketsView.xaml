@@ -96,6 +96,102 @@
                            FontSize="11"
                            Foreground="{StaticResource TextMutedBrush}"
                            TextWrapping="Wrap"/>
+
+                <TextBlock Margin="0,18,0,0"
+                           Text="{Binding ConversationTitle}"
+                           FontWeight="SemiBold"
+                           Foreground="{StaticResource TextPrimaryBrush}"/>
+
+                <ItemsControl ItemsSource="{Binding Conversations}" Margin="0,10,0,0">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border Margin="0,0,0,10"
+                                    Padding="10,8"
+                                    Background="{StaticResource SurfaceBrush}"
+                                    BorderBrush="{StaticResource BorderBrushSoft}"
+                                    BorderThickness="1"
+                                    CornerRadius="8">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock Text="{Binding ConversationLabel}"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="{StaticResource TextPrimaryBrush}"
+                                                   TextWrapping="Wrap"/>
+                                        <WrapPanel Margin="0,4,0,0">
+                                            <TextBlock Margin="0,0,12,4" Text="{Binding PacketCountLabel}" FontSize="11" Foreground="{StaticResource TextMutedBrush}"/>
+                                            <TextBlock Margin="0,0,12,4" Text="{Binding BytesLabel}" FontSize="11" Foreground="{StaticResource TextMutedBrush}"/>
+                                            <TextBlock Margin="0,0,12,4" Text="{Binding DirectionLabel}" FontSize="11" Foreground="{StaticResource TextMutedBrush}"/>
+                                        </WrapPanel>
+                                    </StackPanel>
+
+                                    <StackPanel Grid.Column="1" Margin="14,0,0,0" HorizontalAlignment="Right">
+                                        <TextBlock Text="{Binding LastSeenLabel}" FontSize="11" Foreground="{StaticResource TextMutedBrush}" HorizontalAlignment="Right"/>
+                                        <TextBlock Text="{Binding FirstSeenLabel}" FontSize="11" Foreground="{StaticResource TextMutedBrush}" HorizontalAlignment="Right"/>
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <TextBlock Margin="0,2,0,0"
+                           Text="{Binding ConversationEmptyState}"
+                           FontSize="11"
+                           Foreground="{StaticResource TextMutedBrush}"
+                           TextWrapping="Wrap"/>
+
+                <TextBlock Margin="0,18,0,0"
+                           Text="{Binding SessionClustersTitle}"
+                           FontWeight="SemiBold"
+                           Foreground="{StaticResource TextPrimaryBrush}"/>
+
+                <ItemsControl ItemsSource="{Binding SessionClusters}" Margin="0,10,0,0">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border Margin="0,0,0,10"
+                                    Padding="10,8"
+                                    Background="{StaticResource SurfaceBrush}"
+                                    BorderBrush="{StaticResource BorderBrushSoft}"
+                                    BorderThickness="1"
+                                    CornerRadius="8">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock Text="{Binding Title}"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="{StaticResource TextPrimaryBrush}"/>
+                                        <WrapPanel Margin="0,4,0,0">
+                                            <TextBlock Margin="0,0,12,4" Text="{Binding PacketCountLabel}" FontSize="11" Foreground="{StaticResource TextMutedBrush}"/>
+                                            <TextBlock Margin="0,0,12,4" Text="{Binding BytesLabel}" FontSize="11" Foreground="{StaticResource TextMutedBrush}"/>
+                                            <TextBlock Margin="0,0,12,4" Text="{Binding DirectionLabel}" FontSize="11" Foreground="{StaticResource TextMutedBrush}"/>
+                                        </WrapPanel>
+                                        <TextBlock Margin="0,4,0,0" Text="{Binding RemoteSummaryLabel}" FontSize="11" Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap"/>
+                                    </StackPanel>
+
+                                    <StackPanel Grid.Column="1" Margin="14,0,0,0" HorizontalAlignment="Right">
+                                        <TextBlock Text="{Binding WindowLabel}" FontSize="11" Foreground="{StaticResource TextMutedBrush}" HorizontalAlignment="Right"/>
+                                        <TextBlock Text="{Binding DurationLabel}" FontSize="11" Foreground="{StaticResource TextMutedBrush}" HorizontalAlignment="Right"/>
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <TextBlock Margin="0,2,0,0"
+                           Text="{Binding SessionClustersEmptyState}"
+                           FontSize="11"
+                           Foreground="{StaticResource TextMutedBrush}"
+                           TextWrapping="Wrap"/>
             </StackPanel>
         </DataTemplate>
     </UserControl.Resources>
@@ -292,7 +388,7 @@
 
                 <TextBlock Grid.Row="0" Text="Investigation timeline" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}"/>
 
-                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,10,0,0">
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Hidden" Margin="0,10,0,0">
                     <Grid>
                         <StackPanel Visibility="{Binding DataContext.SelectedProcessStat, ElementName=ProcessPacketsLayout, Converter={StaticResource NullToVisibilityConverter}}">
                             <TextBlock Foreground="{StaticResource TextMutedBrush}" Text="No process selected."/>

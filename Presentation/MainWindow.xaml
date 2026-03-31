@@ -30,6 +30,10 @@
     <Window.InputBindings>
         <KeyBinding Modifiers="Control" Key="O" Command="{Binding OpenCaptureCommand}" />
         <KeyBinding Modifiers="Control" Key="S" Command="{Binding SaveCaptureCommand}" />
+        <KeyBinding Key="Right" Command="{Binding SelectFirstPacketCommand}" />
+        <KeyBinding Key="Up" Command="{Binding SelectPreviousPacketCommand}" />
+        <KeyBinding Key="Down" Command="{Binding SelectNextPacketCommand}" />
+        <KeyBinding Key="Left" Command="{Binding SelectLastPacketCommand}" />
     </Window.InputBindings>
 
     <DockPanel LastChildFill="True" Margin="0" Background="{StaticResource AppBackgroundBrush}">
