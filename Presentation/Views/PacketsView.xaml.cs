@@ -174,11 +174,7 @@ namespace Presentation.Views
                     if (dg is null || dg.Items.Count == 0)
                         return;
 
-                    // Scroll to the last visible item in the grid (respects current filters).
-                    var lastItem = dg.Items[dg.Items.Count - 1];
-
                     _scrollToEndInProgress = true;
-                    dg.ScrollIntoView(lastItem);
                     _packetsScrollViewer?.ScrollToEnd();
                     _scrollToEndInProgress = false;
                 }
@@ -186,7 +182,7 @@ namespace Presentation.Views
                 {
                     _autoScrollPending = false;
                 }
-            }), System.Windows.Threading.DispatcherPriority.Background);
+            }), System.Windows.Threading.DispatcherPriority.ContextIdle);
         }
 
         private static T? FindDescendant<T>(DependencyObject root) where T : DependencyObject

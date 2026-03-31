@@ -100,7 +100,7 @@
         </DataTemplate>
     </UserControl.Resources>
 
-    <Grid Background="{StaticResource AppBackgroundBrush}">
+    <Grid x:Name="ProcessPacketsLayout" Background="{StaticResource AppBackgroundBrush}" DataContext="{Binding ProcessPackets}">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*"/>
             <ColumnDefinition Width="6"/>
@@ -113,7 +113,7 @@
                      Background="Transparent"
                      BorderThickness="0"
                      ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                     ScrollViewer.VerticalScrollBarVisibility="Auto">
+                     ScrollViewer.VerticalScrollBarVisibility="Hidden">
                 <ListBox.ItemContainerStyle>
                     <Style TargetType="ListBoxItem">
                         <Setter Property="Margin" Value="6"/>
@@ -244,32 +244,32 @@
 
                                 <WrapPanel Grid.Row="6" Margin="0,10,0,0" HorizontalAlignment="Right">
                                     <Button Content="Locate"
-                                            Command="{Binding DataContext.LocateProcessCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            Command="{Binding DataContext.LocateProcessCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
                                             CommandParameter="{Binding Pid}"
                                             Style="{StaticResource ChipButtonStyle}"
                                             Margin="0,0,6,6"/>
                                     <Button Content="Block"
-                                            Command="{Binding DataContext.BlockProcessFirewallCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            Command="{Binding DataContext.BlockProcessFirewallCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
                                             CommandParameter="{Binding Pid}"
                                             Style="{StaticResource ChipButtonStyle}"
                                             Margin="0,0,6,6"/>
                                     <Button Content="Unblock"
-                                            Command="{Binding DataContext.UnblockProcessFirewallCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            Command="{Binding DataContext.UnblockProcessFirewallCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
                                             CommandParameter="{Binding Pid}"
                                             Style="{StaticResource ChipButtonStyle}"
                                             Margin="0,0,6,6"/>
                                     <Button Content="Kill"
-                                            Command="{Binding DataContext.KillProcessCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            Command="{Binding DataContext.KillProcessCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
                                             CommandParameter="{Binding Pid}"
                                             Style="{StaticResource ChipButtonStyle}"
                                             Margin="0,0,6,6"/>
                                     <Button Content="Show"
-                                            Command="{Binding DataContext.ShowPacketsForPidCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            Command="{Binding DataContext.ShowPacketsForPidCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
                                             CommandParameter="{Binding Pid}"
                                             Style="{StaticResource ChipButtonStyle}"
                                             Margin="0,0,6,6"/>
                                     <Button Content="Focus"
-                                            Command="{Binding DataContext.FocusOnPidCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            Command="{Binding DataContext.FocusOnPidCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
                                             CommandParameter="{Binding Pid}"
                                             Style="{StaticResource ChipButtonStyle}"
                                             Margin="0,0,0,6"/>
@@ -294,14 +294,14 @@
 
                 <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,10,0,0">
                     <Grid>
-                        <StackPanel Visibility="{Binding SelectedProcessStat, Converter={StaticResource NullToVisibilityConverter}}">
+                        <StackPanel Visibility="{Binding DataContext.SelectedProcessStat, ElementName=ProcessPacketsLayout, Converter={StaticResource NullToVisibilityConverter}}">
                             <TextBlock Foreground="{StaticResource TextMutedBrush}" Text="No process selected."/>
                             <TextBlock Foreground="{StaticResource TextMutedBrush}" Margin="0,4,0,0" Text="Select a process card to inspect its timeline."/>
                         </StackPanel>
 
-                        <ContentPresenter Content="{Binding SelectedProcessStat}"
+                        <ContentPresenter Content="{Binding DataContext.SelectedProcessStat, ElementName=ProcessPacketsLayout}"
                                           ContentTemplate="{StaticResource ProcessTimelineDetailsTemplate}"
-                                          Visibility="{Binding SelectedProcessStat, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
+                                          Visibility="{Binding DataContext.SelectedProcessStat, ElementName=ProcessPacketsLayout, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
                     </Grid>
                 </ScrollViewer>
             </Grid>

@@ -129,6 +129,19 @@ public sealed class ProcessForensicsTracker
             _udpFlowLastSeenUtc.Remove(k);
     }
 
+    public void Reset()
+    {
+        _distinctRemotes.Clear();
+        _endpointBytes.Clear();
+        _topRemoteByBytes.Clear();
+        _beaconStates.Clear();
+        _bestBeaconByPid.Clear();
+        _udpFlowLastSeenUtc.Clear();
+        _lastCleanupUtc = DateTime.MinValue;
+        _lastLocalIpsRefreshUtc = DateTime.MinValue;
+        RefreshLocalIpsIfNeeded(force: true);
+    }
+
     private void RefreshLocalIpsIfNeeded(bool force)
     {
         var now = DateTime.UtcNow;

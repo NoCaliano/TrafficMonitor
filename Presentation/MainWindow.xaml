@@ -13,16 +13,16 @@
     <Window.Resources>
         <helpers:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter"/>
         <Style x:Key="CompactToolbarButtonStyle" TargetType="Button" BasedOn="{StaticResource ToolbarButtonStyle}">
-            <Setter Property="Padding" Value="10,5"/>
-            <Setter Property="MinHeight" Value="30"/>
+            <Setter Property="Padding" Value="8,3"/>
+            <Setter Property="MinHeight" Value="26"/>
             <Setter Property="Margin" Value="0,0,6,0"/>
         </Style>
         <Style x:Key="IconToolbarButtonStyle" TargetType="Button" BasedOn="{StaticResource ToolbarButtonStyle}">
-            <Setter Property="Padding" Value="8,5"/>
-            <Setter Property="MinHeight" Value="30"/>
-            <Setter Property="MinWidth" Value="34"/>
+            <Setter Property="Padding" Value="7,3"/>
+            <Setter Property="MinHeight" Value="26"/>
+            <Setter Property="MinWidth" Value="30"/>
             <Setter Property="Margin" Value="0,0,6,0"/>
-            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontSize" Value="13"/>
             <Setter Property="FontFamily" Value="Segoe UI Emoji"/>
         </Style>
     </Window.Resources>
@@ -37,12 +37,18 @@
         <!-- ===== TOP MENU ===== -->
         <Border DockPanel.Dock="Top"
                 Margin="8,8,8,0"
-                Padding="4,1"
+                Padding="2,0"
                 Background="{StaticResource ShellBackgroundBrush}"
                 BorderBrush="{StaticResource BorderBrushSoft}"
                 BorderThickness="1"
                 CornerRadius="12">
-            <Menu Padding="0" FontSize="12">
+            <Menu Padding="0" FontSize="11">
+                <Menu.Resources>
+                    <Style TargetType="{x:Type MenuItem}">
+                        <Setter Property="Padding" Value="8,3"/>
+                        <Setter Property="FontSize" Value="11"/>
+                    </Style>
+                </Menu.Resources>
                 <MenuItem Header="_File">
                     <MenuItem Header="_Open..." Command="{Binding OpenCaptureCommand}" InputGestureText="Ctrl+O"/>
                     <MenuItem Header="Save _As..." Command="{Binding SaveCaptureCommand}" InputGestureText="Ctrl+S"/>
@@ -72,30 +78,30 @@
         <!-- ===== CAPTURE TOOLBAR ===== -->
         <Border DockPanel.Dock="Top"
                 Margin="8,8,8,0"
-                Padding="8"
+                Padding="6,4"
                 Background="{StaticResource ShellBackgroundBrush}"
                 BorderBrush="{StaticResource BorderBrushSoft}"
                 BorderThickness="1"
                 CornerRadius="12">
             <ToolBarTray IsLocked="True">
-                <ToolBar Padding="0" MinHeight="30">
+                <ToolBar Padding="0" MinHeight="26">
                     <ToolBar.Resources>
                         <Style TargetType="{x:Type Button}" BasedOn="{StaticResource CompactToolbarButtonStyle}">
                             <Setter Property="Margin" Value="0,0,6,0"/>
                         </Style>
                         <Style TargetType="{x:Type TextBox}">
                             <Setter Property="Margin" Value="0,0,6,0"/>
-                            <Setter Property="MinHeight" Value="30"/>
+                            <Setter Property="MinHeight" Value="26"/>
                         </Style>
                         <Style TargetType="{x:Type ComboBox}">
                             <Setter Property="Margin" Value="0,0,6,0"/>
                             <Setter Property="MinWidth" Value="220"/>
-                            <Setter Property="MinHeight" Value="30"/>
+                            <Setter Property="MinHeight" Value="26"/>
                         </Style>
                         <Style TargetType="{x:Type TextBlock}">
                             <Setter Property="Margin" Value="6,0,0,0"/>
                             <Setter Property="VerticalAlignment" Value="Center"/>
-                            <Setter Property="FontSize" Value="12"/>
+                            <Setter Property="FontSize" Value="11"/>
                         </Style>
                     </ToolBar.Resources>
 
@@ -108,7 +114,7 @@
 
                     <Separator/>
 
-                    <Button Content="Start" Command="{Binding StartCommand}" Style="{StaticResource PrimaryButtonStyle}" Padding="10,5"/>
+                    <Button Content="Start" Command="{Binding StartCommand}" Style="{StaticResource PrimaryButtonStyle}" Padding="8,3" MinHeight="26"/>
                     <Button Content="Stop" Command="{Binding StopCommand}" />
                     <Button Content="Unfollow Flow"
                             Command="{Binding ClearFlowFilterCommand}"
@@ -132,39 +138,6 @@
                     
                 </ToolBar>
             </ToolBarTray>
-        </Border>
-
-        <!-- ===== BPF FILTER (separate row under toolbar) ===== -->
-        <Border DockPanel.Dock="Top"
-                Margin="8,8,8,0"
-                Padding="8"
-                Background="{StaticResource ShellBackgroundBrush}"
-                BorderBrush="{StaticResource BorderBrushSoft}"
-                BorderThickness="1"
-                CornerRadius="12">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="8"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="8"/>
-                    <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
-
-                <TextBlock Grid.Column="0"
-                           VerticalAlignment="Center"
-                           Style="{StaticResource SectionCaptionTextStyle}"
-                           Text="Capture filter"/>
-
-                <Button Grid.Column="2"
-                        Content="Filters..."
-                        Command="{Binding OpenFiltersCommand}"
-                        Style="{StaticResource CompactToolbarButtonStyle}"/>
-                <TextBox Grid.Column="4"
-                         Text="{Binding BpfFilter}"
-                         ToolTip="BPF filter (наприклад: tcp port 443)"/>
-                
-            </Grid>
         </Border>
 
         <!-- ===== BOTTOM STATUS BAR ===== -->

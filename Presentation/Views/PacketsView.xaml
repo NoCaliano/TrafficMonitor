@@ -8,27 +8,71 @@
         <helpers:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter"/>
         <!-- Freezable proxy to allow DataGridColumn (not in visual tree) to bind to the UserControl DataContext -->
         <helpers:BindingProxy x:Key="ViewModelProxy" Data="{Binding}" />
+        <Style x:Key="PacketsFilterButtonStyle" TargetType="Button" BasedOn="{StaticResource ToolbarButtonStyle}">
+            <Setter Property="Padding" Value="8,3"/>
+            <Setter Property="MinHeight" Value="26"/>
+        </Style>
     </UserControl.Resources>
     
     <Grid Background="{StaticResource AppBackgroundBrush}">
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="6"/>
             <RowDefinition Height="210"/>
         </Grid.RowDefinitions>
 
+        <Border Grid.Row="0"
+                Margin="0,0,0,8"
+                Padding="5,3"
+                Background="{StaticResource ShellBackgroundBrush}"
+                BorderBrush="{StaticResource BorderBrushSoft}"
+                BorderThickness="1"
+                CornerRadius="12">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="8"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="8"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Grid.Column="0"
+                           VerticalAlignment="Center"
+                           Style="{StaticResource SectionCaptionTextStyle}"
+                           Text="Capture filter"/>
+
+                <Button Grid.Column="2"
+                        Content="Filters..."
+                        Command="{Binding OpenFiltersCommand}"
+                        Style="{StaticResource PacketsFilterButtonStyle}"/>
+
+                <TextBox Grid.Column="4"
+                         MinHeight="26"
+                         Padding="8,3"
+                         VerticalContentAlignment="Center"
+                         Text="{Binding BpfFilter}"
+                         ToolTip="BPF filter (наприклад: tcp port 443)"/>
+            </Grid>
+        </Border>
+
         <!-- Packets table -->
-        <Border Grid.Row="0" Style="{StaticResource SectionCardStyle}">
+        <Border Grid.Row="1" Style="{StaticResource SectionCardStyle}">
             <DataGrid x:Name="PacketsDataGrid"
                       ItemsSource="{Binding PacketsView}"
                       SelectedItem="{Binding SelectedPacket}"
                       IsReadOnly="True"
                       AutoGenerateColumns="False"
                       FontSize="{Binding PacketsTableFontSize}"
+                      ScrollViewer.CanContentScroll="True"
+                      ScrollViewer.IsDeferredScrollingEnabled="True"
                       EnableRowVirtualization="True"
                       EnableColumnVirtualization="True"
                       VirtualizingPanel.IsVirtualizing="True"
-                      VirtualizingPanel.VirtualizationMode="Recycling">
+                      VirtualizingPanel.VirtualizationMode="Recycling"
+                      VirtualizingPanel.CacheLength="1"
+                      VirtualizingPanel.CacheLengthUnit="Page">
 
                 <DataGrid.Columns>
                     <DataGridTextColumn Header="No" Binding="{Binding No}" Width="60" Visibility="{Binding Data.IsNoColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
@@ -47,10 +91,10 @@
             </DataGrid>
         </Border>
 
-        <GridSplitter Grid.Row="1" Height="6" HorizontalAlignment="Stretch"/>
+        <GridSplitter Grid.Row="2" Height="6" HorizontalAlignment="Stretch"/>
 
         <!-- Details + Hex -->
-        <Grid Grid.Row="2">
+        <Grid Grid.Row="3">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="6"/>

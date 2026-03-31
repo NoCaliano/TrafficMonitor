@@ -43,4 +43,9 @@ public sealed class ProcessLivenessTracker
             row.IsAlive = alive;
         }
     }
+
+    public void Reset()
+    {
+        _lastRefreshUtc = DateTime.MinValue;
+    }
 }

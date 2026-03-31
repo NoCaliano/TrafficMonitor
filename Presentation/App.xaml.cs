@@ -36,10 +36,15 @@ public partial class App : System.Windows.Application
                 services.AddSingleton<IHexDumpService, HexDumpService>();
                 services.AddSingleton<IPacketFilterService, PacketFilterService>();
                 services.AddSingleton<IFlowFilterService, FlowFilterService>();
+                services.AddSingleton<IUserPromptService, UserPromptService>();
                 services.AddSingleton<WindowsRemediationService>();
+                services.AddSingleton<ProcessForensicsTracker>();
+                services.AddSingleton<ProcessLivenessTracker>();
+                services.AddSingleton<ProcessRemediationCoordinator>();
 
                 // ViewModels
                 services.AddSingleton<MainViewModel>();
+                services.AddSingleton<ProcessPacketsViewModel>();
                 services.AddSingleton<StatsViewModel>();
                 // FlowsViewModel requires delegates created by MainViewModel, register factory
                 services.AddTransient<FlowsViewModel>();

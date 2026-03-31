@@ -18,13 +18,7 @@ public sealed class CaptureController : ICaptureController
     private readonly IPacketParser _parser;
     private readonly IFlowAggregator _flowAggregator;
 
-    private readonly Channel<RawPacketCapturedEventArgs> _channel =
-        Channel.CreateBounded<RawPacketCapturedEventArgs>(new BoundedChannelOptions(20_000)
-        {
-            SingleReader = true,
-            SingleWriter = false,
-            FullMode = BoundedChannelFullMode.DropOldest
-        });
+    private Channel<RawPacketCapturedEventArgs> _channel;
 
     private CancellationTokenSource? _cts;
     private Task? _readerTask;
@@ -40,11 +34,21 @@ public sealed class CaptureController : ICaptureController
         _captureService = captureService;
         _parser = parser;
         _flowAggregator = flowAggregator;
+        _channel = CreateChannel();
 
         _captureService.PacketCaptured += (_, args) =>
         {
             _channel.Writer.TryWrite(args);
         };
+    }
+
+    public void ResetSessionState()
+    {
+        if (_captureService.IsRunning)
+            return;
+
+        Interlocked.Exchange(ref _packetNo, 0);
+        _channel = CreateChannel();
     }
 
     public async Task StartAsync(string deviceId, string? bpfFilter, CancellationToken ct)
@@ -70,6 +74,16 @@ public sealed class CaptureController : ICaptureController
             _cts.Dispose();
             _cts = null;
         }
+    }
+
+    private static Channel<RawPacketCapturedEventArgs> CreateChannel()
+    {
+        return Channel.CreateBounded<RawPacketCapturedEventArgs>(new BoundedChannelOptions(20_000)
+        {
+            SingleReader = true,
+            SingleWriter = false,
+            FullMode = BoundedChannelFullMode.DropOldest
+        });
     }
 
     private async Task RunReaderAsync(CancellationToken ct)

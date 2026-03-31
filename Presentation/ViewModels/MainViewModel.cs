@@ -30,15 +30,6 @@ public sealed class MainViewModel : ViewModelBase
     private readonly IPacketCaptureService _captureService;
     private readonly IPacketParser _parser;
 
-    private readonly ProcessMapperService _processMapperService;
-    private readonly ILocalAddressService _localAddressService;
-    private readonly WindowsRemediationService _remediationService;
-
-    // local IP cache for process forensics (remote endpoint / direction)
-    private HashSet<string> _localIps = new(StringComparer.OrdinalIgnoreCase);
-    private DateTime _lastLocalIpsRefreshUtc = DateTime.MinValue;
-    private static readonly TimeSpan LocalIpsRefreshInterval = TimeSpan.FromSeconds(5);
-
     // Відповідає за агрегатор потоків.
     private readonly IFlowAggregator _flowAggregator;
     private readonly IHexDumpService _hexDumpService;
@@ -54,35 +45,13 @@ public sealed class MainViewModel : ViewModelBase
 
     // --- UI batching for incoming packets to avoid flooding the UI thread ---
     private readonly object _pendingLock = new();
-    private readonly List<PacketInfo> _pendingPackets = new();
+    private readonly Queue<PacketInfo> _pendingPackets = new();
     private readonly System.Threading.Timer _flushTimer;
     private const int _flushIntervalMs = 200; // flush UI every 200ms
     private const int _maxPendingPackets = 50_000; // cap pending to avoid OOM
-    private const int _maxUiAppendPerFlush = 2_000; // limit UI work per tick under heavy load
+    private const int _maxUiAppendPerFlush = 750; // limit UI work per tick under heavy load
+    private const int _collectionResetThreshold = 256; // large batches are cheaper as a single Reset than thousands of Add events
     private long _uiPacketsDropped;
-    private readonly HashSet<int> _knownProcessIds = new();
-    private readonly Dictionary<int, ProcessStatRow> _processStatsMap = new();
-    private readonly Dictionary<int, int> _processPacketsSinceLastSample = new();
-
-    // Forensics (per PID)
-    private readonly Dictionary<int, HashSet<RemoteEndpointKey>> _distinctRemotes = new();
-    private readonly Dictionary<(int Pid, RemoteEndpointKey Endpoint), long> _endpointBytes = new();
-    private readonly Dictionary<int, (RemoteEndpointKey Endpoint, long Bytes)> _topRemoteByBytes = new();
-
-    private readonly Dictionary<(int Pid, RemoteEndpointKey Endpoint), BeaconState> _beaconStates = new();
-    private readonly Dictionary<int, BeaconSummary> _bestBeaconByPid = new();
-
-    private readonly Dictionary<(int Pid, UdpFlowKey Flow), DateTime> _udpFlowLastSeenUtc = new();
-    private DateTime _lastForensicsCleanupUtc = DateTime.MinValue;
-
-    private DateTime _lastLivenessRefreshUtc = DateTime.MinValue;
-    private static readonly TimeSpan LivenessRefreshInterval = TimeSpan.FromSeconds(1);
-
-    private static readonly TimeSpan UdpFlowInactivityThreshold = TimeSpan.FromSeconds(30);
-    private static readonly TimeSpan ForensicsCleanupInterval = TimeSpan.FromSeconds(15);
-    private static readonly TimeSpan ForensicsFlowTtl = TimeSpan.FromMinutes(10);
-
-    private const int MaxDistinctRemoteEndpointsPerPid = 5000;
 
     private bool _uiFilterIsEmpty = true;
     private bool _packetsViewHasFilter;
@@ -93,305 +62,7 @@ public sealed class MainViewModel : ViewModelBase
         get => _packetsTableFontSize;
         set => Set(ref _packetsTableFontSize, value);
     }
-
-    private readonly record struct RemoteEndpointKey(string Protocol, string Ip, int Port)
-    {
-        public override string ToString()
-            => Port > 0 ? $"{Protocol} {Ip}:{Port}" : $"{Protocol} {Ip}";
-    }
-
-    private sealed class BeaconState
-    {
-        public bool HasLast;
-        public DateTime LastUtc;
-
-        public int Samples;
-        public double Mean;
-        public double M2;
-
-        public void AddSample(double x)
-        {
-            Samples++;
-            double delta = x - Mean;
-            Mean += delta / Samples;
-            double delta2 = x - Mean;
-            M2 += delta * delta2;
-        }
-
-        public bool TryGetCv(out double cv)
-        {
-            cv = double.PositiveInfinity;
-            if (Samples < 2 || Mean <= 0)
-                return false;
-
-            double variance = M2 / (Samples - 1);
-            if (variance < 0) variance = 0;
-            double std = Math.Sqrt(variance);
-            cv = std / Mean;
-            return true;
-        }
-    }
-
-    private readonly record struct UdpFlowKey(string LocalIp, int LocalPort, string RemoteIp, int RemotePort);
-
-    private readonly record struct BeaconSummary(RemoteEndpointKey Endpoint, double MeanSec, double Cv, int Samples);
-
-    private void RefreshLocalIpsIfNeeded(bool force)
-    {
-        var now = DateTime.UtcNow;
-        if (!force && (now - _lastLocalIpsRefreshUtc) < LocalIpsRefreshInterval)
-            return;
-
-        var fresh = _localAddressService.GetLocalIpStrings();
-        _localIps = new HashSet<string>(fresh, StringComparer.OrdinalIgnoreCase);
-        _lastLocalIpsRefreshUtc = now;
-    }
-
-    private void UpdateForensics(PacketInfo p, ProcessStatRow row)
-    {
-        if (row.Pid <= 0)
-            return;
-
-        if (string.IsNullOrWhiteSpace(p.SrcIp) || string.IsNullOrWhiteSpace(p.DstIp))
-            return;
-
-        RefreshLocalIpsIfNeeded(force: false);
-
-        bool srcLocal = _localIps.Contains(p.SrcIp);
-        bool dstLocal = _localIps.Contains(p.DstIp);
-
-        if (!srcLocal && !dstLocal)
-            return;
-
-        string remoteIp = srcLocal ? p.DstIp : p.SrcIp;
-        int remotePort = srcLocal ? (p.DstPort ?? -1) : (p.SrcPort ?? -1);
-
-        var endpoint = new RemoteEndpointKey(p.Protocol, remoteIp, remotePort);
-
-        // Distinct remote endpoints per PID
-        if (!_distinctRemotes.TryGetValue(row.Pid, out var set))
-        {
-            set = new HashSet<RemoteEndpointKey>();
-            _distinctRemotes[row.Pid] = set;
-        }
-
-        if (set.Count < MaxDistinctRemoteEndpointsPerPid && set.Add(endpoint))
-            row.DistinctRemoteEndpoints = set.Count;
-
-        // Top remote endpoint by bytes (best-effort)
-        var epKey = (row.Pid, endpoint);
-        if (!_endpointBytes.TryGetValue(epKey, out var bytes)) bytes = 0;
-        bytes += p.Length;
-        _endpointBytes[epKey] = bytes;
-
-        if (!_topRemoteByBytes.TryGetValue(row.Pid, out var best) || bytes > best.Bytes)
-        {
-            _topRemoteByBytes[row.Pid] = (endpoint, bytes);
-            row.TopRemoteEndpoint = endpoint.ToString();
-        }
-
-        // Beaconing (outbound only): evaluate periodicity based on NEW connection/flow starts (less noisy than per-packet).
-        if (!(srcLocal && !dstLocal))
-            return;
-
-        DateTime utc = p.Timestamp.Kind == DateTimeKind.Utc ? p.Timestamp : p.Timestamp.ToUniversalTime();
-        if (!IsNewOutboundFlowStart(row.Pid, p, endpoint, utc))
-            return;
-
-        var bKey = (row.Pid, endpoint);
-        if (!_beaconStates.TryGetValue(bKey, out var st))
-        {
-            st = new BeaconState();
-            _beaconStates[bKey] = st;
-        }
-
-        if (st.HasLast)
-        {
-            double deltaSec = (utc - st.LastUtc).TotalSeconds;
-
-            // ignore extreme jitter / noisy ranges + SYN retransmits
-            if (deltaSec >= 1 && deltaSec <= 600)
-            {
-                st.AddSample(deltaSec);
-                TryUpdateBeaconSummary(row, endpoint, st);
-            }
-        }
-
-        st.HasLast = true;
-        st.LastUtc = utc;
-    }
-
-    private bool IsNewOutboundFlowStart(int pid, PacketInfo p, RemoteEndpointKey endpoint, DateTime utc)
-    {
-        // TCP: treat SYN (without ACK) as a new connection attempt.
-        var transportProtocol = string.IsNullOrWhiteSpace(p.TransportProtocol) ? p.Protocol : p.TransportProtocol;
-
-        if (transportProtocol == "TCP")
-        {
-            if (endpoint.Port <= 0)
-                return false;
-
-            if (!IsTcpSynStart(p.TcpFlags))
-                return false;
-
-            // SYN retransmits are still packets; sampling deltas will filter them if <1s.
-            return true;
-        }
-
-        // UDP: treat a new flow start if we haven't seen this 4-tuple recently.
-        if (transportProtocol == "UDP")
-        {
-            if (endpoint.Port <= 0)
-                return false;
-
-            if (p.SrcPort is not int localPort || p.DstPort is not int remotePort)
-                return false;
-
-            if (string.IsNullOrWhiteSpace(p.SrcIp) || string.IsNullOrWhiteSpace(p.DstIp))
-                return false;
-
-            var flow = new UdpFlowKey(LocalIp: p.SrcIp, LocalPort: localPort, RemoteIp: p.DstIp, RemotePort: remotePort);
-            var key = (pid, flow);
-
-            if (_udpFlowLastSeenUtc.TryGetValue(key, out var last))
-            {
-                _udpFlowLastSeenUtc[key] = utc;
-                return (utc - last) >= UdpFlowInactivityThreshold;
-            }
-
-            _udpFlowLastSeenUtc[key] = utc;
-            return true;
-        }
-
-        return false;
-    }
-
-    private static bool IsTcpSynStart(string flags)
-    {
-        if (string.IsNullOrWhiteSpace(flags))
-            return false;
-
-        // Produced by PacketDotNetParser: "SYN, ACK" etc.
-        // New connection attempt is typically SYN without ACK.
-        return flags.Contains("SYN", StringComparison.OrdinalIgnoreCase)
-            && !flags.Contains("ACK", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private void TryUpdateBeaconSummary(ProcessStatRow row, RemoteEndpointKey endpoint, BeaconState st)
-    {
-        // Heuristic: stable interval 2..120 seconds, at least 6 deltas, low CV.
-        if (st.Samples < 6)
-            return;
-
-        if (!st.TryGetCv(out var cv))
-            return;
-
-        double mean = st.Mean;
-        if (mean < 2 || mean > 120)
-            return;
-
-        if (cv > 0.20)
-            return;
-
-        var candidate = new BeaconSummary(endpoint, mean, cv, st.Samples);
-
-        if (!_bestBeaconByPid.TryGetValue(row.Pid, out var current)
-            || candidate.Cv < current.Cv
-            || (Math.Abs(candidate.Cv - current.Cv) < 0.001 && candidate.Samples > current.Samples))
-        {
-            _bestBeaconByPid[row.Pid] = candidate;
-
-            row.BeaconSuspected = true;
-            row.BeaconIntervalSec = candidate.MeanSec;
-            row.BeaconCv = candidate.Cv;
-            row.BeaconSamples = candidate.Samples;
-        }
-    }
-
-    private void LocateProcess(object? param)
-    {
-        if (param is not int pid || pid <= 0) return;
-        TrySelectProcess(pid);
-
-        var d = _processMapperService.GetProcessDetailsCached(pid);
-        if (_remediationService.TryOpenProcessLocation(d.ExePath, out var err))
-            StatusText = $"Opened location for {d.Name} (PID {pid})";
-        else
-            StatusText = $"Open location failed: {err}";
-    }
-
-    private void KillProcess(object? param)
-    {
-        if (param is not int pid || pid <= 0) return;
-        TrySelectProcess(pid);
-
-        var d = _processMapperService.GetProcessDetailsCached(pid);
-        var res = MessageBox.Show(
-            $"Terminate process {d.Name} (PID {pid})?\n\nThis may cause data loss.",
-            "Kill process",
-            MessageBoxButton.YesNo,
-            MessageBoxImage.Warning);
-
-        if (res != MessageBoxResult.Yes)
-            return;
-
-        if (_remediationService.TryKillProcess(pid, out var err))
-            StatusText = $"Terminated {d.Name} (PID {pid})";
-        else
-            StatusText = $"Kill failed: {err}";
-    }
-
-    private void BlockProcessInFirewall(object? param)
-    {
-        if (param is not int pid || pid <= 0) return;
-        TrySelectProcess(pid);
-
-        var d = _processMapperService.GetProcessDetailsCached(pid);
-        var res = MessageBox.Show(
-            $"Add Windows Firewall rules to block {d.Name} (PID {pid}) by program path?\n\nThis will prompt for admin rights.",
-            "Block in Firewall",
-            MessageBoxButton.YesNo,
-            MessageBoxImage.Question);
-
-        if (res != MessageBoxResult.Yes)
-            return;
-
-        if (_remediationService.TryBlockProgramInFirewall(d.ExePath, rulePrefix: "TrafficMonitor", out var err))
-        {
-            if (_processStatsMap.TryGetValue(pid, out var row))
-                row.RecordFirewallBlock(DateTime.Now);
-
-            StatusText = $"Firewall: blocked {d.Name}";
-        }
-        else
-            StatusText = $"Firewall block failed: {err}";
-    }
-
-    private void UnblockProcessInFirewall(object? param)
-    {
-        if (param is not int pid || pid <= 0) return;
-        TrySelectProcess(pid);
-
-        var d = _processMapperService.GetProcessDetailsCached(pid);
-        var res = MessageBox.Show(
-            $"Remove Windows Firewall rules added by TrafficMonitor for {d.Name} (PID {pid})?\n\nThis will prompt for admin rights.",
-            "Unblock in Firewall",
-            MessageBoxButton.YesNo,
-            MessageBoxImage.Question);
-
-        if (res != MessageBoxResult.Yes)
-            return;
-
-        if (_remediationService.TryUnblockProgramInFirewall(d.ExePath, rulePrefix: "TrafficMonitor", out var err))
-        {
-            if (_processStatsMap.TryGetValue(pid, out var row))
-                row.RecordFirewallUnblock(DateTime.Now);
-
-            StatusText = $"Firewall: unblocked {d.Name}";
-        }
-        else
-            StatusText = $"Firewall unblock failed: {err}";
-    }
+    public ProcessPacketsViewModel ProcessPackets { get; }
 
 
 
@@ -594,43 +265,12 @@ public sealed class MainViewModel : ViewModelBase
     public ICommand ShowFlowsCommand { get; }
     public ICommand OpenStatisticsCommand { get; }
     public ICommand ShowProcessPacketsCommand { get; }
-    public ICommand ShowPacketsForPidCommand { get; }
-    public ICommand FocusOnPidCommand { get; }
-    public ICommand LocateProcessCommand { get; }
-    public ICommand KillProcessCommand { get; }
-    public ICommand BlockProcessFirewallCommand { get; }
-    public ICommand UnblockProcessFirewallCommand { get; }
     public ICommand SelectPreviousPacketCommand { get; }
     public ICommand SelectNextPacketCommand { get; }
     public ICommand SelectFirstPacketCommand { get; }
     public ICommand SelectLastPacketCommand { get; }
     public ICommand ZoomInPacketsCommand { get; }
     public ICommand ZoomOutPacketsCommand { get; }
-    // ===================== STATS =====================
-    public ICollectionView ProcessPacketsView { get; }
-    public ObservableCollection<ProcessFilterOption> ProcessFilters { get; } = new();
-    public ObservableCollection<ProcessStatRow> ProcessStats { get; } = new();
-    public ICollectionView ProcessStatsView { get; }
-
-    private ProcessStatRow? _selectedProcessStat;
-    public ProcessStatRow? SelectedProcessStat
-    {
-        get => _selectedProcessStat;
-        set => Set(ref _selectedProcessStat, value);
-    }
-
-    private ProcessFilterOption? _selectedProcessFilter;
-    public ProcessFilterOption? SelectedProcessFilter
-    {
-        get => _selectedProcessFilter;
-        set
-        {
-            if (!Set(ref _selectedProcessFilter, value))
-                return;
-
-            ProcessPacketsView.Refresh();
-        }
-    }
 
     public StatsViewModel Stats { get; }
     private long _capTotalPackets;
@@ -643,9 +283,7 @@ public sealed class MainViewModel : ViewModelBase
         ICaptureDeviceService deviceService,
         IPacketCaptureService captureService,
         IPacketParser parser,
-        ProcessMapperService processMapperService,
-        ILocalAddressService localAddressService,
-        WindowsRemediationService remediationService,
+        ProcessPacketsViewModel processPackets,
         IFlowAggregator flowAggregator,
         IHexDumpService hexDumpService,
         IPacketFilterService packetFilterService,
@@ -659,9 +297,7 @@ public sealed class MainViewModel : ViewModelBase
         _captureService = captureService;
         _flowAggregator = flowAggregator;
         _parser = parser;
-        _processMapperService = processMapperService;
-        _localAddressService = localAddressService;
-        _remediationService = remediationService;
+        ProcessPackets = processPackets;
         _hexDumpService = hexDumpService;
         _packetFilterService = packetFilterService;
         _flowFilterService = flowFilterService;
@@ -683,18 +319,13 @@ public sealed class MainViewModel : ViewModelBase
         OpenStatisticsCommand = new RelayCommand(_ => OpenStatisticsWindow());
         ShowPacketsCommand = new RelayCommand(_ => ShowPackets());
         ShowProcessPacketsCommand = new RelayCommand(_ => ShowProcessPackets());
-        ShowPacketsForPidCommand = new RelayCommand(p => ShowPacketsForPid(p));
-        FocusOnPidCommand = new RelayCommand(p => FocusOnPid(p));
-        LocateProcessCommand = new RelayCommand(p => LocateProcess(p));
-        KillProcessCommand = new RelayCommand(p => KillProcess(p));
-        BlockProcessFirewallCommand = new RelayCommand(p => BlockProcessInFirewall(p));
-        UnblockProcessFirewallCommand = new RelayCommand(p => UnblockProcessInFirewall(p));
         SelectPreviousPacketCommand = new RelayCommand(_ => SelectPacketByOffset(-1));
         SelectNextPacketCommand = new RelayCommand(_ => SelectPacketByOffset(1));
         SelectFirstPacketCommand = new RelayCommand(_ => SelectFirstPacket());
         SelectLastPacketCommand = new RelayCommand(_ => SelectLastPacket());
         ZoomInPacketsCommand = new RelayCommand(_ => ZoomPackets(+1));
         ZoomOutPacketsCommand = new RelayCommand(_ => ZoomPackets(-1));
+        ProcessPackets.ConfigureActions(ApplyProcessPacketFilter, FocusPacketsForProcess, message => StatusText = message);
 
         // FlowsViewModel will manage flow selection and flow commands
         _flowsVm = _flowsFactory(() => !_uiFilterIsEmpty, () => RefreshPacketsFilteringUi());
@@ -735,12 +366,21 @@ public sealed class MainViewModel : ViewModelBase
             {
                 // avoid growing beyond cap
                 int canAdd = Math.Max(0, _maxPendingPackets - _pendingPackets.Count);
-                if (canAdd <= 0) return;
-                foreach (var p in parsed)
+                if (canAdd <= 0)
                 {
-                    _pendingPackets.Add(p);
-                    if (--canAdd <= 0) break;
+                    Interlocked.Add(ref _uiPacketsDropped, parsed.Count);
+                    return;
                 }
+
+                int accepted = Math.Min(parsed.Count, canAdd);
+                for (int i = 0; i < accepted; i++)
+                {
+                    _pendingPackets.Enqueue(parsed[i]);
+                }
+
+                int dropped = parsed.Count - accepted;
+                if (dropped > 0)
+                    Interlocked.Add(ref _uiPacketsDropped, dropped);
             }
         };
 
@@ -761,33 +401,6 @@ public sealed class MainViewModel : ViewModelBase
         // Відповідає за створення view для фільтрації пакетів.
         // Важливо: не тримаємо активний Filter коли фільтрів немає (це дуже дорого на великій колекції).
         PacketsView = CollectionViewSource.GetDefaultView(Packets);
-        ProcessPacketsView = new ListCollectionView(Packets)
-        {
-            Filter = obj =>
-            {
-                if (obj is not PacketInfo p) return false;
-                if (p.Pid is null || string.IsNullOrWhiteSpace(p.ProcessName)) return false;
-
-                if (SelectedProcessFilter?.Pid is int pid)
-                    return p.Pid == pid;
-
-                return true;
-            }
-        };
-
-        ProcessFilters.Add(ProcessFilterOption.All);
-        SelectedProcessFilter = ProcessFilterOption.All;
-
-        ProcessStatsView = CollectionViewSource.GetDefaultView(ProcessStats);
-        ProcessStatsView.SortDescriptions.Add(new SortDescription(nameof(ProcessStatRow.RiskScore), ListSortDirection.Descending));
-        ProcessStatsView.SortDescriptions.Add(new SortDescription(nameof(ProcessStatRow.TotalBytes), ListSortDirection.Descending));
-
-        if (ProcessStatsView is ICollectionViewLiveShaping liveShaping && liveShaping.CanChangeLiveSorting)
-        {
-            liveShaping.LiveSortingProperties.Add(nameof(ProcessStatRow.RiskScore));
-            liveShaping.LiveSortingProperties.Add(nameof(ProcessStatRow.TotalBytes));
-            liveShaping.IsLiveSorting = true;
-        }
 
         RefreshPacketsFilteringUi();
     }
@@ -863,22 +476,10 @@ public sealed class MainViewModel : ViewModelBase
 
             // Reset UI/state (similar to StartAsync, but without starting capture)
             _packetNo = 0;
+            _captureController.ResetSessionState();
             RawBytesStore.Clear();
             Packets.Clear();
-            ProcessFilters.Clear();
-            _knownProcessIds.Clear();
-            _processStatsMap.Clear();
-            _processPacketsSinceLastSample.Clear();
-            _distinctRemotes.Clear();
-            _endpointBytes.Clear();
-            _topRemoteByBytes.Clear();
-            _beaconStates.Clear();
-            _bestBeaconByPid.Clear();
-            _udpFlowLastSeenUtc.Clear();
-            ProcessStats.Clear();
-            SelectedProcessStat = null;
-            ProcessFilters.Add(ProcessFilterOption.All);
-            SelectedProcessFilter = ProcessFilterOption.All;
+            ProcessPackets.Reset();
             _flowsVm.Flows.Clear();
             _flowAggregator.Reset();
             Stats.Reset();
@@ -889,6 +490,8 @@ public sealed class MainViewModel : ViewModelBase
 
             _uiPacketsDropped = 0;
             _capSw.Reset();
+            lock (_pendingLock)
+                _pendingPackets.Clear();
 
             SelectedPacket = null;
             ProtocolRoot = null;
@@ -934,15 +537,7 @@ public sealed class MainViewModel : ViewModelBase
                 .ToList();
 
             foreach (var a in pidAgg)
-            {
-                _knownProcessIds.Add(a.Pid);
-                ProcessFilters.Add(new ProcessFilterOption(a.Pid, a.ProcessName));
-
-                var row = new ProcessStatRow(a.Pid, a.ProcessName, a.Count, a.Bytes);
-                _processStatsMap[a.Pid] = row;
-                ProcessStats.Add(row);
-                SelectedProcessStat ??= row;
-            }
+                ProcessPackets.SeedProcessSummary(a.Pid, a.ProcessName, a.Count, a.Bytes);
 
             var top = _flowAggregator.SnapshotTop(take: 500);
             _flowsVm.UpdateFlows(top);
@@ -996,22 +591,10 @@ public sealed class MainViewModel : ViewModelBase
 
         // Відповідає за повний reset перед новим захопленням
         _packetNo = 0;
+        _captureController.ResetSessionState();
         RawBytesStore.Clear();
         Packets.Clear();
-        ProcessFilters.Clear();
-        _knownProcessIds.Clear();
-        _processStatsMap.Clear();
-        _processPacketsSinceLastSample.Clear();
-        _distinctRemotes.Clear();
-        _endpointBytes.Clear();
-        _topRemoteByBytes.Clear();
-        _beaconStates.Clear();
-        _bestBeaconByPid.Clear();
-        _udpFlowLastSeenUtc.Clear();
-        ProcessStats.Clear();
-        SelectedProcessStat = null;
-        ProcessFilters.Add(ProcessFilterOption.All);
-        SelectedProcessFilter = ProcessFilterOption.All;
+        ProcessPackets.Reset();
         _flowsVm.Flows.Clear();
         _flowAggregator.Reset();
         Stats.Reset();
@@ -1028,6 +611,8 @@ public sealed class MainViewModel : ViewModelBase
         _capLastSeen = null;
         _uiPacketsDropped = 0;
         _capSw.Restart();
+        lock (_pendingLock)
+            _pendingPackets.Clear();
 
         // Скидаємо деталі
         SelectedPacket = null;
@@ -1054,7 +639,7 @@ public sealed class MainViewModel : ViewModelBase
 
         // stop flush timer and flush remaining
         _flushTimer.Change(System.Threading.Timeout.Infinite, System.Threading.Timeout.Infinite);
-        FlushPending();
+        FlushPending(drainAll: true);
 
         StatusText = "Idle";
     }
@@ -1083,90 +668,54 @@ public sealed class MainViewModel : ViewModelBase
         }
     }
 
-    private void FlushPending()
+    private void FlushPending(bool drainAll = false)
     {
-        // take snapshot of pending
         List<PacketInfo> toFlush;
+        int pendingAfterDequeue;
         lock (_pendingLock)
         {
             if (_pendingPackets.Count == 0) return;
-            toFlush = new List<PacketInfo>(_pendingPackets);
-            _pendingPackets.Clear();
+
+            int take = drainAll ? _pendingPackets.Count : Math.Min(_pendingPackets.Count, _maxUiAppendPerFlush);
+            toFlush = new List<PacketInfo>(take);
+            for (int i = 0; i < take; i++)
+                toFlush.Add(_pendingPackets.Dequeue());
+
+            pendingAfterDequeue = _pendingPackets.Count;
         }
 
         System.Windows.Application.Current.Dispatcher.BeginInvoke(new Action(() =>
         {
+            ProcessPackets.PrepareForFlush();
 
-            _processPacketsSinceLastSample.Clear();
-            CleanupForensicsIfNeeded();
-            RefreshProcessLivenessIfNeeded();
+            // Process analytics on the full batch first. Risk/timeline data should not depend
+            // on whether a row survives UI throttling.
+            for (int i = 0; i < toFlush.Count; i++)
+                ProcessPackets.ObservePacket(toFlush[i]);
 
-            // add to UI collection in one shot
-            int startIndex = 0;
-            if (toFlush.Count > _maxUiAppendPerFlush)
+            if (toFlush.Count > 0)
             {
-                startIndex = toFlush.Count - _maxUiAppendPerFlush;
-                Interlocked.Add(ref _uiPacketsDropped, startIndex);
+                bool useReset = !_packetsViewHasFilter && toFlush.Count >= _collectionResetThreshold;
+                Packets.AddRange(toFlush, useReset: useReset);
             }
-
-            var toAdd = new List<PacketInfo>(Math.Max(0, toFlush.Count - startIndex));
-
-            // Add a bounded amount of rows to keep UI responsive at very high pps.
-            // We still update stats per packet, but append to the UI collection in one batch.
-            for (int i = startIndex; i < toFlush.Count; i++)
-            {
-                var p = toFlush[i];
-                toAdd.Add(p);
-                TryAddProcessFilter(p);
-                UpdateProcessStats(p);
-            }
-
-            Packets.AddRange(toAdd);
 
 
             // Add sparkline samples once per flush interval per PID (instead of per packet)
-            foreach (var kvp in _processPacketsSinceLastSample)
-            {
-                if (_processStatsMap.TryGetValue(kvp.Key, out var row))
-                {
-                    int previousPeak = row.PeakSamplePackets;
-                    row.AddSample(kvp.Value);
+            ProcessPackets.CompleteSamplingWindow();
 
-                    if (kvp.Value > previousPeak)
-                        row.RecordTrafficPeak(row.LastSeen == default ? DateTime.Now : row.LastSeen, kvp.Value);
-                }
-            }
+            if (!_captureService.IsRunning)
+                return;
 
             var dropped = Interlocked.Read(ref _uiPacketsDropped);
             if (dropped > 0)
-                StatusText = $"Capturing (UI throttled, skipped {dropped:N0} packets)";
+                StatusText = pendingAfterDequeue > 0
+                    ? $"Capturing (render queue {pendingAfterDequeue:N0}, overflow skipped {dropped:N0})"
+                    : $"Capturing (overflow skipped {dropped:N0})";
             else if (_captureService.IsRunning)
-                StatusText = "Capturing";
+                StatusText = pendingAfterDequeue > 0
+                    ? $"Capturing (render queue {pendingAfterDequeue:N0})"
+                    : "Capturing";
         }));
-    }
-
-    private void CleanupForensicsIfNeeded()
-    {
-        var now = DateTime.UtcNow;
-        if ((now - _lastForensicsCleanupUtc) < ForensicsCleanupInterval)
-            return;
-
-        _lastForensicsCleanupUtc = now;
-        var cutoff = now - ForensicsFlowTtl;
-
-        // UDP flow table cleanup to prevent unbounded growth.
-        if (_udpFlowLastSeenUtc.Count > 0)
-        {
-            var toRemove = new List<(int, UdpFlowKey)>();
-            foreach (var kv in _udpFlowLastSeenUtc)
-            {
-                if (kv.Value < cutoff)
-                    toRemove.Add(kv.Key);
-            }
-
-            foreach (var k in toRemove)
-                _udpFlowLastSeenUtc.Remove(k);
-        }
     }
 
 
@@ -1345,118 +894,10 @@ public sealed class MainViewModel : ViewModelBase
         LeftTabIndex = 2;
     }
 
-    private void TryAddProcessFilter(PacketInfo packet)
+    private void ApplyProcessPacketFilter(int pid)
     {
-        if (packet.Pid is not int pid || string.IsNullOrWhiteSpace(packet.ProcessName))
+        if (pid <= 0)
             return;
-
-        if (!_knownProcessIds.Add(pid))
-            return;
-
-        ProcessFilters.Add(new ProcessFilterOption(pid, packet.ProcessName));
-    }
-
-    private void FocusOnPid(object? param)
-    {
-        if (param is not int pid) return;
-        TrySelectProcess(pid);
-
-        // find first packet with this pid and select it in PacketsView
-        var first = Packets.FirstOrDefault(p => p.Pid == pid);
-        if (first is null) return;
-
-        SelectedPacket = first;
-        LeftTabIndex = 0; // switch to Packets tab
-    }
-
-    private void UpdateProcessStats(PacketInfo p)
-    {
-        if (p.Pid is not int pid || string.IsNullOrWhiteSpace(p.ProcessName))
-            return;
-
-        TrySelectProcess(pid);
-
-        if (!_processStatsMap.TryGetValue(pid, out var row))
-        {
-            row = new ProcessStatRow(pid, p.ProcessName, 0, 0);
-
-            var d = _processMapperService.GetProcessDetailsCached(pid);
-            var parentName = d.ParentPid > 0 ? _processMapperService.GetProcessNameCached(d.ParentPid) : "";
-            row.UpdateIdentity(d.ExePath, d.Publisher, d.IsSigned, d.SignerSubject, d.ParentPid, parentName);
-            TryPopulateProcessStart(row);
-
-            _processStatsMap[pid] = row;
-            ProcessStats.Add(row);
-            SelectedProcessStat ??= row;
-        }
-        else if (row.ExePathIsEmpty)
-        {
-            // Try to enrich existing cards if we couldn't resolve the process identity early (access denied, race, etc.)
-            var d = _processMapperService.GetProcessDetailsCached(pid);
-            if (!string.IsNullOrWhiteSpace(d.ExePath) || !string.IsNullOrWhiteSpace(d.Publisher) || d.ParentPid > 0)
-            {
-                var parentName = d.ParentPid > 0 ? _processMapperService.GetProcessNameCached(d.ParentPid) : "";
-                row.UpdateIdentity(d.ExePath, d.Publisher, d.IsSigned, d.SignerSubject, d.ParentPid, parentName);
-                TryPopulateProcessStart(row);
-            }
-        }
-
-        bool isFirstPacket = row.PacketCount == 0;
-        row.PacketCount++;
-        row.TotalBytes += p.Length;
-        row.LastSeen = p.Timestamp;
-
-        UpdateForensics(p, row);
-
-        if (isFirstPacket)
-            row.RecordFirstPacket(p.Timestamp, BuildPacketTimelineDetail(p));
-
-        var firstDomain = TryExtractDomain(p);
-        if (!string.IsNullOrWhiteSpace(firstDomain))
-            row.RecordFirstDomain(p.Timestamp, firstDomain);
-
-
-        // Sampling for sparklines is batched in FlushPending() to avoid rebuilding geometry per packet.
-        if (_processPacketsSinceLastSample.TryGetValue(pid, out var count))
-            _processPacketsSinceLastSample[pid] = count + 1;
-        else
-            _processPacketsSinceLastSample[pid] = 1;
-    }
-
-    private void RefreshProcessLivenessIfNeeded()
-    {
-        var now = DateTime.UtcNow;
-        if ((now - _lastLivenessRefreshUtc) < LivenessRefreshInterval)
-            return;
-
-        _lastLivenessRefreshUtc = now;
-
-        foreach (var row in _processStatsMap.Values)
-        {
-            if (row.Pid <= 0)
-                continue;
-
-            var live = _processMapperService.GetProcessLivenessCached(row.Pid);
-            bool alive = live.IsAlive;
-
-            // Reduce PID reuse false positives (esp. when looking at old capture files):
-            // if we can read current exe path and it doesn't match the captured one, treat as not alive.
-            if (alive
-                && !string.IsNullOrWhiteSpace(row.ExePath)
-                && !string.IsNullOrWhiteSpace(live.ExePath)
-                && !string.Equals(row.ExePath, live.ExePath, StringComparison.OrdinalIgnoreCase))
-            {
-                alive = false;
-            }
-
-            row.IsAlive = alive;
-        }
-    }
-
-    private void ShowPacketsForPid(object? param)
-    {
-        if (param is not int pid) return;
-        TrySelectProcess(pid);
 
         _uiFilter.PidOp = NumberMatchOp.Equals;
         _uiFilter.PidValue = pid;
@@ -1464,106 +905,19 @@ public sealed class MainViewModel : ViewModelBase
         LeftTabIndex = 0;
     }
 
-    private void TrySelectProcess(int pid)
+    private void FocusPacketsForProcess(int pid)
     {
         if (pid <= 0)
             return;
 
-        if (_processStatsMap.TryGetValue(pid, out var row))
-            SelectedProcessStat = row;
-    }
-
-    private static string BuildPacketTimelineDetail(PacketInfo packet)
-    {
-        string protocol = string.IsNullOrWhiteSpace(packet.Protocol) ? "Packet" : packet.Protocol;
-        string src = FormatEndpoint(packet.SrcIp, packet.SrcPort);
-        string dst = FormatEndpoint(packet.DstIp, packet.DstPort);
-        return $"{protocol} {src} -> {dst}";
-    }
-
-    private static string FormatEndpoint(string ip, int? port)
-    {
-        if (string.IsNullOrWhiteSpace(ip))
-            return "?";
-
-        return port is int value && value > 0 ? $"{ip}:{value}" : ip;
-    }
-
-    private static string? TryExtractDomain(PacketInfo packet)
-    {
-        if (!string.Equals(packet.Protocol, "DNS", StringComparison.OrdinalIgnoreCase)
-            && packet.SrcPort != 53
-            && packet.DstPort != 53)
-        {
-            return null;
-        }
-
-        if (string.IsNullOrWhiteSpace(packet.Info))
-            return null;
-
-        string info = packet.Info.Trim();
-        const string queryPrefix = "Query ";
-        const string responsePrefix = "Response ";
-
-        if (info.StartsWith(queryPrefix, StringComparison.OrdinalIgnoreCase))
-            info = info[queryPrefix.Length..];
-        else if (info.StartsWith(responsePrefix, StringComparison.OrdinalIgnoreCase))
-            info = info[responsePrefix.Length..];
-        else
-            return null;
-
-        int typeSeparator = info.IndexOf(' ');
-        string candidate = typeSeparator > 0 ? info[..typeSeparator] : info;
-        if (string.IsNullOrWhiteSpace(candidate) || !candidate.Contains('.'))
-            return null;
-
-        return candidate;
-    }
-
-    private static void TryPopulateProcessStart(ProcessStatRow row)
-    {
-        if (row.Pid <= 0)
+        var first = Packets.FirstOrDefault(p => p.Pid == pid);
+        if (first is null)
             return;
 
-        try
-        {
-            using var proc = Process.GetProcessById(row.Pid);
-
-            string liveExePath = "";
-            try
-            {
-                liveExePath = proc.MainModule?.FileName ?? "";
-            }
-            catch
-            {
-                // ignore path access problems
-            }
-
-            if (!string.IsNullOrWhiteSpace(row.ExePath)
-                && !string.IsNullOrWhiteSpace(liveExePath)
-                && !string.Equals(row.ExePath, liveExePath, StringComparison.OrdinalIgnoreCase))
-            {
-                return;
-            }
-
-            string detail = string.IsNullOrWhiteSpace(row.ExePathShort)
-                ? $"{row.ProcessName} (PID {row.Pid}) started."
-                : $"{row.ExePathShort} (PID {row.Pid}) started.";
-
-            row.RecordProcessStart(proc.StartTime, detail);
-        }
-        catch
-        {
-            // ignore: process may have already exited or be inaccessible
-        }
+        SelectedPacket = first;
+        LeftTabIndex = 0;
     }
 
-    public sealed record ProcessFilterOption(int? Pid, string ProcessName)
-    {
-        public static ProcessFilterOption All { get; } = new(null, "All processes");
-
-        public string DisplayName => Pid is null ? ProcessName : $"{ProcessName} (PID: {Pid})";
-    }
     private void SelectPacketByOffset(int offset)
     {
         if (offset == 0)
