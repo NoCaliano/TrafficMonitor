@@ -20,10 +20,20 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
 
     private readonly record struct RiskSignal(string Summary, int Points);
 
-    public sealed record InvestigationTimelineEvent(string Key, DateTime Timestamp, string Title, string Detail)
+    public sealed record InvestigationTimelineTarget(string Kind, string? Value = null);
+
+    public sealed record InvestigationTimelineEvent(
+        int Pid,
+        string Key,
+        DateTime Timestamp,
+        string Title,
+        string Detail,
+        InvestigationTimelineTarget? Target = null)
     {
         public string TimeLabel => Timestamp == default ? "" : Timestamp.ToString("HH:mm:ss");
         public string DateLabel => Timestamp == default ? "" : Timestamp.ToString("dd MMM");
+        public bool CanFocusPacket => Target is not null;
+        public string FocusPacketLabel => "Show packet";
     }
 
     public int Pid { get; }
@@ -306,10 +316,19 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
         => UpsertTimelineEvent("process-start", timestamp, "Process start", detail);
 
     public void RecordFirstPacket(DateTime timestamp, string detail)
-        => AddTimelineEventIfMissing("first-packet", timestamp, "First packet", detail);
+        => AddTimelineEventIfMissing("first-packet", timestamp, "First packet", detail, new InvestigationTimelineTarget("first-packet"));
+
+    public void RecordFirstOutboundConnection(DateTime timestamp, string detail)
+        => AddTimelineEventIfMissing("first-outbound-connection", timestamp, "First outbound connection", detail, new InvestigationTimelineTarget("first-outbound-connection"));
 
     public void RecordFirstDomain(DateTime timestamp, string domain)
-        => AddTimelineEventIfMissing("first-domain", timestamp, "First domain", domain);
+        => AddTimelineEventIfMissing("first-domain", timestamp, "First domain", domain, new InvestigationTimelineTarget("first-domain", domain));
+
+    public void RecordFirstSecureHandshake(DateTime timestamp, string detail)
+        => AddTimelineEventIfMissing("first-secure-handshake", timestamp, "First TLS/QUIC handshake", detail, new InvestigationTimelineTarget("first-secure-handshake"));
+
+    public void RecordFirstSuspiciousDomain(DateTime timestamp, string domain, string reason)
+        => AddTimelineEventIfMissing("first-suspicious-domain", timestamp, "First suspicious domain", $"{domain} ({reason})", new InvestigationTimelineTarget("first-suspicious-domain", domain));
 
     public void RecordTrafficPeak(DateTime timestamp, int packetsPerInterval)
     {
@@ -320,8 +339,20 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
             ? $"Burst of {packetsPerInterval:N0} packets in one interval (avg {AvgSamplePackets:0.#})."
             : $"Burst of {packetsPerInterval:N0} packets in one interval.";
 
-        UpsertTimelineEvent("traffic-peak", timestamp, "Traffic peak", detail);
+        UpsertTimelineEvent("traffic-peak", timestamp, "Traffic peak", detail, new InvestigationTimelineTarget("traffic-peak"));
     }
+
+    public void RecordBurstEnded(DateTime timestamp, string detail)
+        => AppendTimelineEvent($"burst-ended-{timestamp.Ticks}", timestamp, "Burst ended", detail);
+
+    public void RecordBeaconDetected(DateTime timestamp, string detail)
+        => AddTimelineEventIfMissing("beacon-detected", timestamp, "Beaconing detected", detail, new InvestigationTimelineTarget("beacon-detected"));
+
+    public void RecordProcessExited(DateTime timestamp, string detail)
+        => AddTimelineEventIfMissing("process-exited", timestamp, "Process exited", detail);
+
+    public void RecordIdentityChanged(DateTime timestamp, string detail)
+        => AppendTimelineEvent($"process-identity-{timestamp.Ticks}", timestamp, "Process identity changed", detail);
 
     public void RecordFirewallBlock(DateTime timestamp)
         => AppendTimelineEvent($"firewall-block-{timestamp.Ticks}", timestamp, "Firewall block applied", "TrafficMonitor added Windows Firewall rules for this executable.");
@@ -349,20 +380,20 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
         OnPropertyChanged(nameof(SessionClustersEmptyState));
     }
 
-    private void AddTimelineEventIfMissing(string key, DateTime timestamp, string title, string detail)
+    private void AddTimelineEventIfMissing(string key, DateTime timestamp, string title, string detail, InvestigationTimelineTarget? target = null)
     {
         if (HasTimelineEvent(key))
             return;
 
-        AppendTimelineEvent(key, timestamp, title, detail);
+        AppendTimelineEvent(key, timestamp, title, detail, target);
     }
 
-    private void UpsertTimelineEvent(string key, DateTime timestamp, string title, string detail)
+    private void UpsertTimelineEvent(string key, DateTime timestamp, string title, string detail, InvestigationTimelineTarget? target = null)
     {
         if (timestamp == default)
             return;
 
-        var entry = new InvestigationTimelineEvent(key, timestamp, title, detail);
+        var entry = new InvestigationTimelineEvent(Pid, key, timestamp, title, detail, target);
         int existingIndex = FindTimelineEventIndex(key);
         if (existingIndex >= 0)
             TimelineEvents.RemoveAt(existingIndex);
@@ -370,12 +401,12 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
         InsertTimelineEvent(entry);
     }
 
-    private void AppendTimelineEvent(string key, DateTime timestamp, string title, string detail)
+    private void AppendTimelineEvent(string key, DateTime timestamp, string title, string detail, InvestigationTimelineTarget? target = null)
     {
         if (timestamp == default)
             return;
 
-        InsertTimelineEvent(new InvestigationTimelineEvent(key, timestamp, title, detail));
+        InsertTimelineEvent(new InvestigationTimelineEvent(Pid, key, timestamp, title, detail, target));
     }
 
     private void InsertTimelineEvent(InvestigationTimelineEvent entry)

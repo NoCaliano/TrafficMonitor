@@ -21,9 +21,11 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
 
     private readonly Dictionary<int, ProcessStatRow> _processStatsMap = new();
     private readonly Dictionary<int, int> _processPacketsSinceLastSample = new();
+    private readonly HashSet<int> _burstingPids = new();
 
     private Action<int>? _showPacketsForPid;
     private Action<int>? _focusOnPid;
+    private Action<ProcessStatRow.InvestigationTimelineEvent>? _focusTimelineEvent;
     private Action<string>? _reportStatus;
 
     public ObservableCollection<ProcessStatRow> ProcessStats { get; } = new();
@@ -44,6 +46,7 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
 
     public ICommand ShowPacketsForPidCommand { get; }
     public ICommand FocusOnPidCommand { get; }
+    public ICommand FocusTimelineEventCommand { get; }
     public ICommand LocateProcessCommand { get; }
     public ICommand KillProcessCommand { get; }
     public ICommand BlockProcessFirewallCommand { get; }
@@ -62,6 +65,7 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
 
         ShowPacketsForPidCommand = new RelayCommand(p => ShowPacketsForPid(p));
         FocusOnPidCommand = new RelayCommand(p => FocusOnPid(p));
+        FocusTimelineEventCommand = new RelayCommand(p => FocusTimelineEvent(p), p => p is ProcessStatRow.InvestigationTimelineEvent timelineEvent && timelineEvent.CanFocusPacket);
         LocateProcessCommand = new RelayCommand(p => LocateProcess(p));
         KillProcessCommand = new RelayCommand(p => KillProcess(p));
         BlockProcessFirewallCommand = new RelayCommand(p => BlockProcessInFirewall(p));
@@ -79,10 +83,15 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
         }
     }
 
-    public void ConfigureActions(Action<int> showPacketsForPid, Action<int> focusOnPid, Action<string> reportStatus)
+    public void ConfigureActions(
+        Action<int> showPacketsForPid,
+        Action<int> focusOnPid,
+        Action<ProcessStatRow.InvestigationTimelineEvent> focusTimelineEvent,
+        Action<string> reportStatus)
     {
         _showPacketsForPid = showPacketsForPid;
         _focusOnPid = focusOnPid;
+        _focusTimelineEvent = focusTimelineEvent;
         _reportStatus = reportStatus;
     }
 
@@ -90,6 +99,7 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
     {
         _processStatsMap.Clear();
         _processPacketsSinceLastSample.Clear();
+        _burstingPids.Clear();
         _forensicsTracker.Reset();
         _livenessTracker.Reset();
 
@@ -115,7 +125,18 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
     {
         _processPacketsSinceLastSample.Clear();
         _forensicsTracker.CleanupIfNeeded();
-        _livenessTracker.RefreshIfNeeded(ProcessStats);
+
+        foreach (var change in _livenessTracker.RefreshIfNeeded(ProcessStats))
+        {
+            if (!_processStatsMap.TryGetValue(change.Pid, out var row))
+                continue;
+
+            if (change.HasIdentityChangedEvent)
+                row.RecordIdentityChanged(change.Timestamp, change.IdentityChangedDetail);
+
+            if (change.HasExitedEvent)
+                row.RecordProcessExited(change.Timestamp, change.ExitedDetail);
+        }
     }
 
     public void ObservePacket(PacketInfo packet)
@@ -130,14 +151,28 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
         row.TotalBytes += packet.Length;
         row.LastSeen = packet.Timestamp;
 
-        _forensicsTracker.Update(packet, row);
+        var forensicsUpdate = _forensicsTracker.Update(packet, row);
 
         if (isFirstPacket)
             row.RecordFirstPacket(packet.Timestamp, BuildPacketTimelineDetail(packet));
 
+        if (forensicsUpdate.HasFirstOutboundConnection)
+            row.RecordFirstOutboundConnection(packet.Timestamp, forensicsUpdate.FirstOutboundConnectionDetail);
+
         var firstDomain = TryExtractDomain(packet);
         if (!string.IsNullOrWhiteSpace(firstDomain))
+        {
             row.RecordFirstDomain(packet.Timestamp, firstDomain);
+
+            if (TryGetSuspiciousDomainReason(firstDomain, out var suspiciousDomainReason))
+                row.RecordFirstSuspiciousDomain(packet.Timestamp, firstDomain, suspiciousDomainReason);
+        }
+
+        if (TryBuildSecureHandshakeDetail(packet, out var handshakeDetail))
+            row.RecordFirstSecureHandshake(packet.Timestamp, handshakeDetail);
+
+        if (forensicsUpdate.HasBeaconDetected)
+            row.RecordBeaconDetected(packet.Timestamp, forensicsUpdate.BeaconDetail);
 
         if (_processPacketsSinceLastSample.TryGetValue(pid, out var count))
             _processPacketsSinceLastSample[pid] = count + 1;
@@ -157,6 +192,16 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
 
             if (kvp.Value > previousPeak)
                 row.RecordTrafficPeak(row.LastSeen == default ? DateTime.Now : row.LastSeen, kvp.Value);
+
+            if (kvp.Value >= 300)
+            {
+                _burstingPids.Add(kvp.Key);
+            }
+            else if (_burstingPids.Remove(kvp.Key) && previousPeak >= 300)
+            {
+                string detail = $"Traffic cooled down to {kvp.Value:N0} packets per interval after peaking at {previousPeak:N0}.";
+                row.RecordBurstEnded(row.LastSeen == default ? DateTime.Now : row.LastSeen, detail);
+            }
         }
 
         RefreshSelectedProcessDetails();
@@ -214,6 +259,15 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
 
         SelectProcess(pid);
         _focusOnPid?.Invoke(pid);
+    }
+
+    private void FocusTimelineEvent(object? parameter)
+    {
+        if (parameter is not ProcessStatRow.InvestigationTimelineEvent timelineEvent || !timelineEvent.CanFocusPacket)
+            return;
+
+        SelectProcess(timelineEvent.Pid);
+        _focusTimelineEvent?.Invoke(timelineEvent);
     }
 
     private void LocateProcess(object? parameter)
@@ -319,6 +373,91 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
             return null;
 
         return candidate;
+    }
+
+    private static bool TryBuildSecureHandshakeDetail(PacketInfo packet, out string detail)
+    {
+        detail = "";
+
+        if (!LooksLikeSecureHandshake(packet))
+            return false;
+
+        string protocol = string.IsNullOrWhiteSpace(packet.Protocol) ? "Secure protocol" : packet.Protocol;
+        string eventInfo = string.IsNullOrWhiteSpace(packet.Info) ? "handshake" : packet.Info.Trim();
+        string destination = FormatEndpoint(packet.DstIp, packet.DstPort);
+        detail = $"{protocol} {eventInfo} with {destination}";
+        return true;
+    }
+
+    private static bool LooksLikeSecureHandshake(PacketInfo packet)
+    {
+        string protocol = packet.Protocol ?? "";
+        string info = packet.Info ?? "";
+
+        bool secureProtocol = protocol.StartsWith("TLS", StringComparison.OrdinalIgnoreCase)
+            || protocol.Equals("SSL", StringComparison.OrdinalIgnoreCase)
+            || protocol.Equals("QUIC", StringComparison.OrdinalIgnoreCase);
+
+        if (!secureProtocol)
+            return false;
+
+        if (string.IsNullOrWhiteSpace(info))
+            return true;
+
+        return info.Contains("Hello", StringComparison.OrdinalIgnoreCase)
+            || info.Contains("Handshake", StringComparison.OrdinalIgnoreCase)
+            || info.Contains("Initial", StringComparison.OrdinalIgnoreCase)
+            || info.Contains("CRYPTO", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool TryGetSuspiciousDomainReason(string domain, out string reason)
+    {
+        reason = "";
+        if (string.IsNullOrWhiteSpace(domain))
+            return false;
+
+        string normalized = domain.Trim().TrimEnd('.').ToLowerInvariant();
+        string[] suspiciousTlds = [".zip", ".mov", ".top", ".xyz", ".click", ".gq", ".work", ".rest", ".cfd", ".country", ".stream", ".download"];
+
+        if (normalized.StartsWith("xn--", StringComparison.OrdinalIgnoreCase) || normalized.Contains(".xn--", StringComparison.OrdinalIgnoreCase))
+        {
+            reason = "punycode domain";
+            return true;
+        }
+
+        foreach (var tld in suspiciousTlds)
+        {
+            if (normalized.EndsWith(tld, StringComparison.OrdinalIgnoreCase))
+            {
+                reason = $"high-risk TLD {tld}";
+                return true;
+            }
+        }
+
+        var labels = normalized.Split('.', StringSplitOptions.RemoveEmptyEntries);
+        foreach (var label in labels)
+        {
+            if (label.Length >= 28)
+            {
+                reason = "very long domain label";
+                return true;
+            }
+        }
+
+        int digitCount = 0;
+        foreach (char ch in normalized)
+        {
+            if (char.IsDigit(ch))
+                digitCount++;
+        }
+
+        if (digitCount >= 8)
+        {
+            reason = "digit-heavy domain";
+            return true;
+        }
+
+        return false;
     }
 
     private static void TryPopulateProcessStart(ProcessStatRow row)

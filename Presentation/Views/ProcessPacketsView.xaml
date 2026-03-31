@@ -82,7 +82,18 @@
                                         CornerRadius="8"
                                         Padding="10,8">
                                     <StackPanel>
-                                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}"/>
+                                        <DockPanel LastChildFill="True">
+                                            <Button DockPanel.Dock="Right"
+                                                    Content="{Binding FocusPacketLabel}"
+                                                    Command="{Binding DataContext.FocusTimelineEventCommand, ElementName=ProcessPacketsLayout}"
+                                                    CommandParameter="{Binding}"
+                                                    Style="{StaticResource ChipButtonStyle}"
+                                                    Margin="10,0,0,0"
+                                                    VerticalAlignment="Top"
+                                                    Visibility="{Binding CanFocusPacket, Converter={StaticResource BoolToVisibilityConverter}}"
+                                                    ToolTip="Show the related packet in the main table"/>
+                                            <TextBlock Text="{Binding Title}" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}" VerticalAlignment="Center"/>
+                                        </DockPanel>
                                         <TextBlock Margin="0,4,0,0" Text="{Binding Detail}" FontSize="11" Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap"/>
                                     </StackPanel>
                                 </Border>

@@ -8,6 +8,12 @@ namespace Presentation.Services;
 
 public sealed class ProcessForensicsTracker
 {
+    public readonly record struct ProcessForensicsUpdate(
+        bool HasFirstOutboundConnection,
+        string FirstOutboundConnectionDetail,
+        bool HasBeaconDetected,
+        string BeaconDetail);
+
     private readonly ILocalAddressService _localAddressService;
 
     private HashSet<string> _localIps = new(StringComparer.OrdinalIgnoreCase);
@@ -22,6 +28,8 @@ public sealed class ProcessForensicsTracker
 
     private readonly Dictionary<(int Pid, RemoteEndpointKey Endpoint), BeaconState> _beaconStates = new();
     private readonly Dictionary<int, BeaconSummary> _bestBeaconByPid = new();
+    private readonly HashSet<int> _pidsWithFirstOutboundConnection = new();
+    private readonly HashSet<int> _pidsWithBeaconTimelineEvent = new();
 
     private readonly Dictionary<(int Pid, UdpFlowKey Flow), DateTime> _udpFlowLastSeenUtc = new();
     private DateTime _lastCleanupUtc = DateTime.MinValue;
@@ -39,13 +47,15 @@ public sealed class ProcessForensicsTracker
         RefreshLocalIpsIfNeeded(force: true);
     }
 
-    public void Update(PacketInfo p, ProcessStatRow row)
+    public ProcessForensicsUpdate Update(PacketInfo p, ProcessStatRow row)
     {
+        var update = default(ProcessForensicsUpdate);
+
         if (row.Pid <= 0)
-            return;
+            return update;
 
         if (string.IsNullOrWhiteSpace(p.SrcIp) || string.IsNullOrWhiteSpace(p.DstIp))
-            return;
+            return update;
 
         RefreshLocalIpsIfNeeded(force: false);
 
@@ -53,7 +63,7 @@ public sealed class ProcessForensicsTracker
         bool dstLocal = _localIps.Contains(p.DstIp);
 
         if (!srcLocal && !dstLocal)
-            return;
+            return update;
 
         string remoteIp = srcLocal ? p.DstIp : p.SrcIp;
         int remotePort = srcLocal ? (p.DstPort ?? -1) : (p.SrcPort ?? -1);
@@ -85,11 +95,20 @@ public sealed class ProcessForensicsTracker
 
         // Beaconing based on new outbound flow starts.
         if (!(srcLocal && !dstLocal))
-            return;
+            return update;
 
         DateTime utc = p.Timestamp.Kind == DateTimeKind.Utc ? p.Timestamp : p.Timestamp.ToUniversalTime();
         if (!IsNewOutboundFlowStart(row.Pid, p, endpoint, utc))
-            return;
+            return update;
+
+        if (_pidsWithFirstOutboundConnection.Add(row.Pid))
+        {
+            update = update with
+            {
+                HasFirstOutboundConnection = true,
+                FirstOutboundConnectionDetail = BuildOutboundConnectionDetail(p)
+            };
+        }
 
         var bKey = (row.Pid, endpoint);
         if (!_beaconStates.TryGetValue(bKey, out var st))
@@ -98,6 +117,7 @@ public sealed class ProcessForensicsTracker
             _beaconStates[bKey] = st;
         }
 
+        bool beaconWasDetected = row.BeaconSuspected;
         if (st.HasLast)
         {
             double deltaSec = (utc - st.LastUtc).TotalSeconds;
@@ -110,6 +130,17 @@ public sealed class ProcessForensicsTracker
 
         st.HasLast = true;
         st.LastUtc = utc;
+
+        if (!beaconWasDetected && row.BeaconSuspected && _pidsWithBeaconTimelineEvent.Add(row.Pid))
+        {
+            update = update with
+            {
+                HasBeaconDetected = true,
+                BeaconDetail = BuildBeaconDetail(endpoint, row)
+            };
+        }
+
+        return update;
     }
 
     public void CleanupIfNeeded()
@@ -144,6 +175,8 @@ public sealed class ProcessForensicsTracker
         _sessionClusters.Clear();
         _beaconStates.Clear();
         _bestBeaconByPid.Clear();
+        _pidsWithFirstOutboundConnection.Clear();
+        _pidsWithBeaconTimelineEvent.Clear();
         _udpFlowLastSeenUtc.Clear();
         _lastCleanupUtc = DateTime.MinValue;
         _lastLocalIpsRefreshUtc = DateTime.MinValue;
@@ -349,6 +382,30 @@ public sealed class ProcessForensicsTracker
 
         return flags.Contains("SYN", StringComparison.OrdinalIgnoreCase)
             && !flags.Contains("ACK", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string BuildOutboundConnectionDetail(PacketInfo packet)
+    {
+        string protocol = string.IsNullOrWhiteSpace(packet.TransportProtocol) ? packet.Protocol : packet.TransportProtocol;
+        string src = FormatEndpoint(packet.SrcIp, packet.SrcPort);
+        string dst = FormatEndpoint(packet.DstIp, packet.DstPort);
+        return $"{protocol} {src} -> {dst}";
+    }
+
+    private static string BuildBeaconDetail(RemoteEndpointKey endpoint, ProcessStatRow row)
+    {
+        if (row.BeaconIntervalSec > 0)
+            return $"{endpoint} repeats every ~{row.BeaconIntervalSec:0.#}s (cv {row.BeaconCv:0.##}, n={row.BeaconSamples}).";
+
+        return $"{endpoint} shows a repeating outbound cadence.";
+    }
+
+    private static string FormatEndpoint(string ip, int? port)
+    {
+        if (string.IsNullOrWhiteSpace(ip))
+            return "?";
+
+        return port is int value && value > 0 ? $"{ip}:{value}" : ip;
     }
 
     private void TryUpdateBeaconSummary(ProcessStatRow row, RemoteEndpointKey endpoint, BeaconState st)

@@ -398,7 +398,7 @@ public sealed class MainViewModel : ViewModelBase
         ZoomInPacketsCommand = new RelayCommand(_ => ZoomPackets(+1));
         ZoomOutPacketsCommand = new RelayCommand(_ => ZoomPackets(-1));
         ToggleDisplayFilterExamplesCommand = new RelayCommand(_ => ToggleDisplayFilterExamples());
-        ProcessPackets.ConfigureActions(ApplyProcessPacketFilter, FocusPacketsForProcess, message => StatusText = message);
+        ProcessPackets.ConfigureActions(ApplyProcessPacketFilter, FocusPacketsForProcess, FocusPacketForTimelineEvent, message => StatusText = message);
 
         // FlowsViewModel will manage flow selection and flow commands
         _flowsVm = _flowsFactory(() => !_uiFilterIsEmpty, () => RefreshPacketsFilteringUi());
@@ -1034,6 +1034,121 @@ public sealed class MainViewModel : ViewModelBase
 
         SelectedPacket = first;
         LeftTabIndex = 0;
+    }
+
+    private void FocusPacketForTimelineEvent(ProcessStatRow.InvestigationTimelineEvent timelineEvent)
+    {
+        if (timelineEvent.Pid <= 0 || !timelineEvent.CanFocusPacket)
+            return;
+
+        var packet = FindPacketForTimelineEvent(timelineEvent);
+        if (packet is null)
+        {
+            StatusText = $"Timeline packet not found for {timelineEvent.Title.ToLowerInvariant()}.";
+            LeftTabIndex = 0;
+            return;
+        }
+
+        LeftTabIndex = 0;
+
+        if (!PacketsView.Cast<PacketInfo>().Contains(packet))
+        {
+            _flowFilterService.Clear();
+            _uiFilter = new PacketFilterModel
+            {
+                PidOp = NumberMatchOp.Equals,
+                PidValue = timelineEvent.Pid
+            };
+
+            DisplayFilterText = "";
+            RefreshPacketsFilteringUi();
+            StatusText = $"Focused {timelineEvent.Title.ToLowerInvariant()} and applied PID filter to make the packet visible.";
+        }
+
+        SelectedPacket = packet;
+    }
+
+    private PacketInfo? FindPacketForTimelineEvent(ProcessStatRow.InvestigationTimelineEvent timelineEvent)
+    {
+        var packetsForProcess = Packets
+            .Where(packet => packet.Pid == timelineEvent.Pid)
+            .OrderBy(packet => packet.Timestamp)
+            .ThenBy(packet => packet.No);
+
+        return timelineEvent.Target?.Kind switch
+        {
+            "first-packet" => packetsForProcess.FirstOrDefault(),
+            "first-domain" => FindPacketForFirstDomain(timelineEvent, packetsForProcess),
+            "first-outbound-connection" => FindPacketNearTimestamp(timelineEvent.Timestamp, packetsForProcess),
+            "first-secure-handshake" => FindPacketNearTimestamp(timelineEvent.Timestamp, packetsForProcess),
+            "first-suspicious-domain" => FindPacketForFirstDomain(timelineEvent, packetsForProcess),
+            "beacon-detected" => FindPacketNearTimestamp(timelineEvent.Timestamp, packetsForProcess),
+            "traffic-peak" => FindPacketNearTimestamp(timelineEvent.Timestamp, packetsForProcess),
+            _ => null
+        };
+    }
+
+    private static PacketInfo? FindPacketForFirstDomain(ProcessStatRow.InvestigationTimelineEvent timelineEvent, IEnumerable<PacketInfo> packetsForProcess)
+    {
+        if (string.IsNullOrWhiteSpace(timelineEvent.Target?.Value))
+            return null;
+
+        var match = packetsForProcess.FirstOrDefault(packet =>
+            string.Equals(TryExtractTimelineDomain(packet), timelineEvent.Target.Value, StringComparison.OrdinalIgnoreCase));
+
+        return match ?? FindPacketNearTimestamp(timelineEvent.Timestamp, packetsForProcess);
+    }
+
+    private static PacketInfo? FindPacketNearTimestamp(DateTime timestamp, IEnumerable<PacketInfo> packetsForProcess)
+    {
+        PacketInfo? bestPacket = null;
+        long bestDistanceTicks = long.MaxValue;
+
+        foreach (var packet in packetsForProcess)
+        {
+            long distance = Math.Abs((packet.Timestamp - timestamp).Ticks);
+            if (distance >= bestDistanceTicks)
+                continue;
+
+            bestDistanceTicks = distance;
+            bestPacket = packet;
+
+            if (distance == 0)
+                break;
+        }
+
+        return bestPacket;
+    }
+
+    private static string? TryExtractTimelineDomain(PacketInfo packet)
+    {
+        if (!string.Equals(packet.Protocol, "DNS", StringComparison.OrdinalIgnoreCase)
+            && packet.SrcPort != 53
+            && packet.DstPort != 53)
+        {
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(packet.Info))
+            return null;
+
+        string info = packet.Info.Trim();
+        const string queryPrefix = "Query ";
+        const string responsePrefix = "Response ";
+
+        if (info.StartsWith(queryPrefix, StringComparison.OrdinalIgnoreCase))
+            info = info[queryPrefix.Length..];
+        else if (info.StartsWith(responsePrefix, StringComparison.OrdinalIgnoreCase))
+            info = info[responsePrefix.Length..];
+        else
+            return null;
+
+        int typeSeparator = info.IndexOf(' ');
+        string candidate = typeSeparator > 0 ? info[..typeSeparator] : info;
+        if (string.IsNullOrWhiteSpace(candidate) || !candidate.Contains('.'))
+            return null;
+
+        return candidate;
     }
 
     private void SelectPacketByOffset(int offset)
