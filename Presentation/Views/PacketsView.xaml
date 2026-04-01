@@ -215,7 +215,7 @@
                              FontFamily="Consolas"
                              FontSize="12"
                              VerticalScrollBarVisibility="Auto"
-                             HorizontalScrollBarVisibility="Auto"
+                             HorizontalScrollBarVisibility="Hidden"
                              Margin="0"/>
             </GroupBox>
         </Grid>
