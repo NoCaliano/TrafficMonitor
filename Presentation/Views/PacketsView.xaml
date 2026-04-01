@@ -18,6 +18,14 @@
             <Setter Property="MinHeight" Value="26"/>
             <Setter Property="MinWidth" Value="28"/>
         </Style>
+        <Style x:Key="HexHeaderButtonStyle" TargetType="Button" BasedOn="{StaticResource ToolbarButtonStyle}">
+            <Setter Property="Padding" Value="4,2"/>
+            <Setter Property="MinHeight" Value="22"/>
+            <Setter Property="MinWidth" Value="24"/>
+            <Setter Property="Margin" Value="8,0,0,0"/>
+            <Setter Property="FontFamily" Value="Segoe UI Emoji"/>
+            <Setter Property="FontSize" Value="13"/>
+        </Style>
         <Style x:Key="DisplayFilterTextBoxStyle" TargetType="TextBox">
             <Setter Property="MinHeight" Value="26"/>
             <Setter Property="Padding" Value="8,3"/>
@@ -164,19 +172,25 @@
             </Grid.ColumnDefinitions>
 
             <GroupBox Grid.Column="0" Header="Packet Details" Margin="0">
-                <TreeView ItemsSource="{Binding ProtocolRoots}"
-                          PreviewMouseMove="ProtocolTree_PreviewMouseMove"
-                          MouseLeave="ProtocolTree_MouseLeave">
+                <TreeView ItemsSource="{Binding ProtocolRoots}">
                     <TreeView.Resources>
+                        <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#FFDDF1E2"/>
+                        <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}" Color="#FFE8F5EB"/>
+                        <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="#FF243748"/>
                         <HierarchicalDataTemplate DataType="{x:Type helpers:ProtocolNode}" ItemsSource="{Binding Items}">
                             <TextBlock Text="{Binding Header}" />
                         </HierarchicalDataTemplate>
 
                         <Style TargetType="{x:Type TreeViewItem}">
-                            <EventSetter Event="MouseEnter" Handler="ProtocolTreeItem_MouseEnter"/>
-                            <EventSetter Event="Selected" Handler="ProtocolTreeItem_Selected"/>
+                            <EventSetter Event="PreviewMouseLeftButtonUp" Handler="ProtocolTreeItem_PreviewMouseLeftButtonUp"/>
                             <!-- ensure DataContext is used for Tag when generated containers are created -->
                             <Setter Property="Tag" Value="{Binding Tag, Mode=OneWay}" />
+                            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+                            <Style.Triggers>
+                                <Trigger Property="IsSelected" Value="True">
+                                    <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+                                </Trigger>
+                            </Style.Triggers>
                         </Style>
                     </TreeView.Resources>
                 </TreeView>
@@ -184,7 +198,18 @@
 
             <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch"/>
 
-            <GroupBox Grid.Column="2" Header="Hex" Margin="0">
+            <GroupBox Grid.Column="2" Margin="0">
+                <GroupBox.Header>
+                    <DockPanel LastChildFill="True">
+                        <Button DockPanel.Dock="Right"
+                                Content="💾"
+                                Command="{Binding CopyHexCommand}"
+                                Style="{StaticResource HexHeaderButtonStyle}"
+                                ToolTip="Copy hex to clipboard"/>
+                        <TextBlock Text="Hex"
+                                   VerticalAlignment="Center"/>
+                    </DockPanel>
+                </GroupBox.Header>
                 <RichTextBox helpers:RichTextBoxAssist.BindableDocument="{Binding HexDocument}"
                              IsReadOnly="True"
                              FontFamily="Consolas"

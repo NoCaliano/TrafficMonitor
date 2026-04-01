@@ -42,6 +42,7 @@ public sealed class MainViewModel : ViewModelBase
     private readonly RelayCommand _followFlowCommand;
     private readonly RelayCommand _followFlowBothDirectionsCommand;
     private readonly RelayCommand _clearFlowFilterCommand;
+    private readonly RelayCommand _copyHexCommand;
 
     // --- UI batching for incoming packets to avoid flooding the UI thread ---
     private readonly object _pendingLock = new();
@@ -155,7 +156,13 @@ public sealed class MainViewModel : ViewModelBase
     public string HexDump
     {
         get => _hexDump;
-        set => Set(ref _hexDump, value);
+        set
+        {
+            if (!Set(ref _hexDump, value))
+                return;
+
+            _copyHexCommand.RaiseCanExecuteChanged();
+        }
     }
 
     private FlowDocument _hexDocument = new();
@@ -343,6 +350,7 @@ public sealed class MainViewModel : ViewModelBase
     public ICommand ZoomInPacketsCommand { get; }
     public ICommand ZoomOutPacketsCommand { get; }
     public ICommand ToggleDisplayFilterExamplesCommand { get; }
+    public ICommand CopyHexCommand => _copyHexCommand;
 
     public StatsViewModel Stats { get; }
     private long _capTotalPackets;
@@ -433,6 +441,10 @@ public sealed class MainViewModel : ViewModelBase
                     _flowsVm.ClearFlowFilterCommand.Execute(null);
             },
             _ => _flowFilterService.IsActive);
+
+        _copyHexCommand = new RelayCommand(
+            _ => CopyHexToClipboard(),
+            _ => !string.IsNullOrWhiteSpace(HexDump));
 
 
         LoadDevices();
@@ -987,6 +999,25 @@ public sealed class MainViewModel : ViewModelBase
         IsDisplayFilterExamplesOpen = !IsDisplayFilterExamplesOpen;
         if (IsDisplayFilterExamplesOpen)
             SelectedDisplayFilterExample = null;
+    }
+
+    private void CopyHexToClipboard()
+    {
+        if (string.IsNullOrWhiteSpace(HexDump))
+        {
+            StatusText = "No hex dump available to copy.";
+            return;
+        }
+
+        try
+        {
+            Clipboard.SetText(HexDump);
+            StatusText = "Hex copied to clipboard.";
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Copy failed: {ex.Message}";
+        }
     }
 
     // Відповідає за перевірку, чи пакет проходить через критерії UI-фільтра (op + value).
