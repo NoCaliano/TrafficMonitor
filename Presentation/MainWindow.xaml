@@ -57,7 +57,6 @@
                     <MenuItem Header="_Open..." Command="{Binding OpenCaptureCommand}" InputGestureText="Ctrl+O"/>
                     <MenuItem Header="Save _As..." Command="{Binding SaveCaptureCommand}" InputGestureText="Ctrl+S"/>
                 </MenuItem>
-                <MenuItem Header="_Edit"/>
                 <MenuItem Header="_View">
                     <MenuItem Header="No" IsCheckable="True" IsChecked="{Binding IsNoColumnVisible, Mode=TwoWay}"/>
                     <MenuItem Header="Time" IsCheckable="True" IsChecked="{Binding IsTimeColumnVisible, Mode=TwoWay}"/>
@@ -72,9 +71,6 @@
                     <MenuItem Header="Process" IsCheckable="True" IsChecked="{Binding IsProcessColumnVisible, Mode=TwoWay}"/>
                     <MenuItem Header="Info" IsCheckable="True" IsChecked="{Binding IsInfoColumnVisible, Mode=TwoWay}"/>
                 </MenuItem>
-                <MenuItem Header="_Go"/>
-                <MenuItem Header="_Capture"/>
-                <MenuItem Header="_Analyze"/>
                 <MenuItem Header="_Statistics" Command="{Binding OpenStatisticsCommand}"/>
             </Menu>
         </Border>

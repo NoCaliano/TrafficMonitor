@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Linq;
 using System.Windows.Data;
 using System.Windows.Input;
 
@@ -24,8 +25,9 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
     private readonly HashSet<int> _burstingPids = new();
 
     private Action<int>? _showPacketsForPid;
-    private Action<int>? _focusOnPid;
     private Action<ProcessStatRow.InvestigationTimelineEvent>? _focusTimelineEvent;
+    private Action<ProcessConversationRow>? _showPacketsForConversation;
+    private Action<ProcessSessionClusterRow>? _showPacketsForSessionCluster;
     private Action<string>? _reportStatus;
 
     public ObservableCollection<ProcessStatRow> ProcessStats { get; } = new();
@@ -45,12 +47,133 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
     }
 
     public ICommand ShowPacketsForPidCommand { get; }
-    public ICommand FocusOnPidCommand { get; }
     public ICommand FocusTimelineEventCommand { get; }
+    public ICommand ShowPacketsForConversationCommand { get; }
+    public ICommand ShowPacketsForSessionClusterCommand { get; }
     public ICommand LocateProcessCommand { get; }
     public ICommand KillProcessCommand { get; }
     public ICommand BlockProcessFirewallCommand { get; }
     public ICommand UnblockProcessFirewallCommand { get; }
+
+    private string _searchText = "";
+    public string SearchText
+    {
+        get => _searchText;
+        set
+        {
+            if (!Set(ref _searchText, value))
+                return;
+
+            RefreshProcessStatsView();
+        }
+    }
+
+    private bool _showHighRiskOnly;
+    public bool ShowHighRiskOnly
+    {
+        get => _showHighRiskOnly;
+        set
+        {
+            if (!Set(ref _showHighRiskOnly, value))
+                return;
+
+            RefreshProcessStatsView();
+        }
+    }
+
+    private bool _showBeaconOnly;
+    public bool ShowBeaconOnly
+    {
+        get => _showBeaconOnly;
+        set
+        {
+            if (!Set(ref _showBeaconOnly, value))
+                return;
+
+            RefreshProcessStatsView();
+        }
+    }
+
+    private bool _showUnsignedOnly;
+    public bool ShowUnsignedOnly
+    {
+        get => _showUnsignedOnly;
+        set
+        {
+            if (!Set(ref _showUnsignedOnly, value))
+                return;
+
+            RefreshProcessStatsView();
+        }
+    }
+
+    private bool _showExitedOnly;
+    public bool ShowExitedOnly
+    {
+        get => _showExitedOnly;
+        set
+        {
+            if (!Set(ref _showExitedOnly, value))
+                return;
+
+            RefreshProcessStatsView();
+        }
+    }
+
+    private bool _showBlockedOnly;
+    public bool ShowBlockedOnly
+    {
+        get => _showBlockedOnly;
+        set
+        {
+            if (!Set(ref _showBlockedOnly, value))
+                return;
+
+            RefreshProcessStatsView();
+        }
+    }
+
+    private int _totalProcessCount;
+    public int TotalProcessCount
+    {
+        get => _totalProcessCount;
+        private set => Set(ref _totalProcessCount, value);
+    }
+
+    private int _visibleProcessCount;
+    public int VisibleProcessCount
+    {
+        get => _visibleProcessCount;
+        private set => Set(ref _visibleProcessCount, value);
+    }
+
+    private int _highRiskProcessCount;
+    public int HighRiskProcessCount
+    {
+        get => _highRiskProcessCount;
+        private set => Set(ref _highRiskProcessCount, value);
+    }
+
+    private int _beaconProcessCount;
+    public int BeaconProcessCount
+    {
+        get => _beaconProcessCount;
+        private set => Set(ref _beaconProcessCount, value);
+    }
+
+    private int _exitedProcessCount;
+    public int ExitedProcessCount
+    {
+        get => _exitedProcessCount;
+        private set => Set(ref _exitedProcessCount, value);
+    }
+
+    private int _blockedProcessCount;
+    public int BlockedProcessCount
+    {
+        get => _blockedProcessCount;
+        private set => Set(ref _blockedProcessCount, value);
+    }
 
     public ProcessPacketsViewModel(
         ProcessMapperService processMapperService,
@@ -64,14 +187,16 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
         _remediationCoordinator = remediationCoordinator;
 
         ShowPacketsForPidCommand = new RelayCommand(p => ShowPacketsForPid(p));
-        FocusOnPidCommand = new RelayCommand(p => FocusOnPid(p));
         FocusTimelineEventCommand = new RelayCommand(p => FocusTimelineEvent(p), p => p is ProcessStatRow.InvestigationTimelineEvent timelineEvent && timelineEvent.CanFocusPacket);
+        ShowPacketsForConversationCommand = new RelayCommand(p => ShowPacketsForConversation(p), p => p is ProcessConversationRow conversation && conversation.Pid > 0);
+        ShowPacketsForSessionClusterCommand = new RelayCommand(p => ShowPacketsForSessionCluster(p), p => p is ProcessSessionClusterRow sessionCluster && sessionCluster.Pid > 0);
         LocateProcessCommand = new RelayCommand(p => LocateProcess(p));
         KillProcessCommand = new RelayCommand(p => KillProcess(p));
         BlockProcessFirewallCommand = new RelayCommand(p => BlockProcessInFirewall(p));
         UnblockProcessFirewallCommand = new RelayCommand(p => UnblockProcessInFirewall(p));
 
         ProcessStatsView = CollectionViewSource.GetDefaultView(ProcessStats);
+        ProcessStatsView.Filter = MatchesCurrentFilters;
         ProcessStatsView.SortDescriptions.Add(new SortDescription(nameof(ProcessStatRow.RiskScore), ListSortDirection.Descending));
         ProcessStatsView.SortDescriptions.Add(new SortDescription(nameof(ProcessStatRow.TotalBytes), ListSortDirection.Descending));
 
@@ -81,17 +206,34 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
             liveShaping.LiveSortingProperties.Add(nameof(ProcessStatRow.TotalBytes));
             liveShaping.IsLiveSorting = true;
         }
+
+        if (ProcessStatsView is ICollectionViewLiveShaping filtering && filtering.CanChangeLiveFiltering)
+        {
+            filtering.LiveFilteringProperties.Add(nameof(ProcessStatRow.RiskScore));
+            filtering.LiveFilteringProperties.Add(nameof(ProcessStatRow.BeaconSuspected));
+            filtering.LiveFilteringProperties.Add(nameof(ProcessStatRow.IsSigned));
+            filtering.LiveFilteringProperties.Add(nameof(ProcessStatRow.IsAlive));
+            filtering.LiveFilteringProperties.Add(nameof(ProcessStatRow.FirewallBlocked));
+            filtering.LiveFilteringProperties.Add(nameof(ProcessStatRow.ProcessName));
+            filtering.LiveFilteringProperties.Add(nameof(ProcessStatRow.Publisher));
+            filtering.LiveFilteringProperties.Add(nameof(ProcessStatRow.ExePath));
+            filtering.LiveFilteringProperties.Add(nameof(ProcessStatRow.TopRemoteEndpoint));
+            filtering.LiveFilteringProperties.Add(nameof(ProcessStatRow.FirstSuspiciousDomain));
+            filtering.IsLiveFiltering = true;
+        }
     }
 
     public void ConfigureActions(
         Action<int> showPacketsForPid,
-        Action<int> focusOnPid,
         Action<ProcessStatRow.InvestigationTimelineEvent> focusTimelineEvent,
+        Action<ProcessConversationRow> showPacketsForConversation,
+        Action<ProcessSessionClusterRow> showPacketsForSessionCluster,
         Action<string> reportStatus)
     {
         _showPacketsForPid = showPacketsForPid;
-        _focusOnPid = focusOnPid;
         _focusTimelineEvent = focusTimelineEvent;
+        _showPacketsForConversation = showPacketsForConversation;
+        _showPacketsForSessionCluster = showPacketsForSessionCluster;
         _reportStatus = reportStatus;
     }
 
@@ -103,8 +245,18 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
         _forensicsTracker.Reset();
         _livenessTracker.Reset();
 
+        foreach (var row in ProcessStats)
+            row.PropertyChanged -= OnProcessStatPropertyChanged;
+
         ProcessStats.Clear();
         SelectedProcessStat = null;
+        SearchText = "";
+        ShowHighRiskOnly = false;
+        ShowBeaconOnly = false;
+        ShowUnsignedOnly = false;
+        ShowExitedOnly = false;
+        ShowBlockedOnly = false;
+        UpdateSummaryCounts();
     }
 
     public void SeedProcessSummary(int pid, string processName, long packetCount, long totalBytes)
@@ -116,9 +268,7 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
             return;
 
         var row = new ProcessStatRow(pid, processName, packetCount, totalBytes);
-        _processStatsMap[pid] = row;
-        ProcessStats.Add(row);
-        SelectedProcessStat ??= row;
+        RegisterProcessRow(row);
     }
 
     public void PrepareForFlush()
@@ -237,9 +387,7 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
         row.UpdateIdentity(details.ExePath, details.Publisher, details.IsSigned, details.SignerSubject, details.ParentPid, parentName);
         TryPopulateProcessStart(row);
 
-        _processStatsMap[pid] = row;
-        ProcessStats.Add(row);
-        SelectedProcessStat ??= row;
+        RegisterProcessRow(row);
         return row;
     }
 
@@ -252,15 +400,6 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
         _showPacketsForPid?.Invoke(pid);
     }
 
-    private void FocusOnPid(object? parameter)
-    {
-        if (parameter is not int pid)
-            return;
-
-        SelectProcess(pid);
-        _focusOnPid?.Invoke(pid);
-    }
-
     private void FocusTimelineEvent(object? parameter)
     {
         if (parameter is not ProcessStatRow.InvestigationTimelineEvent timelineEvent || !timelineEvent.CanFocusPacket)
@@ -268,6 +407,24 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
 
         SelectProcess(timelineEvent.Pid);
         _focusTimelineEvent?.Invoke(timelineEvent);
+    }
+
+    private void ShowPacketsForConversation(object? parameter)
+    {
+        if (parameter is not ProcessConversationRow conversation || conversation.Pid <= 0)
+            return;
+
+        SelectProcess(conversation.Pid);
+        _showPacketsForConversation?.Invoke(conversation);
+    }
+
+    private void ShowPacketsForSessionCluster(object? parameter)
+    {
+        if (parameter is not ProcessSessionClusterRow sessionCluster || sessionCluster.Pid <= 0)
+            return;
+
+        SelectProcess(sessionCluster.Pid);
+        _showPacketsForSessionCluster?.Invoke(sessionCluster);
     }
 
     private void LocateProcess(object? parameter)
@@ -327,6 +484,86 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
         if (!string.IsNullOrWhiteSpace(status))
             _reportStatus?.Invoke(status);
     }
+
+    private void RegisterProcessRow(ProcessStatRow row)
+    {
+        _processStatsMap[row.Pid] = row;
+        row.PropertyChanged += OnProcessStatPropertyChanged;
+        ProcessStats.Add(row);
+        SelectedProcessStat ??= row;
+        RefreshProcessStatsView();
+    }
+
+    private bool MatchesCurrentFilters(object item)
+    {
+        if (item is not ProcessStatRow row)
+            return false;
+
+        if (ShowHighRiskOnly && row.RiskScore < 70)
+            return false;
+
+        if (ShowBeaconOnly && !row.BeaconSuspected)
+            return false;
+
+        if (ShowUnsignedOnly && row.IsSigned)
+            return false;
+
+        if (ShowExitedOnly && row.IsAlive)
+            return false;
+
+        if (ShowBlockedOnly && !row.FirewallBlocked)
+            return false;
+
+        var search = SearchText?.Trim();
+        if (string.IsNullOrWhiteSpace(search))
+            return true;
+
+        return ContainsIgnoreCase(row.ProcessName, search)
+            || ContainsIgnoreCase(row.Publisher, search)
+            || ContainsIgnoreCase(row.ExePath, search)
+            || ContainsIgnoreCase(row.TopRemoteEndpoint, search)
+            || ContainsIgnoreCase(row.FirstSuspiciousDomain, search);
+    }
+
+    private void RefreshProcessStatsView()
+    {
+        ProcessStatsView.Refresh();
+        UpdateSummaryCounts();
+    }
+
+    private void UpdateSummaryCounts()
+    {
+        TotalProcessCount = ProcessStats.Count;
+        VisibleProcessCount = ProcessStatsView.Cast<object>().Count();
+        HighRiskProcessCount = ProcessStats.Count(row => row.RiskScore >= 70);
+        BeaconProcessCount = ProcessStats.Count(row => row.BeaconSuspected);
+        ExitedProcessCount = ProcessStats.Count(row => !row.IsAlive);
+        BlockedProcessCount = ProcessStats.Count(row => row.FirewallBlocked);
+    }
+
+    private void OnProcessStatPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (sender is not ProcessStatRow)
+            return;
+
+        if (string.IsNullOrWhiteSpace(e.PropertyName)
+            || e.PropertyName is nameof(ProcessStatRow.RiskScore)
+            or nameof(ProcessStatRow.BeaconSuspected)
+            or nameof(ProcessStatRow.IsSigned)
+            or nameof(ProcessStatRow.IsAlive)
+            or nameof(ProcessStatRow.FirewallBlocked)
+            or nameof(ProcessStatRow.ProcessName)
+            or nameof(ProcessStatRow.Publisher)
+            or nameof(ProcessStatRow.ExePath)
+            or nameof(ProcessStatRow.TopRemoteEndpoint)
+            or nameof(ProcessStatRow.FirstSuspiciousDomain))
+        {
+            RefreshProcessStatsView();
+        }
+    }
+
+    private static bool ContainsIgnoreCase(string? value, string search)
+        => !string.IsNullOrWhiteSpace(value) && value.IndexOf(search, StringComparison.OrdinalIgnoreCase) >= 0;
 
     private static string BuildPacketTimelineDetail(PacketInfo packet)
     {

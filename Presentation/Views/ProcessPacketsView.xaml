@@ -24,6 +24,41 @@
             </Style.Triggers>
         </Style>
 
+        <Style x:Key="ProcessFilterChipStyle" TargetType="ToggleButton">
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+            <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrushSoft}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="10,4"/>
+            <Setter Property="Margin" Value="0,0,6,6"/>
+            <Setter Property="MinHeight" Value="28"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="Chip"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="10"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Chip" Property="BorderBrush" Value="{StaticResource BorderBrushStrong}"/>
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Chip" Property="Background" Value="{StaticResource AccentBrushSoft}"/>
+                                <Setter TargetName="Chip" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <DataTemplate x:Key="ProcessTimelineDetailsTemplate" DataType="{x:Type models:ProcessStatRow}">
             <StackPanel>
                 <TextBlock Text="{Binding DisplayName}"
@@ -141,6 +176,12 @@
                                     </StackPanel>
 
                                     <StackPanel Grid.Column="1" Margin="14,0,0,0" HorizontalAlignment="Right">
+                                        <Button Content="Packets"
+                                                Command="{Binding DataContext.ShowPacketsForConversationCommand, ElementName=ProcessPacketsLayout}"
+                                                CommandParameter="{Binding}"
+                                                Style="{StaticResource ChipButtonStyle}"
+                                                HorizontalAlignment="Right"
+                                                Margin="0,0,0,6"/>
                                         <TextBlock Text="{Binding LastSeenLabel}" FontSize="11" Foreground="{StaticResource TextMutedBrush}" HorizontalAlignment="Right"/>
                                         <TextBlock Text="{Binding FirstSeenLabel}" FontSize="11" Foreground="{StaticResource TextMutedBrush}" HorizontalAlignment="Right"/>
                                     </StackPanel>
@@ -189,6 +230,12 @@
                                     </StackPanel>
 
                                     <StackPanel Grid.Column="1" Margin="14,0,0,0" HorizontalAlignment="Right">
+                                        <Button Content="Packets"
+                                                Command="{Binding DataContext.ShowPacketsForSessionClusterCommand, ElementName=ProcessPacketsLayout}"
+                                                CommandParameter="{Binding}"
+                                                Style="{StaticResource ChipButtonStyle}"
+                                                HorizontalAlignment="Right"
+                                                Margin="0,0,0,6"/>
                                         <TextBlock Text="{Binding WindowLabel}" FontSize="11" Foreground="{StaticResource TextMutedBrush}" HorizontalAlignment="Right"/>
                                         <TextBlock Text="{Binding DurationLabel}" FontSize="11" Foreground="{StaticResource TextMutedBrush}" HorizontalAlignment="Right"/>
                                     </StackPanel>
@@ -215,18 +262,128 @@
         </Grid.ColumnDefinitions>
 
         <Border Grid.Column="0" Style="{StaticResource SectionCardStyle}">
-            <ListBox ItemsSource="{Binding ProcessStatsView}"
-                     SelectedItem="{Binding SelectedProcessStat}"
-                     Background="Transparent"
-                     BorderThickness="0"
-                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                     ScrollViewer.VerticalScrollBarVisibility="Hidden">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <StackPanel Grid.Row="0">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <WrapPanel Grid.Column="0">
+                            <Border Margin="0,0,8,8"
+                                    Padding="10,8"
+                                    Background="{StaticResource SurfaceBrush}"
+                                    BorderBrush="{StaticResource BorderBrushSoft}"
+                                    BorderThickness="1"
+                                    CornerRadius="10">
+                                <StackPanel>
+                                    <TextBlock Text="Visible" FontSize="10" Foreground="{StaticResource TextMutedBrush}"/>
+                                    <TextBlock FontWeight="SemiBold"
+                                               Foreground="{StaticResource TextPrimaryBrush}">
+                                        <Run Text="{Binding VisibleProcessCount, Mode=OneWay}"/>
+                                        <Run Text=" / "/>
+                                        <Run Text="{Binding TotalProcessCount, Mode=OneWay}"/>
+                                    </TextBlock>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Margin="0,0,8,8"
+                                    Padding="10,8"
+                                    Background="{StaticResource SurfaceBrush}"
+                                    BorderBrush="{StaticResource BorderBrushSoft}"
+                                    BorderThickness="1"
+                                    CornerRadius="10">
+                                <StackPanel>
+                                    <TextBlock Text="High risk" FontSize="10" Foreground="{StaticResource TextMutedBrush}"/>
+                                    <TextBlock Text="{Binding HighRiskProcessCount}" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}"/>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Margin="0,0,8,8"
+                                    Padding="10,8"
+                                    Background="{StaticResource SurfaceBrush}"
+                                    BorderBrush="{StaticResource BorderBrushSoft}"
+                                    BorderThickness="1"
+                                    CornerRadius="10">
+                                <StackPanel>
+                                    <TextBlock Text="Beacon" FontSize="10" Foreground="{StaticResource TextMutedBrush}"/>
+                                    <TextBlock Text="{Binding BeaconProcessCount}" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}"/>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Margin="0,0,8,8"
+                                    Padding="10,8"
+                                    Background="{StaticResource SurfaceBrush}"
+                                    BorderBrush="{StaticResource BorderBrushSoft}"
+                                    BorderThickness="1"
+                                    CornerRadius="10">
+                                <StackPanel>
+                                    <TextBlock Text="Exited" FontSize="10" Foreground="{StaticResource TextMutedBrush}"/>
+                                    <TextBlock Text="{Binding ExitedProcessCount}" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}"/>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Margin="0,0,0,8"
+                                    Padding="10,8"
+                                    Background="{StaticResource SurfaceBrush}"
+                                    BorderBrush="{StaticResource BorderBrushSoft}"
+                                    BorderThickness="1"
+                                    CornerRadius="10">
+                                <StackPanel>
+                                    <TextBlock Text="Blocked" FontSize="10" Foreground="{StaticResource TextMutedBrush}"/>
+                                    <TextBlock Text="{Binding BlockedProcessCount}" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}"/>
+                                </StackPanel>
+                            </Border>
+                        </WrapPanel>
+
+                        <WrapPanel Grid.Column="1"
+                                   HorizontalAlignment="Right"
+                                   VerticalAlignment="Top">
+                            <ToggleButton Content="High risk"
+                                          IsChecked="{Binding ShowHighRiskOnly, Mode=TwoWay}"
+                                          Style="{StaticResource ProcessFilterChipStyle}"/>
+                            <ToggleButton Content="Beacon"
+                                          IsChecked="{Binding ShowBeaconOnly, Mode=TwoWay}"
+                                          Style="{StaticResource ProcessFilterChipStyle}"/>
+                            <ToggleButton Content="Unsigned"
+                                          IsChecked="{Binding ShowUnsignedOnly, Mode=TwoWay}"
+                                          Style="{StaticResource ProcessFilterChipStyle}"/>
+                            <ToggleButton Content="Exited"
+                                          IsChecked="{Binding ShowExitedOnly, Mode=TwoWay}"
+                                          Style="{StaticResource ProcessFilterChipStyle}"/>
+                            <ToggleButton Content="Blocked"
+                                          IsChecked="{Binding ShowBlockedOnly, Mode=TwoWay}"
+                                          Style="{StaticResource ProcessFilterChipStyle}"/>
+                        </WrapPanel>
+                    </Grid>
+
+                    <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged, Delay=250}"
+                             MinHeight="28"
+                             Padding="8,2"
+                             Margin="0,2,0,0"
+                             VerticalContentAlignment="Center"
+                             ToolTip="Search by process name, publisher, path, top remote, or suspicious domain"/>
+                </StackPanel>
+
+                <ListBox Grid.Row="1"
+                         Margin="0,14,0,0"
+                         ItemsSource="{Binding ProcessStatsView}"
+                         SelectedItem="{Binding SelectedProcessStat}"
+                         Background="Transparent"
+                         BorderThickness="0"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         ScrollViewer.VerticalScrollBarVisibility="Hidden">
                 <ListBox.ItemContainerStyle>
                     <Style TargetType="ListBoxItem">
+                        <Setter Property="OverridesDefaultStyle" Value="True"/>
                         <Setter Property="Margin" Value="6"/>
                         <Setter Property="Padding" Value="0"/>
-                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                        <Setter Property="VerticalContentAlignment" Value="Stretch"/>
                         <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
                         <Setter Property="Background" Value="Transparent"/>
                         <Setter Property="BorderThickness" Value="0"/>
@@ -307,10 +464,25 @@
 
                                 <Border Grid.Row="4" Background="{StaticResource SurfaceBrush}" Padding="8" Margin="0,10,0,0" BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="1" CornerRadius="8">
                                     <StackPanel>
-                                        <DockPanel LastChildFill="True">
-                                            <TextBlock Text="{Binding WhyFlaggedLabel}" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}"/>
-                                            <TextBlock DockPanel.Dock="Right" Text="{Binding RiskScore, StringFormat={}{0}/100}" FontSize="11" FontWeight="SemiBold" Foreground="{Binding RiskBrush}"/>
-                                        </DockPanel>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+
+                                            <TextBlock Grid.Column="0"
+                                                       Text="{Binding WhyFlaggedLabel}"
+                                                       FontSize="11"
+                                                       FontWeight="SemiBold"
+                                                       Foreground="{StaticResource TextPrimaryBrush}"
+                                                       Margin="0,0,10,0"/>
+                                            <TextBlock Grid.Column="1"
+                                                       Text="{Binding RiskScore, StringFormat={}{0}/100}"
+                                                       FontSize="11"
+                                                       FontWeight="SemiBold"
+                                                       Foreground="{Binding RiskBrush}"
+                                                       HorizontalAlignment="Right"/>
+                                        </Grid>
 
                                         <ItemsControl ItemsSource="{Binding RiskReasons}"
                                                       Margin="0,4,0,0"
@@ -350,33 +522,28 @@
                                 </Border>
 
                                 <WrapPanel Grid.Row="6" Margin="0,10,0,0" HorizontalAlignment="Right">
-                                    <Button Content="Locate"
+                                    <Button Content="Open folder"
                                             Command="{Binding DataContext.LocateProcessCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
                                             CommandParameter="{Binding Pid}"
                                             Style="{StaticResource ChipButtonStyle}"
                                             Margin="0,0,6,6"/>
-                                    <Button Content="Block"
+                                    <Button Content="Block network"
                                             Command="{Binding DataContext.BlockProcessFirewallCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
                                             CommandParameter="{Binding Pid}"
                                             Style="{StaticResource ChipButtonStyle}"
                                             Margin="0,0,6,6"/>
-                                    <Button Content="Unblock"
+                                    <Button Content="Restore network"
                                             Command="{Binding DataContext.UnblockProcessFirewallCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
                                             CommandParameter="{Binding Pid}"
                                             Style="{StaticResource ChipButtonStyle}"
                                             Margin="0,0,6,6"/>
-                                    <Button Content="Kill"
+                                    <Button Content="End process"
                                             Command="{Binding DataContext.KillProcessCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
                                             CommandParameter="{Binding Pid}"
                                             Style="{StaticResource ChipButtonStyle}"
                                             Margin="0,0,6,6"/>
-                                    <Button Content="Show"
+                                    <Button Content="Show packets"
                                             Command="{Binding DataContext.ShowPacketsForPidCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
-                                            CommandParameter="{Binding Pid}"
-                                            Style="{StaticResource ChipButtonStyle}"
-                                            Margin="0,0,6,6"/>
-                                    <Button Content="Focus"
-                                            Command="{Binding DataContext.FocusOnPidCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
                                             CommandParameter="{Binding Pid}"
                                             Style="{StaticResource ChipButtonStyle}"
                                             Margin="0,0,0,6"/>
@@ -385,7 +552,8 @@
                         </Border>
                     </DataTemplate>
                 </ListBox.ItemTemplate>
-            </ListBox>
+                </ListBox>
+            </Grid>
         </Border>
 
         <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>

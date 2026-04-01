@@ -2,6 +2,7 @@ namespace Presentation.Models;
 
 public sealed class ProcessSessionClusterRow
 {
+    public required int Pid { get; init; }
     public required int Index { get; init; }
     public required DateTime FirstSeen { get; init; }
     public required DateTime LastSeen { get; init; }

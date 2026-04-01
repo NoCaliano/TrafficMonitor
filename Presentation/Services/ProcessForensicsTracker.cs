@@ -196,6 +196,7 @@ public sealed class ProcessForensicsTracker
             .Take(take)
             .Select(kv => new ProcessConversationRow
             {
+                Pid = kv.Key.Pid,
                 Protocol = kv.Key.Endpoint.Protocol,
                 RemoteIp = kv.Key.Endpoint.Ip,
                 RemotePort = kv.Key.Endpoint.Port,
@@ -221,6 +222,7 @@ public sealed class ProcessForensicsTracker
             .Take(take)
             .Select(cluster => new ProcessSessionClusterRow
             {
+                Pid = pid,
                 Index = cluster.Index,
                 FirstSeen = cluster.FirstSeen,
                 LastSeen = cluster.LastSeen,

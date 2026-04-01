@@ -2,6 +2,7 @@ namespace Presentation.Models;
 
 public sealed class ProcessConversationRow
 {
+    public required int Pid { get; init; }
     public required string Protocol { get; init; }
     public required string RemoteIp { get; init; }
     public required int RemotePort { get; init; }

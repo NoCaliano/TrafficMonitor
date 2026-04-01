@@ -158,6 +158,84 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
         ? ""
         : $"Beacon: ~{BeaconIntervalSec:0.#}s (cv {BeaconCv:0.##}, n={BeaconSamples})";
 
+    private string _firstSuspiciousDomain = "";
+    public string FirstSuspiciousDomain
+    {
+        get => _firstSuspiciousDomain;
+        private set
+        {
+            if (_firstSuspiciousDomain != value)
+            {
+                _firstSuspiciousDomain = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(HasSuspiciousDomain));
+                RecomputeRisk();
+            }
+        }
+    }
+
+    public bool HasSuspiciousDomain => !string.IsNullOrWhiteSpace(FirstSuspiciousDomain);
+
+    private string _suspiciousDomainReason = "";
+    public string SuspiciousDomainReason
+    {
+        get => _suspiciousDomainReason;
+        private set
+        {
+            if (_suspiciousDomainReason != value)
+            {
+                _suspiciousDomainReason = value;
+                OnPropertyChanged();
+                RecomputeRisk();
+            }
+        }
+    }
+
+    private int _identityChangeCount;
+    public int IdentityChangeCount
+    {
+        get => _identityChangeCount;
+        private set
+        {
+            if (_identityChangeCount != value)
+            {
+                _identityChangeCount = value;
+                OnPropertyChanged();
+                RecomputeRisk();
+            }
+        }
+    }
+
+    private bool _firewallBlocked;
+    public bool FirewallBlocked
+    {
+        get => _firewallBlocked;
+        private set
+        {
+            if (_firewallBlocked != value)
+            {
+                _firewallBlocked = value;
+                OnPropertyChanged();
+            }
+        }
+    }
+
+    private DateTime? _lastTrafficPeakAt;
+    private bool _exitedAfterTrafficPeak;
+    public bool ExitedAfterTrafficPeak
+    {
+        get => _exitedAfterTrafficPeak;
+        private set
+        {
+            if (_exitedAfterTrafficPeak != value)
+            {
+                _exitedAfterTrafficPeak = value;
+                OnPropertyChanged();
+                RecomputeRisk();
+            }
+        }
+    }
+
     // rolling samples of packets per update interval
     private readonly Queue<int> _samples = new();
     public IReadOnlyList<int> Samples => _samples.ToArray();
@@ -305,6 +383,23 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
             signals.Add(new RiskSignal(summary, 20));
         }
 
+        if (HasSuspiciousDomain)
+        {
+            string summary = string.IsNullOrWhiteSpace(SuspiciousDomainReason)
+                ? $"Resolved suspicious domain {FirstSuspiciousDomain}"
+                : $"Resolved suspicious domain {FirstSuspiciousDomain} ({SuspiciousDomainReason})";
+
+            signals.Add(new RiskSignal(summary, 15));
+        }
+
+        if (IdentityChangeCount >= 2)
+            signals.Add(new RiskSignal($"Process identity changed {IdentityChangeCount} times while observed", 15));
+        else if (IdentityChangeCount == 1)
+            signals.Add(new RiskSignal("Process identity changed while observed", 10));
+
+        if (ExitedAfterTrafficPeak)
+            signals.Add(new RiskSignal("Exited shortly after a traffic burst", 10));
+
         RiskReasons = signals
             .Select(signal => new RiskReason(signal.Summary, signal.Points))
             .ToArray();
@@ -328,12 +423,22 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
         => AddTimelineEventIfMissing("first-secure-handshake", timestamp, "First TLS/QUIC handshake", detail, new InvestigationTimelineTarget("first-secure-handshake"));
 
     public void RecordFirstSuspiciousDomain(DateTime timestamp, string domain, string reason)
-        => AddTimelineEventIfMissing("first-suspicious-domain", timestamp, "First suspicious domain", $"{domain} ({reason})", new InvestigationTimelineTarget("first-suspicious-domain", domain));
+    {
+        if (!HasSuspiciousDomain)
+        {
+            FirstSuspiciousDomain = domain;
+            SuspiciousDomainReason = reason;
+        }
+
+        AddTimelineEventIfMissing("first-suspicious-domain", timestamp, "First suspicious domain", $"{domain} ({reason})", new InvestigationTimelineTarget("first-suspicious-domain", domain));
+    }
 
     public void RecordTrafficPeak(DateTime timestamp, int packetsPerInterval)
     {
         if (packetsPerInterval <= 0)
             return;
+
+        _lastTrafficPeakAt = timestamp;
 
         string detail = AvgSamplePackets > 0
             ? $"Burst of {packetsPerInterval:N0} packets in one interval (avg {AvgSamplePackets:0.#})."
@@ -349,16 +454,30 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
         => AddTimelineEventIfMissing("beacon-detected", timestamp, "Beaconing detected", detail, new InvestigationTimelineTarget("beacon-detected"));
 
     public void RecordProcessExited(DateTime timestamp, string detail)
-        => AddTimelineEventIfMissing("process-exited", timestamp, "Process exited", detail);
+    {
+        if (_lastTrafficPeakAt.HasValue && timestamp >= _lastTrafficPeakAt.Value && (timestamp - _lastTrafficPeakAt.Value) <= TimeSpan.FromMinutes(2))
+            ExitedAfterTrafficPeak = true;
+
+        AddTimelineEventIfMissing("process-exited", timestamp, "Process exited", detail);
+    }
 
     public void RecordIdentityChanged(DateTime timestamp, string detail)
-        => AppendTimelineEvent($"process-identity-{timestamp.Ticks}", timestamp, "Process identity changed", detail);
+    {
+        IdentityChangeCount++;
+        AppendTimelineEvent($"process-identity-{timestamp.Ticks}", timestamp, "Process identity changed", detail);
+    }
 
     public void RecordFirewallBlock(DateTime timestamp)
-        => AppendTimelineEvent($"firewall-block-{timestamp.Ticks}", timestamp, "Firewall block applied", "TrafficMonitor added Windows Firewall rules for this executable.");
+    {
+        FirewallBlocked = true;
+        AppendTimelineEvent($"firewall-block-{timestamp.Ticks}", timestamp, "Firewall block applied", "TrafficMonitor added Windows Firewall rules for this executable.");
+    }
 
     public void RecordFirewallUnblock(DateTime timestamp)
-        => AppendTimelineEvent($"firewall-unblock-{timestamp.Ticks}", timestamp, "Firewall block removed", "TrafficMonitor removed its Windows Firewall rules for this executable.");
+    {
+        FirewallBlocked = false;
+        AppendTimelineEvent($"firewall-unblock-{timestamp.Ticks}", timestamp, "Firewall block removed", "TrafficMonitor removed its Windows Firewall rules for this executable.");
+    }
 
     public void UpdateConversations(IEnumerable<ProcessConversationRow> conversations)
     {

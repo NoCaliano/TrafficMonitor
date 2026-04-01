@@ -398,7 +398,12 @@ public sealed class MainViewModel : ViewModelBase
         ZoomInPacketsCommand = new RelayCommand(_ => ZoomPackets(+1));
         ZoomOutPacketsCommand = new RelayCommand(_ => ZoomPackets(-1));
         ToggleDisplayFilterExamplesCommand = new RelayCommand(_ => ToggleDisplayFilterExamples());
-        ProcessPackets.ConfigureActions(ApplyProcessPacketFilter, FocusPacketsForProcess, FocusPacketForTimelineEvent, message => StatusText = message);
+        ProcessPackets.ConfigureActions(
+            ApplyProcessPacketFilter,
+            FocusPacketForTimelineEvent,
+            ShowPacketsForConversation,
+            ShowPacketsForSessionCluster,
+            message => StatusText = message);
 
         // FlowsViewModel will manage flow selection and flow commands
         _flowsVm = _flowsFactory(() => !_uiFilterIsEmpty, () => RefreshPacketsFilteringUi());
@@ -1017,22 +1022,15 @@ public sealed class MainViewModel : ViewModelBase
         if (pid <= 0)
             return;
 
-        _uiFilter.PidOp = NumberMatchOp.Equals;
-        _uiFilter.PidValue = pid;
+        _flowFilterService.Clear();
+        _uiFilter = new PacketFilterModel
+        {
+            PidOp = NumberMatchOp.Equals,
+            PidValue = pid
+        };
+
+        DisplayFilterText = "";
         RefreshPacketsFilteringUi();
-        LeftTabIndex = 0;
-    }
-
-    private void FocusPacketsForProcess(int pid)
-    {
-        if (pid <= 0)
-            return;
-
-        var first = Packets.FirstOrDefault(p => p.Pid == pid);
-        if (first is null)
-            return;
-
-        SelectedPacket = first;
         LeftTabIndex = 0;
     }
 
@@ -1066,6 +1064,86 @@ public sealed class MainViewModel : ViewModelBase
         }
 
         SelectedPacket = packet;
+    }
+
+    private void ShowPacketsForConversation(ProcessConversationRow conversation)
+    {
+        if (conversation.Pid <= 0)
+            return;
+
+        var filter = new PacketFilterModel
+        {
+            PidOp = NumberMatchOp.Equals,
+            PidValue = conversation.Pid,
+            AnyIpOp = TextMatchOp.Equals,
+            AnyIpValue = conversation.RemoteIp
+        };
+
+        if (conversation.RemotePort > 0)
+        {
+            filter.AnyPortOp = NumberMatchOp.Equals;
+            filter.AnyPortValue = conversation.RemotePort;
+        }
+
+        if (!string.IsNullOrWhiteSpace(conversation.Protocol))
+        {
+            filter.ProtocolOp = TextMatchOp.Equals;
+            filter.ProtocolValue = conversation.Protocol;
+        }
+
+        ApplyPacketDrillDown(
+            filter,
+            $"Filtered packets for {conversation.ConversationLabel}.",
+            packets => packets
+                .Where(packet => packet.Pid == conversation.Pid)
+                .Where(packet => string.Equals(packet.SrcIp, conversation.RemoteIp, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(packet.DstIp, conversation.RemoteIp, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(packet => packet.Timestamp)
+                .ThenBy(packet => packet.No)
+                .FirstOrDefault());
+    }
+
+    private void ShowPacketsForSessionCluster(ProcessSessionClusterRow sessionCluster)
+    {
+        if (sessionCluster.Pid <= 0)
+            return;
+
+        var filter = new PacketFilterModel
+        {
+            PidOp = NumberMatchOp.Equals,
+            PidValue = sessionCluster.Pid,
+            TimeFromUtc = sessionCluster.FirstSeen == default ? null : sessionCluster.FirstSeen.ToUniversalTime(),
+            TimeToUtc = sessionCluster.LastSeen == default ? null : sessionCluster.LastSeen.ToUniversalTime()
+        };
+
+        ApplyPacketDrillDown(
+            filter,
+            $"Filtered packets for {sessionCluster.Title.ToLowerInvariant()}.",
+            packets => packets
+                .Where(packet => packet.Pid == sessionCluster.Pid)
+                .Where(packet => packet.Timestamp >= sessionCluster.FirstSeen && packet.Timestamp <= sessionCluster.LastSeen)
+                .OrderBy(packet => packet.Timestamp)
+                .ThenBy(packet => packet.No)
+                .FirstOrDefault());
+    }
+
+    private void ApplyPacketDrillDown(PacketFilterModel filter, string successStatus, Func<IEnumerable<PacketInfo>, PacketInfo?> packetSelector)
+    {
+        _flowFilterService.Clear();
+        _uiFilter = filter;
+        DisplayFilterText = "";
+        RefreshPacketsFilteringUi();
+        LeftTabIndex = 0;
+
+        var packet = packetSelector(PacketsView.Cast<PacketInfo>());
+        if (packet is null)
+        {
+            StatusText = "No packets matched the selected investigation slice.";
+            return;
+        }
+
+        SelectedPacket = packet;
+        StatusText = successStatus;
     }
 
     private PacketInfo? FindPacketForTimelineEvent(ProcessStatRow.InvestigationTimelineEvent timelineEvent)
