@@ -127,7 +127,9 @@
                     <Separator/>
 
                     <Button Content="Show Packets" Command="{Binding ShowPacketsCommand}" />
+                    <TextBlock Text="|" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,6,0" VerticalAlignment="Center"/>
                     <Button Content="Show Flows" Command="{Binding ShowFlowsCommand}" />
+                    <TextBlock Text="|" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,6,0" VerticalAlignment="Center"/>
                     <Button Content="Process Packets" Command="{Binding ShowProcessPacketsCommand}" />
                     <Button Content="🔍−" Command="{Binding ZoomOutPacketsCommand}" ToolTip="Зменшити масштаб" Style="{StaticResource IconToolbarButtonStyle}" />
                     <Button Content="🔍+" Command="{Binding ZoomInPacketsCommand}" ToolTip="Збільшити масштаб" Style="{StaticResource IconToolbarButtonStyle}" />
