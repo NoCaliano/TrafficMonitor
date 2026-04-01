@@ -521,33 +521,58 @@
                                     </Grid>
                                 </Border>
 
-                                <WrapPanel Grid.Row="6" Margin="0,10,0,0" HorizontalAlignment="Right">
-                                    <Button Content="Open folder"
+                                <Grid Grid.Row="6" Margin="0,10,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+
+                                    <Button Grid.Row="0"
+                                            Grid.Column="0"
+                                            Content="Open folder"
                                             Command="{Binding DataContext.LocateProcessCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
                                             CommandParameter="{Binding Pid}"
                                             Style="{StaticResource ChipButtonStyle}"
+                                            HorizontalAlignment="Stretch"
                                             Margin="0,0,6,6"/>
-                                    <Button Content="Block network"
+                                    <Button Grid.Row="0"
+                                            Grid.Column="1"
+                                            Content="Block network"
                                             Command="{Binding DataContext.BlockProcessFirewallCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
                                             CommandParameter="{Binding Pid}"
                                             Style="{StaticResource ChipButtonStyle}"
+                                            HorizontalAlignment="Stretch"
                                             Margin="0,0,6,6"/>
-                                    <Button Content="Restore network"
+                                    <Button Grid.Row="0"
+                                            Grid.Column="2"
+                                            Content="Restore network"
                                             Command="{Binding DataContext.UnblockProcessFirewallCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
                                             CommandParameter="{Binding Pid}"
                                             Style="{StaticResource ChipButtonStyle}"
-                                            Margin="0,0,6,6"/>
-                                    <Button Content="End process"
+                                            HorizontalAlignment="Stretch"
+                                            Margin="0,0,0,6"/>
+                                    <Button Grid.Row="1"
+                                            Grid.Column="0"
+                                            Content="End process"
                                             Command="{Binding DataContext.KillProcessCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
                                             CommandParameter="{Binding Pid}"
                                             Style="{StaticResource ChipButtonStyle}"
-                                            Margin="0,0,6,6"/>
-                                    <Button Content="Show packets"
+                                            HorizontalAlignment="Stretch"
+                                            Margin="0,0,6,0"/>
+                                    <Button Grid.Row="1"
+                                            Grid.Column="1"
+                                            Content="Show packets"
                                             Command="{Binding DataContext.ShowPacketsForPidCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
                                             CommandParameter="{Binding Pid}"
                                             Style="{StaticResource ChipButtonStyle}"
-                                            Margin="0,0,0,6"/>
-                                </WrapPanel>
+                                            HorizontalAlignment="Stretch"
+                                            Margin="0,0,6,0"/>
+                                </Grid>
                             </Grid>
                         </Border>
                     </DataTemplate>
