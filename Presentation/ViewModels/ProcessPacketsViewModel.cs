@@ -357,6 +357,22 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
         RefreshSelectedProcessDetails();
     }
 
+    public IReadOnlyList<(ProcessStatRow Process, ProcessConversationRow Conversation)> GetTopConversations(int take = 200, int perProcessTake = 24)
+    {
+        if (take <= 0 || perProcessTake <= 0 || ProcessStats.Count == 0)
+            return Array.Empty<(ProcessStatRow Process, ProcessConversationRow Conversation)>();
+
+        return ProcessStats
+            .Where(process => process.Pid > 0 && !string.IsNullOrWhiteSpace(process.ProcessName))
+            .SelectMany(process => _forensicsTracker.GetConversationSnapshot(process.Pid, perProcessTake)
+                .Select(conversation => (Process: process, Conversation: conversation)))
+            .OrderByDescending(item => item.Conversation.TotalBytes)
+            .ThenByDescending(item => item.Conversation.PacketCount)
+            .ThenByDescending(item => item.Conversation.LastSeen)
+            .Take(take)
+            .ToArray();
+    }
+
     public void SelectProcess(int pid)
     {
         if (pid <= 0)

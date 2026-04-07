@@ -1,34 +1,36 @@
-﻿// Відповідає за рядки статистики для вкладки Stats (Top Hosts / Top Ports).
 namespace Presentation.Models;
 
-public sealed class HostStatRow
+public abstract class TrafficListRow
 {
-    public string Host { get; init; } = "";
-    public string Type { get; init; } = ""; // Unicast / Multicast / Broadcast
-    public string Role { get; init; } = ""; // Remote / Local / Unknown (опційно)
-
-    public int Flows { get; init; }
-    public int Packets { get; init; }
+    public string Title { get; init; } = "";
+    public string Subtitle { get; init; } = "";
     public long Bytes { get; init; }
-
-    public long SentBytes { get; init; }
-    public long RecvBytes { get; init; }
-
-    public DateTime LastSeen { get; init; }
+    public string BytesLabel { get; init; } = "0 B";
+    public double RelativePercent { get; init; }
 }
 
-public sealed class PortStatRow
+public sealed class ProcessTrafficRow : TrafficListRow
 {
-    public string Protocol { get; init; } = "";
-    public int Port { get; init; }
-    public string Service { get; init; } = "";
+    public int Pid { get; init; }
+}
 
-    public int Flows { get; init; }
-    public int Packets { get; init; }
-    public long Bytes { get; init; }
+public sealed class ConversationTrafficRow : TrafficListRow
+{
+    public int Pid { get; init; }
+    public string ProcessName { get; init; } = "";
+    public string EndpointLabel { get; init; } = "";
+    public string PacketCountLabel { get; init; } = "";
+    public string DirectionLabel { get; init; } = "";
+}
 
-    public long SentBytes { get; init; }
-    public long RecvBytes { get; init; }
+public sealed class HostStatRow : TrafficListRow
+{
+    public string Type { get; init; } = "";
+    public string BadgeText { get; init; } = "";
+}
 
-    public DateTime LastSeen { get; init; }
+public sealed class TrafficTypeStatRow : TrafficListRow
+{
+    public string Key { get; init; } = "";
+    public string BadgeText { get; init; } = "";
 }

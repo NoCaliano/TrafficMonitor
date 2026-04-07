@@ -71,7 +71,6 @@
                     <MenuItem Header="Process" IsCheckable="True" IsChecked="{Binding IsProcessColumnVisible, Mode=TwoWay}"/>
                     <MenuItem Header="Info" IsCheckable="True" IsChecked="{Binding IsInfoColumnVisible, Mode=TwoWay}"/>
                 </MenuItem>
-                <MenuItem Header="_Statistics" Command="{Binding OpenStatisticsCommand}"/>
             </Menu>
         </Border>
 
@@ -131,6 +130,7 @@
                     <Button Content="Show Flows" Command="{Binding ShowFlowsCommand}" />
                     <TextBlock Text="|" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,6,0" VerticalAlignment="Center"/>
                     <Button Content="Process Packets" Command="{Binding ShowProcessPacketsCommand}" />
+                    <Button Content="Statistics" Command="{Binding OpenStatisticsCommand}" />
                     <Button Content="🔍−" Command="{Binding ZoomOutPacketsCommand}" ToolTip="Зменшити масштаб" Style="{StaticResource IconToolbarButtonStyle}" />
                     <Button Content="🔍+" Command="{Binding ZoomInPacketsCommand}" ToolTip="Збільшити масштаб" Style="{StaticResource IconToolbarButtonStyle}" />
                     <Button Content="⏮" Command="{Binding SelectFirstPacketCommand}" ToolTip="Перший пакет" Style="{StaticResource IconToolbarButtonStyle}" />
@@ -193,6 +193,10 @@
 
                 <TabItem Header="Process Packets">
                     <views:ProcessPacketsView />
+                </TabItem>
+
+                <TabItem Header="Statistics">
+                    <views:StatsView DataContext="{Binding Stats}" />
                 </TabItem>
 
 

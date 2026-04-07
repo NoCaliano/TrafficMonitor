@@ -26,6 +26,11 @@ namespace Presentation.ViewModels;
 
 public sealed class MainViewModel : ViewModelBase
 {
+    private const int PacketsTabIndex = 0;
+    private const int FlowsTabIndex = 1;
+    private const int ProcessPacketsTabIndex = 2;
+    private const int StatisticsTabIndex = 3;
+
     private readonly ICaptureDeviceService _deviceService;
     private readonly IPacketCaptureService _captureService;
     private readonly IPacketParser _parser;
@@ -305,7 +310,7 @@ public sealed class MainViewModel : ViewModelBase
 
     // ===================== LEFT TABS =====================
 
-    // Відповідає за вибрану вкладку зліва (0 = Packets, 1 = Flows, 2 = Stats...).
+    // Відповідає за вибрану вкладку основного контенту.
     private int _leftTabIndex;
     public int LeftTabIndex
     {
@@ -396,7 +401,7 @@ public sealed class MainViewModel : ViewModelBase
         // Відповідає за команду відкриття вікна Filters (модально по центру).
         OpenFiltersCommand = new RelayCommand(_ => OpenFiltersDialog());
         ShowFlowsCommand = new RelayCommand(_ => ShowFlows());
-        OpenStatisticsCommand = new RelayCommand(_ => OpenStatisticsWindow());
+        OpenStatisticsCommand = new RelayCommand(_ => ShowStatistics());
         ShowPacketsCommand = new RelayCommand(_ => ShowPackets());
         ShowProcessPacketsCommand = new RelayCommand(_ => ShowProcessPackets());
         SelectPreviousPacketCommand = new RelayCommand(_ => SelectPacketByOffset(-1));
@@ -1024,28 +1029,21 @@ public sealed class MainViewModel : ViewModelBase
 
     private void ShowPackets()
     {
-        LeftTabIndex = 0;
+        LeftTabIndex = PacketsTabIndex;
     }
     private void ShowFlows()
     {
-        LeftTabIndex = 1;
+        LeftTabIndex = FlowsTabIndex;
     }
 
-    private void OpenStatisticsWindow()
+    private void ShowStatistics()
     {
-        var win = new Presentation.Views.StatsWindow
-        {
-            Owner = System.Windows.Application.Current.MainWindow,
-            DataContext = Stats
-        };
-
-        win.Show();
-        win.Activate();
+        LeftTabIndex = StatisticsTabIndex;
     }
 
     private void ShowProcessPackets()
     {
-        LeftTabIndex = 2;
+        LeftTabIndex = ProcessPacketsTabIndex;
     }
 
     private void ApplyProcessPacketFilter(int pid)
@@ -1062,7 +1060,7 @@ public sealed class MainViewModel : ViewModelBase
 
         DisplayFilterText = "";
         RefreshPacketsFilteringUi();
-        LeftTabIndex = 0;
+        LeftTabIndex = PacketsTabIndex;
     }
 
     private void FocusPacketForTimelineEvent(ProcessStatRow.InvestigationTimelineEvent timelineEvent)
@@ -1074,11 +1072,11 @@ public sealed class MainViewModel : ViewModelBase
         if (packet is null)
         {
             StatusText = $"Timeline packet not found for {timelineEvent.Title.ToLowerInvariant()}.";
-            LeftTabIndex = 0;
+            LeftTabIndex = PacketsTabIndex;
             return;
         }
 
-        LeftTabIndex = 0;
+        LeftTabIndex = PacketsTabIndex;
 
         if (!PacketsView.Cast<PacketInfo>().Contains(packet))
         {
@@ -1164,7 +1162,7 @@ public sealed class MainViewModel : ViewModelBase
         _uiFilter = filter;
         DisplayFilterText = "";
         RefreshPacketsFilteringUi();
-        LeftTabIndex = 0;
+        LeftTabIndex = PacketsTabIndex;
 
         var packet = packetSelector(PacketsView.Cast<PacketInfo>());
         if (packet is null)
@@ -1278,7 +1276,7 @@ public sealed class MainViewModel : ViewModelBase
 
         var nextIndex = Math.Clamp(currentIndex + offset, 0, visiblePackets.Count - 1);
         SelectedPacket = visiblePackets[nextIndex];
-        LeftTabIndex = 0;
+        LeftTabIndex = PacketsTabIndex;
     }
 
     private void SelectFirstPacket()
@@ -1288,7 +1286,7 @@ public sealed class MainViewModel : ViewModelBase
             return;
 
         SelectedPacket = visiblePackets[0];
-        LeftTabIndex = 0;
+        LeftTabIndex = PacketsTabIndex;
     }
 
     private void SelectLastPacket()
@@ -1298,7 +1296,7 @@ public sealed class MainViewModel : ViewModelBase
             return;
 
         SelectedPacket = visiblePackets[^1];
-        LeftTabIndex = 0;
+        LeftTabIndex = PacketsTabIndex;
     }
 
     private void ZoomPackets(int direction)
