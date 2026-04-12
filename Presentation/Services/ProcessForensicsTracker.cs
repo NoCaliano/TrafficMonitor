@@ -69,6 +69,8 @@ public sealed class ProcessForensicsTracker
         bool srcLocal = _localIps.Contains(p.SrcIp);
         bool dstLocal = _localIps.Contains(p.DstIp);
 
+        row.ObserveDirectionalTraffic(srcLocal && !dstLocal, !srcLocal && dstLocal, p.Length);
+
         if (!srcLocal && !dstLocal)
             return update;
 
@@ -521,11 +523,7 @@ public sealed class ProcessForensicsTracker
             || (Math.Abs(candidate.Cv - current.Cv) < 0.001 && candidate.Samples > current.Samples))
         {
             _bestBeaconByPid[row.Pid] = candidate;
-
-            row.BeaconSuspected = true;
-            row.BeaconIntervalSec = candidate.MeanSec;
-            row.BeaconCv = candidate.Cv;
-            row.BeaconSamples = candidate.Samples;
+            row.UpdateBeaconSignal(candidate.Endpoint.ToString(), candidate.MeanSec, candidate.Cv, candidate.Samples);
         }
     }
 

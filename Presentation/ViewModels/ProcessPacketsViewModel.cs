@@ -305,13 +305,15 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
         if (forensicsUpdate.HasFirstOutboundConnection)
             row.RecordFirstOutboundConnection(packet.Timestamp, forensicsUpdate.FirstOutboundConnectionDetail);
 
-        var firstDomain = TryExtractDomain(packet);
-        if (!string.IsNullOrWhiteSpace(firstDomain))
+        if (TryExtractDnsObservation(packet, out var dnsDomain, out var dnsQueryType, out var isDnsResponse))
         {
-            row.RecordFirstDomain(packet.Timestamp, firstDomain);
+            row.RecordFirstDomain(packet.Timestamp, dnsDomain);
 
-            if (TryGetSuspiciousDomainReason(firstDomain, out var suspiciousDomainReason))
-                row.RecordFirstSuspiciousDomain(packet.Timestamp, firstDomain, suspiciousDomainReason);
+            if (!isDnsResponse)
+                row.ObserveDnsQuery(dnsDomain, dnsQueryType);
+
+            if (TryGetSuspiciousDomainReason(dnsDomain, out var suspiciousDomainReason))
+                row.RecordFirstSuspiciousDomain(packet.Timestamp, dnsDomain, suspiciousDomainReason);
         }
 
         if (TryBuildSecureHandshakeDetail(packet, out var handshakeDetail))
@@ -570,7 +572,9 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
             or nameof(ProcessStatRow.Publisher)
             or nameof(ProcessStatRow.ExePath)
             or nameof(ProcessStatRow.TopRemoteEndpoint)
-            or nameof(ProcessStatRow.FirstSuspiciousDomain))
+            or nameof(ProcessStatRow.FirstSuspiciousDomain)
+            or nameof(ProcessStatRow.DetectionScenarios)
+            or nameof(ProcessStatRow.DetectionSummaryLabel))
         {
             ScheduleProcessStatsViewRefresh();
         }
@@ -601,7 +605,14 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
             || ContainsIgnoreCase(row.Publisher, search)
             || ContainsIgnoreCase(row.ExePath, search)
             || ContainsIgnoreCase(row.TopRemoteEndpoint, search)
-            || ContainsIgnoreCase(row.FirstSuspiciousDomain, search);
+            || ContainsIgnoreCase(row.FirstSuspiciousDomain, search)
+            || ContainsIgnoreCase(row.DetectionSummaryLabel, search)
+            || row.DetectionScenarios.Any(scenario =>
+                ContainsIgnoreCase(scenario.Title, search)
+                || ContainsIgnoreCase(scenario.Summary, search)
+                || ContainsIgnoreCase(scenario.MitreTechnique, search)
+                || ContainsIgnoreCase(scenario.MitreTactic, search)
+                || scenario.Evidence.Any(evidence => ContainsIgnoreCase(evidence.Summary, search)));
     }
 
     private void ScheduleProcessStatsViewRefresh()
@@ -663,38 +674,97 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
         return port is int value && value > 0 ? $"{ip}:{value}" : ip;
     }
 
-    private static string? TryExtractDomain(PacketInfo packet)
+    private static bool TryExtractDnsObservation(PacketInfo packet, out string domain, out string queryType, out bool isResponse)
     {
+        domain = "";
+        queryType = "";
+        isResponse = false;
+
         if (!string.IsNullOrWhiteSpace(packet.DnsQueryName))
-            return packet.DnsQueryName;
+        {
+            domain = packet.DnsQueryName.Trim().TrimEnd('.');
+            if (string.IsNullOrWhiteSpace(domain))
+                return false;
+
+            queryType = TryExtractDnsQueryType(packet.Info);
+            isResponse = packet.DnsAnswerIps.Count > 0
+                || (packet.Info?.StartsWith("Response ", StringComparison.OrdinalIgnoreCase) ?? false);
+            return true;
+        }
 
         if (!string.Equals(packet.Protocol, "DNS", StringComparison.OrdinalIgnoreCase)
             && packet.SrcPort != 53
-            && packet.DstPort != 53)
+            && packet.DstPort != 53
+            && packet.SrcPort != 5353
+            && packet.DstPort != 5353)
         {
-            return null;
+            return false;
         }
 
         if (string.IsNullOrWhiteSpace(packet.Info))
-            return null;
+            return false;
 
         string info = packet.Info.Trim();
         const string queryPrefix = "Query ";
         const string responsePrefix = "Response ";
 
         if (info.StartsWith(queryPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            isResponse = false;
             info = info[queryPrefix.Length..];
+        }
         else if (info.StartsWith(responsePrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            isResponse = true;
             info = info[responsePrefix.Length..];
+        }
         else
-            return null;
+        {
+            return false;
+        }
 
         int typeSeparator = info.IndexOf(' ');
         string candidate = typeSeparator > 0 ? info[..typeSeparator] : info;
         if (string.IsNullOrWhiteSpace(candidate) || !candidate.Contains('.'))
-            return null;
+            return false;
 
-        return candidate;
+        domain = candidate.Trim().TrimEnd('.');
+        queryType = typeSeparator > 0 ? TryExtractDnsQueryType(info) : "";
+        return !string.IsNullOrWhiteSpace(domain);
+    }
+
+    private static string TryExtractDnsQueryType(string? info)
+    {
+        if (string.IsNullOrWhiteSpace(info))
+            return "";
+
+        string trimmed = info.Trim();
+        const string queryPrefix = "Query ";
+        const string responsePrefix = "Response ";
+
+        if (trimmed.StartsWith(queryPrefix, StringComparison.OrdinalIgnoreCase))
+            trimmed = trimmed[queryPrefix.Length..];
+        else if (trimmed.StartsWith(responsePrefix, StringComparison.OrdinalIgnoreCase))
+            trimmed = trimmed[responsePrefix.Length..];
+
+        int domainSeparator = trimmed.IndexOf(' ');
+        if (domainSeparator < 0 || domainSeparator == trimmed.Length - 1)
+            return "";
+
+        string remainder = trimmed[(domainSeparator + 1)..].Trim();
+        if (string.IsNullOrWhiteSpace(remainder))
+            return "";
+
+        int secondSpace = remainder.IndexOf(' ');
+        string candidate = secondSpace > 0
+            ? remainder[..secondSpace]
+            : remainder;
+
+        int arrowIndex = candidate.IndexOf("->", StringComparison.Ordinal);
+        if (arrowIndex >= 0)
+            candidate = candidate[..arrowIndex];
+
+        return candidate.Trim();
     }
 
     private static bool TryBuildSecureHandshakeDetail(PacketInfo packet, out string detail)
