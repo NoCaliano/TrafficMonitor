@@ -1,11 +1,14 @@
 ﻿// Відповідає за швидкий (allocation-light) парсинг пакетів для таблиці.
-// Для деталей (Protocol tree / HEX) повний парсинг робиться в UI при виборі пакета.
+// Live path уникає дорогого DNS/TLS/QUIC enrichment; повний inspection лишається для offline parse.
 using Application.Abstractions;
 using Domain.Models;
 using Infrastructure.Networking;
 using PacketDotNet;
 using SharpPcap;
+using System.Buffers.Binary;
+using System.Collections.Generic;
 using System.Net;
+using System.Security.Cryptography;
 using System.Text;
 
 namespace Infrastructure.Parsing;
@@ -19,8 +22,10 @@ public sealed class PacketDotNetParser : IPacketParser
         _processMapperService = processMapperService;
     }
 
-    public PacketInfo Parse(DateTime timestamp, int length, object rawCapture)
+    public PacketInfo Parse(DateTime timestamp, int length, object rawCapture, PacketParseProfile profile = PacketParseProfile.Live)
     {
+        bool enableDeepInspection = profile == PacketParseProfile.Full;
+
         // локальний час
         var tsLocal = timestamp.Kind switch
         {
@@ -75,7 +80,10 @@ public sealed class PacketDotNetParser : IPacketParser
             string tcpFlags = "",
             int? pid = null,
             string processName = "",
-            string info = "")
+            string info = "",
+            string dnsQueryName = "",
+            IReadOnlyList<string>? dnsAnswerIps = null,
+            string serverNameHint = "")
         {
             return new PacketInfo
             {
@@ -96,6 +104,9 @@ public sealed class PacketDotNetParser : IPacketParser
 
                 TcpFlags = tcpFlags,
                 Info = info,
+                DnsQueryName = dnsQueryName,
+                DnsAnswerIps = dnsAnswerIps ?? Array.Empty<string>(),
+                ServerNameHint = serverNameHint,
 
                 Pid = pid,
                 ProcessName = processName,
@@ -104,6 +115,46 @@ public sealed class PacketDotNetParser : IPacketParser
                 LinkLayer = linkLayer.ToString(),
                 LinkLayerType = linkLayerType
             };
+        }
+
+        void PopulateTcpDeepInspection(
+            string detectedProtocol,
+            ReadOnlySpan<byte> payload,
+            out string dnsQueryName,
+            out IReadOnlyList<string> dnsAnswerIps,
+            out string serverNameHint)
+        {
+            dnsQueryName = string.Empty;
+            dnsAnswerIps = Array.Empty<string>();
+            serverNameHint = string.Empty;
+
+            if (!enableDeepInspection)
+                return;
+
+            if (string.Equals(detectedProtocol, "DNS", StringComparison.OrdinalIgnoreCase))
+                TryExtractDnsResolution(payload, tcpLengthPrefixed: true, out dnsQueryName, out dnsAnswerIps);
+            else if (LooksLikeTlsProtocol(detectedProtocol))
+                TryExtractTlsServerName(payload, out serverNameHint);
+        }
+
+        void PopulateUdpDeepInspection(
+            string detectedProtocol,
+            ReadOnlySpan<byte> payload,
+            out string dnsQueryName,
+            out IReadOnlyList<string> dnsAnswerIps,
+            out string serverNameHint)
+        {
+            dnsQueryName = string.Empty;
+            dnsAnswerIps = Array.Empty<string>();
+            serverNameHint = string.Empty;
+
+            if (!enableDeepInspection)
+                return;
+
+            if (string.Equals(detectedProtocol, "DNS", StringComparison.OrdinalIgnoreCase))
+                TryExtractDnsResolution(payload, tcpLengthPrefixed: false, out dnsQueryName, out dnsAnswerIps);
+            else if (string.Equals(detectedProtocol, "QUIC", StringComparison.OrdinalIgnoreCase))
+                TryExtractQuicServerName(payload, out serverNameHint);
         }
 
         PacketInfo ParseIpv4At(ReadOnlySpan<byte> span, int ipStart, string srcMacStr, string dstMacStr)
@@ -162,6 +213,7 @@ public sealed class PacketDotNetParser : IPacketParser
                 int payloadStart = l4Start + tcpHeaderLen;
                 var tcpPayload = payloadStart <= span.Length ? span.Slice(payloadStart) : ReadOnlySpan<byte>.Empty;
                 string detectedProtocol = DetectTcpProtocol(tcpPayload, srcPort, dstPort, out var tcpDetail) ?? "TCP";
+                PopulateTcpDeepInspection(detectedProtocol, tcpPayload, out var dnsQueryName, out var dnsAnswerIps, out var serverNameHint);
 
                 ResolveTcpProcess(srcIpAddr, srcPort, dstIpAddr, dstPort, out var pid, out var processName);
                 string info = BuildTcpInfo(detectedProtocol, srcIpStr, srcPort, dstIpStr, dstPort, flagsStr, payloadLen: tcpPayload.Length, detail: tcpDetail);
@@ -180,7 +232,10 @@ public sealed class PacketDotNetParser : IPacketParser
                     tcpFlags: flagsStr,
                     pid: pid,
                     processName: processName,
-                    info: info
+                    info: info,
+                    dnsQueryName: dnsQueryName,
+                    dnsAnswerIps: dnsAnswerIps,
+                    serverNameHint: serverNameHint
                 );
             }
 
@@ -198,6 +253,7 @@ public sealed class PacketDotNetParser : IPacketParser
 
                 ResolveUdpProcess(srcIpAddr, srcPort, dstIpAddr, dstPort, out var pid, out var processName);
                 string detectedProtocol = DetectUdpProtocol(udpPayload, srcPort, dstPort, out var udpDetail) ?? "UDP";
+                PopulateUdpDeepInspection(detectedProtocol, udpPayload, out var dnsQueryName, out var dnsAnswerIps, out var serverNameHint);
                 string info = BuildUdpInfo(detectedProtocol, srcPort, dstPort, payloadLen, udpDetail);
 
                 return Make(
@@ -213,7 +269,10 @@ public sealed class PacketDotNetParser : IPacketParser
                     dstPort: dstPort,
                     pid: pid,
                     processName: processName,
-                    info: info
+                    info: info,
+                    dnsQueryName: dnsQueryName,
+                    dnsAnswerIps: dnsAnswerIps,
+                    serverNameHint: serverNameHint
                 );
             }
 
@@ -314,6 +373,7 @@ public sealed class PacketDotNetParser : IPacketParser
                 int payloadStart = l4Start + tcpHeaderLen;
                 var tcpPayload = payloadStart <= span.Length ? span.Slice(payloadStart) : ReadOnlySpan<byte>.Empty;
                 string detectedProtocol = DetectTcpProtocol(tcpPayload, srcPort, dstPort, out var tcpDetail) ?? "TCP";
+                PopulateTcpDeepInspection(detectedProtocol, tcpPayload, out var dnsQueryName, out var dnsAnswerIps, out var serverNameHint);
 
                 ResolveTcpProcess(srcIpAddr, srcPort, dstIpAddr, dstPort, out var pid, out var processName);
                 string info = BuildTcpInfo(detectedProtocol, srcIpStr, srcPort, dstIpStr, dstPort, flagsStr, payloadLen: tcpPayload.Length, detail: tcpDetail);
@@ -332,7 +392,10 @@ public sealed class PacketDotNetParser : IPacketParser
                     tcpFlags: flagsStr,
                     pid: pid,
                     processName: processName,
-                    info: info
+                    info: info,
+                    dnsQueryName: dnsQueryName,
+                    dnsAnswerIps: dnsAnswerIps,
+                    serverNameHint: serverNameHint
                 );
             }
 
@@ -350,6 +413,7 @@ public sealed class PacketDotNetParser : IPacketParser
 
                 ResolveUdpProcess(srcIpAddr, srcPort, dstIpAddr, dstPort, out var pid, out var processName);
                 string detectedProtocol = DetectUdpProtocol(udpPayload, srcPort, dstPort, out var udpDetail) ?? "UDP";
+                PopulateUdpDeepInspection(detectedProtocol, udpPayload, out var dnsQueryName, out var dnsAnswerIps, out var serverNameHint);
                 string info = BuildUdpInfo(detectedProtocol, srcPort, dstPort, payloadLen, udpDetail);
 
                 return Make(
@@ -365,7 +429,10 @@ public sealed class PacketDotNetParser : IPacketParser
                     dstPort: dstPort,
                     pid: pid,
                     processName: processName,
-                    info: info
+                    info: info,
+                    dnsQueryName: dnsQueryName,
+                    dnsAnswerIps: dnsAnswerIps,
+                    serverNameHint: serverNameHint
                 );
             }
 
@@ -737,6 +804,472 @@ public sealed class PacketDotNetParser : IPacketParser
         return true;
     }
 
+    private static readonly byte[] QuicV1InitialSalt = Convert.FromHexString("38762CF7F55934B34D179AE6A4C80CADCCBB7F0A");
+    private static readonly byte[] QuicV2InitialSalt = Convert.FromHexString("0DEDE3DEF700A6DB819381BE6E269DCBF9BD2ED9");
+
+    private static bool LooksLikeTlsProtocol(string protocol)
+        => !string.IsNullOrWhiteSpace(protocol)
+            && (protocol.StartsWith("TLS", StringComparison.OrdinalIgnoreCase)
+                || protocol.Equals("SSL", StringComparison.OrdinalIgnoreCase));
+
+    private static bool TryExtractTlsServerName(ReadOnlySpan<byte> payload, out string serverName)
+    {
+        serverName = string.Empty;
+
+        if (!TryGetTlsClientHelloBodyFromRecord(payload, out var handshakeBody))
+            return false;
+
+        return TryGetTlsClientHelloServerName(handshakeBody, out serverName);
+    }
+
+    private static bool TryGetTlsClientHelloBodyFromRecord(ReadOnlySpan<byte> payload, out ReadOnlySpan<byte> handshakeBody)
+    {
+        handshakeBody = ReadOnlySpan<byte>.Empty;
+
+        if (payload.Length < 9)
+            return false;
+
+        byte contentType = payload[0];
+        if (contentType != 22)
+            return false;
+
+        ushort recordVersion = ReadU16BE(payload, 1);
+        if ((recordVersion >> 8) != 3)
+            return false;
+
+        ushort recordLength = ReadU16BE(payload, 3);
+        if (recordLength == 0)
+            return false;
+
+        var recordBody = payload.Slice(5, Math.Min(recordLength, payload.Length - 5));
+        if (recordBody.Length < 4 || recordBody[0] != 1)
+            return false;
+
+        int handshakeLength = (recordBody[1] << 16) | (recordBody[2] << 8) | recordBody[3];
+        if (handshakeLength <= 0)
+            return false;
+
+        handshakeBody = recordBody.Slice(4, Math.Min(handshakeLength, recordBody.Length - 4));
+        return handshakeBody.Length > 0;
+    }
+
+    private static bool TryGetTlsClientHelloServerName(ReadOnlySpan<byte> body, out string serverName)
+    {
+        serverName = string.Empty;
+
+        if (!TryGetTlsClientHelloExtensions(body, out var extensions))
+            return false;
+
+        int offset = 0;
+        while (offset + 4 <= extensions.Length)
+        {
+            ushort extensionType = ReadU16BE(extensions, offset);
+            int extensionLength = ReadU16BE(extensions, offset + 2);
+            offset += 4;
+            if (offset + extensionLength > extensions.Length)
+                return false;
+
+            var extensionBody = extensions.Slice(offset, extensionLength);
+            if (extensionType == 0x0000 && TryReadTlsServerNameExtension(extensionBody, out serverName))
+                return true;
+
+            offset += extensionLength;
+        }
+
+        return false;
+    }
+
+    private static bool TryGetTlsClientHelloExtensions(ReadOnlySpan<byte> body, out ReadOnlySpan<byte> extensions)
+    {
+        extensions = ReadOnlySpan<byte>.Empty;
+        if (body.Length < 34)
+            return false;
+
+        int offset = 34;
+        if (offset >= body.Length)
+            return false;
+
+        int sessionIdLength = body[offset];
+        offset += 1 + sessionIdLength;
+        if (offset + 2 > body.Length)
+            return false;
+
+        int cipherSuitesLength = ReadU16BE(body, offset);
+        offset += 2 + cipherSuitesLength;
+        if (offset >= body.Length)
+            return false;
+
+        int compressionMethodsLength = body[offset];
+        offset += 1 + compressionMethodsLength;
+        if (offset + 2 > body.Length)
+            return false;
+
+        int extensionsLength = ReadU16BE(body, offset);
+        offset += 2;
+        if (offset + extensionsLength > body.Length)
+            return false;
+
+        extensions = body.Slice(offset, extensionsLength);
+        return true;
+    }
+
+    private static bool TryReadTlsServerNameExtension(ReadOnlySpan<byte> extensionBody, out string serverName)
+    {
+        serverName = string.Empty;
+        if (extensionBody.Length < 5)
+            return false;
+
+        int listLength = ReadU16BE(extensionBody, 0);
+        if (listLength <= 0 || listLength + 2 > extensionBody.Length)
+            return false;
+
+        int offset = 2;
+        int end = Math.Min(extensionBody.Length, 2 + listLength);
+        while (offset + 3 <= end)
+        {
+            byte nameType = extensionBody[offset];
+            int nameLength = ReadU16BE(extensionBody, offset + 1);
+            offset += 3;
+            if (offset + nameLength > end)
+                return false;
+
+            if (nameType == 0)
+            {
+                string candidate = Encoding.ASCII.GetString(extensionBody.Slice(offset, nameLength));
+                if (LooksLikeHostName(candidate))
+                {
+                    serverName = candidate.Trim().TrimEnd('.').ToLowerInvariant();
+                    return true;
+                }
+            }
+
+            offset += nameLength;
+        }
+
+        return false;
+    }
+
+    private static bool LooksLikeHostName(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return false;
+
+        string normalized = value.Trim().TrimEnd('.');
+        if (normalized.Length < 3 || normalized.Length > 255 || !normalized.Contains('.'))
+            return false;
+
+        foreach (char ch in normalized)
+        {
+            if (char.IsLetterOrDigit(ch) || ch is '-' or '.')
+                continue;
+
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool TryExtractQuicServerName(ReadOnlySpan<byte> payload, out string serverName)
+    {
+        serverName = string.Empty;
+
+        if (!TryDecryptQuicInitialCryptoStream(payload, out var cryptoStream))
+            return false;
+
+        if (!TryGetTlsClientHelloBodyFromCryptoStream(cryptoStream, out var handshakeBody))
+            return false;
+
+        return TryGetTlsClientHelloServerName(handshakeBody, out serverName);
+    }
+
+    private static bool TryGetTlsClientHelloBodyFromCryptoStream(ReadOnlySpan<byte> cryptoStream, out ReadOnlySpan<byte> handshakeBody)
+    {
+        handshakeBody = ReadOnlySpan<byte>.Empty;
+        if (cryptoStream.Length < 4 || cryptoStream[0] != 1)
+            return false;
+
+        int handshakeLength = (cryptoStream[1] << 16) | (cryptoStream[2] << 8) | cryptoStream[3];
+        if (handshakeLength <= 0 || cryptoStream.Length < 4 + handshakeLength)
+            return false;
+
+        handshakeBody = cryptoStream.Slice(4, handshakeLength);
+        return true;
+    }
+
+    private static bool TryDecryptQuicInitialCryptoStream(ReadOnlySpan<byte> packet, out byte[] cryptoStream)
+    {
+        cryptoStream = Array.Empty<byte>();
+
+        if (packet.Length < 32)
+            return false;
+
+        byte first = packet[0];
+        if ((first & 0x80) == 0 || ((first >> 4) & 0x03) != 0)
+            return false;
+
+        uint version = ReadU32BE(packet.Slice(1, 4));
+        byte[] salt = GetQuicInitialSalt(version);
+        if (salt.Length == 0)
+            return false;
+
+        int offset = 5;
+        if (offset >= packet.Length)
+            return false;
+
+        int dcidLength = packet[offset++];
+        if (offset + dcidLength > packet.Length || dcidLength == 0)
+            return false;
+
+        byte[] dcid = packet.Slice(offset, dcidLength).ToArray();
+        offset += dcidLength;
+
+        if (offset >= packet.Length)
+            return false;
+
+        int scidLength = packet[offset++];
+        if (offset + scidLength > packet.Length)
+            return false;
+
+        offset += scidLength;
+
+        if (!TryReadQuicVarInt(packet, ref offset, out var tokenLength))
+            return false;
+
+        if (tokenLength > (ulong)(packet.Length - offset))
+            return false;
+
+        offset += (int)tokenLength;
+
+        if (!TryReadQuicVarInt(packet, ref offset, out var payloadLengthValue))
+            return false;
+
+        if (payloadLengthValue > int.MaxValue)
+            return false;
+
+        int payloadLength = (int)payloadLengthValue;
+        int packetNumberOffset = offset;
+        int sampleOffset = packetNumberOffset + 4;
+        if (sampleOffset + 16 > packet.Length)
+            return false;
+
+        DeriveQuicInitialKeys(dcid, salt, out var key, out var iv, out var hp);
+
+        byte[] mask = ComputeQuicHeaderProtectionMask(hp, packet.Slice(sampleOffset, 16));
+        byte firstUnmasked = (byte)(packet[0] ^ (mask[0] & 0x0F));
+        int packetNumberLength = (firstUnmasked & 0x03) + 1;
+        if (packetNumberOffset + packetNumberLength > packet.Length)
+            return false;
+
+        byte[] aad = packet.Slice(0, packetNumberOffset + packetNumberLength).ToArray();
+        aad[0] = firstUnmasked;
+
+        ulong packetNumber = 0;
+        for (int i = 0; i < packetNumberLength; i++)
+        {
+            byte pnByte = (byte)(packet[packetNumberOffset + i] ^ mask[i + 1]);
+            aad[packetNumberOffset + i] = pnByte;
+            packetNumber = (packetNumber << 8) | pnByte;
+        }
+
+        if (payloadLength < packetNumberLength + 16)
+            return false;
+
+        int encryptedPayloadOffset = packetNumberOffset + packetNumberLength;
+        int encryptedPayloadLength = payloadLength - packetNumberLength;
+        if (encryptedPayloadOffset + encryptedPayloadLength > packet.Length)
+            return false;
+
+        var encryptedPayload = packet.Slice(encryptedPayloadOffset, encryptedPayloadLength);
+        int ciphertextLength = encryptedPayloadLength - 16;
+        if (ciphertextLength <= 0)
+            return false;
+
+        byte[] plaintext = new byte[ciphertextLength];
+        byte[] nonce = BuildQuicNonce(iv, packetNumber);
+
+        try
+        {
+            using var aesGcm = new AesGcm(key);
+            aesGcm.Decrypt(
+                nonce,
+                encryptedPayload.Slice(0, ciphertextLength),
+                encryptedPayload.Slice(ciphertextLength, 16),
+                plaintext,
+                aad);
+        }
+        catch (CryptographicException)
+        {
+            return false;
+        }
+
+        return TryAssembleQuicCryptoStream(plaintext, out cryptoStream);
+    }
+
+    private static bool TryAssembleQuicCryptoStream(ReadOnlySpan<byte> plaintext, out byte[] cryptoStream)
+    {
+        cryptoStream = Array.Empty<byte>();
+        int offset = 0;
+        List<(int Offset, byte[] Data)> segments = new();
+        int maxEnd = 0;
+
+        while (offset < plaintext.Length)
+        {
+            if (!TryReadQuicVarInt(plaintext, ref offset, out var frameType))
+                return false;
+
+            switch (frameType)
+            {
+                case 0x00: // PADDING
+                case 0x01: // PING
+                    continue;
+
+                case 0x06: // CRYPTO
+                    if (!TryReadQuicVarInt(plaintext, ref offset, out var cryptoOffsetValue)
+                        || !TryReadQuicVarInt(plaintext, ref offset, out var cryptoLengthValue))
+                    {
+                        return false;
+                    }
+
+                    if (cryptoOffsetValue > int.MaxValue || cryptoLengthValue > int.MaxValue)
+                        return false;
+
+                    int cryptoOffset = (int)cryptoOffsetValue;
+                    int cryptoLength = (int)cryptoLengthValue;
+                    if (offset + cryptoLength > plaintext.Length)
+                        return false;
+
+                    if (cryptoLength > 0)
+                    {
+                        byte[] data = plaintext.Slice(offset, cryptoLength).ToArray();
+                        segments.Add((cryptoOffset, data));
+                        maxEnd = Math.Max(maxEnd, cryptoOffset + cryptoLength);
+                    }
+
+                    offset += cryptoLength;
+                    continue;
+
+                default:
+                    return false;
+            }
+        }
+
+        if (maxEnd == 0 || segments.Count == 0)
+            return false;
+
+        cryptoStream = new byte[maxEnd];
+        foreach (var segment in segments)
+            segment.Data.CopyTo(cryptoStream, segment.Offset);
+
+        return true;
+    }
+
+    private static bool TryReadQuicVarInt(ReadOnlySpan<byte> buffer, ref int offset, out ulong value)
+    {
+        value = 0;
+        if (offset >= buffer.Length)
+            return false;
+
+        byte first = buffer[offset];
+        int length = 1 << (first >> 6);
+        if (offset + length > buffer.Length)
+            return false;
+
+        value = (ulong)(first & 0x3F);
+        for (int i = 1; i < length; i++)
+            value = (value << 8) | buffer[offset + i];
+
+        offset += length;
+        return true;
+    }
+
+    private static byte[] GetQuicInitialSalt(uint version)
+        => version switch
+        {
+            0x00000001 => QuicV1InitialSalt,
+            0x6B3343CF => QuicV2InitialSalt,
+            _ => Array.Empty<byte>()
+        };
+
+    private static void DeriveQuicInitialKeys(byte[] dcid, byte[] salt, out byte[] key, out byte[] iv, out byte[] hp)
+    {
+        byte[] initialSecret = HkdfExtractSha256(salt, dcid);
+        byte[] clientInitialSecret = TlsHkdfExpandLabel(initialSecret, "client in", Array.Empty<byte>(), 32);
+        key = TlsHkdfExpandLabel(clientInitialSecret, "quic key", Array.Empty<byte>(), 16);
+        iv = TlsHkdfExpandLabel(clientInitialSecret, "quic iv", Array.Empty<byte>(), 12);
+        hp = TlsHkdfExpandLabel(clientInitialSecret, "quic hp", Array.Empty<byte>(), 16);
+    }
+
+    private static byte[] ComputeQuicHeaderProtectionMask(byte[] hpKey, ReadOnlySpan<byte> sample)
+    {
+        using var aes = Aes.Create();
+        aes.Mode = CipherMode.ECB;
+        aes.Padding = PaddingMode.None;
+        aes.Key = hpKey;
+        using var encryptor = aes.CreateEncryptor();
+        return encryptor.TransformFinalBlock(sample.ToArray(), 0, 16);
+    }
+
+    private static byte[] BuildQuicNonce(byte[] iv, ulong packetNumber)
+    {
+        byte[] nonce = (byte[])iv.Clone();
+        Span<byte> pnBuffer = stackalloc byte[8];
+        BinaryPrimitives.WriteUInt64BigEndian(pnBuffer, packetNumber);
+        for (int i = 0; i < pnBuffer.Length; i++)
+            nonce[nonce.Length - pnBuffer.Length + i] ^= pnBuffer[i];
+
+        return nonce;
+    }
+
+    private static byte[] HkdfExtractSha256(byte[] salt, byte[] ikm)
+    {
+        using var hmac = new HMACSHA256(salt);
+        return hmac.ComputeHash(ikm);
+    }
+
+    private static byte[] HkdfExpandSha256(byte[] prk, byte[] info, int length)
+    {
+        if (length <= 0)
+            return Array.Empty<byte>();
+
+        byte[] output = new byte[length];
+        byte[] previous = Array.Empty<byte>();
+        int written = 0;
+        byte counter = 1;
+
+        using var hmac = new HMACSHA256(prk);
+        while (written < length)
+        {
+            byte[] input = new byte[previous.Length + info.Length + 1];
+            Buffer.BlockCopy(previous, 0, input, 0, previous.Length);
+            Buffer.BlockCopy(info, 0, input, previous.Length, info.Length);
+            input[^1] = counter;
+
+            previous = hmac.ComputeHash(input);
+            int toCopy = Math.Min(previous.Length, length - written);
+            Buffer.BlockCopy(previous, 0, output, written, toCopy);
+            written += toCopy;
+            counter++;
+        }
+
+        return output;
+    }
+
+    private static byte[] TlsHkdfExpandLabel(byte[] secret, string label, byte[] context, int length)
+    {
+        byte[] labelBytes = Encoding.ASCII.GetBytes("tls13 " + label);
+        byte[] info = new byte[2 + 1 + labelBytes.Length + 1 + context.Length];
+        info[0] = (byte)(length >> 8);
+        info[1] = (byte)length;
+        info[2] = (byte)labelBytes.Length;
+        Buffer.BlockCopy(labelBytes, 0, info, 3, labelBytes.Length);
+        int offset = 3 + labelBytes.Length;
+        info[offset] = (byte)context.Length;
+        if (context.Length > 0)
+            Buffer.BlockCopy(context, 0, info, offset + 1, context.Length);
+
+        return HkdfExpandSha256(secret, info, length);
+    }
+
     private static string DetectIgmpProtocol(ReadOnlySpan<byte> payload, out string info)
     {
         if (payload.Length < 8)
@@ -799,6 +1332,41 @@ public sealed class PacketDotNetParser : IPacketParser
     private static bool TryParseDnsMessage(ReadOnlySpan<byte> payload, bool tcpLengthPrefixed, out string? detail)
     {
         detail = null;
+        if (!TryReadDnsSummary(payload, tcpLengthPrefixed, out var summary))
+            return false;
+
+        string direction = summary.IsResponse ? "Response" : "Query";
+        if (!string.IsNullOrWhiteSpace(summary.QuestionName))
+        {
+            string typeSuffix = string.IsNullOrWhiteSpace(summary.QuestionType) ? string.Empty : $" {summary.QuestionType}";
+            string answerSuffix = BuildDnsAnswerSuffix(summary.AnswerIps);
+            detail = $"{direction} {summary.QuestionName}{typeSuffix}{answerSuffix}";
+            return true;
+        }
+
+        detail = $"{direction} QD={summary.QuestionCount} AN={summary.AnswerCount}";
+        return true;
+    }
+
+    private static bool TryExtractDnsResolution(ReadOnlySpan<byte> payload, bool tcpLengthPrefixed, out string dnsQueryName, out IReadOnlyList<string> dnsAnswerIps)
+    {
+        dnsQueryName = string.Empty;
+        dnsAnswerIps = Array.Empty<string>();
+
+        if (!TryReadDnsSummary(payload, tcpLengthPrefixed, out var summary))
+            return false;
+
+        if (!summary.IsResponse || string.IsNullOrWhiteSpace(summary.QuestionName) || summary.AnswerIps.Count == 0)
+            return false;
+
+        dnsQueryName = summary.QuestionName;
+        dnsAnswerIps = summary.AnswerIps;
+        return true;
+    }
+
+    private static bool TryReadDnsSummary(ReadOnlySpan<byte> payload, bool tcpLengthPrefixed, out DnsMessageSummary summary)
+    {
+        summary = default;
 
         ReadOnlySpan<byte> message = payload;
         if (tcpLengthPrefixed)
@@ -837,25 +1405,103 @@ public sealed class PacketDotNetParser : IPacketParser
             return false;
 
         bool isResponse = (flags & 0x8000) != 0;
-        string direction = isResponse ? "Response" : "Query";
+        int offset = 12;
+        string questionName = string.Empty;
+        string questionType = string.Empty;
 
-        if (questions > 0 && TryReadDnsName(message, 12, out var qname, out var nextOffset))
+        for (int i = 0; i < questions; i++)
         {
-            string typeSuffix = string.Empty;
-            if (nextOffset + 2 <= message.Length)
-            {
-                ushort qtype = ReadU16BE(message, nextOffset);
-                string qtypeName = GetDnsTypeName(qtype);
-                if (!string.IsNullOrWhiteSpace(qtypeName))
-                    typeSuffix = $" {qtypeName}";
-            }
+            if (!TryReadDnsQuestion(message, ref offset, out var currentName, out var currentType))
+                return false;
 
-            detail = $"{direction} {qname}{typeSuffix}";
-            return true;
+            if (i == 0)
+            {
+                questionName = currentName;
+                questionType = currentType;
+            }
         }
 
-        detail = $"{direction} QD={questions} AN={answers}";
+        List<string>? answerIps = null;
+        for (int i = 0; i < answers; i++)
+        {
+            if (!TryReadDnsAnswerRecord(message, ref offset, out var answerIp))
+                return false;
+
+            if (!string.IsNullOrWhiteSpace(answerIp))
+            {
+                answerIps ??= new List<string>();
+                answerIps.Add(answerIp);
+            }
+        }
+
+        summary = new DnsMessageSummary(
+            IsResponse: isResponse,
+            QuestionName: questionName,
+            QuestionType: questionType,
+            AnswerIps: answerIps is null ? Array.Empty<string>() : answerIps,
+            QuestionCount: questions,
+            AnswerCount: answers);
         return true;
+    }
+
+    private static bool TryReadDnsQuestion(ReadOnlySpan<byte> message, ref int offset, out string questionName, out string questionType)
+    {
+        questionName = string.Empty;
+        questionType = string.Empty;
+
+        if (!TryReadDnsName(message, offset, out questionName, out var nextOffset))
+            return false;
+
+        if (nextOffset + 4 > message.Length)
+            return false;
+
+        ushort qtype = ReadU16BE(message, nextOffset);
+        questionType = GetDnsTypeName(qtype);
+        offset = nextOffset + 4;
+        return true;
+    }
+
+    private static bool TryReadDnsAnswerRecord(ReadOnlySpan<byte> message, ref int offset, out string answerIp)
+    {
+        answerIp = string.Empty;
+
+        if (!TryReadDnsName(message, offset, out _, out var nextOffset))
+            return false;
+
+        if (nextOffset + 10 > message.Length)
+            return false;
+
+        ushort type = ReadU16BE(message, nextOffset);
+        ushort dnsClass = ReadU16BE(message, nextOffset + 2);
+        int rdLength = ReadU16BE(message, nextOffset + 8);
+        int rdataOffset = nextOffset + 10;
+        if (rdataOffset + rdLength > message.Length)
+            return false;
+
+        if (dnsClass == 1)
+        {
+            if (type == 1 && rdLength == 4)
+                answerIp = FormatIPv4(message.Slice(rdataOffset, 4));
+            else if (type == 28 && rdLength == 16)
+                answerIp = new IPAddress(message.Slice(rdataOffset, 16)).ToString();
+        }
+
+        offset = rdataOffset + rdLength;
+        return true;
+    }
+
+    private static string BuildDnsAnswerSuffix(IReadOnlyList<string> answerIps)
+    {
+        if (answerIps.Count == 0)
+            return string.Empty;
+
+        if (answerIps.Count == 1)
+            return $" -> {answerIps[0]}";
+
+        if (answerIps.Count == 2)
+            return $" -> {answerIps[0]}, {answerIps[1]}";
+
+        return $" -> {answerIps[0]}, {answerIps[1]}, +{answerIps.Count - 2} more";
     }
 
     private static bool TryReadDnsName(ReadOnlySpan<byte> message, int startOffset, out string name, out int nextOffset)
@@ -948,6 +1594,14 @@ public sealed class PacketDotNetParser : IPacketParser
             255 => "ANY",
             _ => string.Empty
         };
+
+    private readonly record struct DnsMessageSummary(
+        bool IsResponse,
+        string QuestionName,
+        string QuestionType,
+        IReadOnlyList<string> AnswerIps,
+        int QuestionCount,
+        int AnswerCount);
 
     private static bool TryGetTlsHandshakeVersion(byte handshakeType, ReadOnlySpan<byte> handshakeBody, ushort recordVersion, out string protocol)
     {

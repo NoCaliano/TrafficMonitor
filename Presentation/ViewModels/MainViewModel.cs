@@ -30,6 +30,9 @@ public sealed class MainViewModel : ViewModelBase
     private const int FlowsTabIndex = 1;
     private const int ProcessPacketsTabIndex = 2;
     private const int StatisticsTabIndex = 3;
+    private const int PacketProtocolDetailsTabIndex = 0;
+    private const int PacketHexDetailsTabIndex = 1;
+    private const int PacketDetailsCacheCapacity = 24;
 
     private readonly ICaptureDeviceService _deviceService;
     private readonly IPacketCaptureService _captureService;
@@ -61,6 +64,11 @@ public sealed class MainViewModel : ViewModelBase
 
     private bool _uiFilterIsEmpty = true;
     private bool _packetsViewHasFilter;
+    private readonly Dictionary<long, int> _packetStorageIndexByNo = new();
+    private readonly Dictionary<int, PidPacketIndex> _packetsByPid = new();
+    private readonly Dictionary<long, PacketDetailsCacheEntry> _packetDetailsCache = new();
+    private CancellationTokenSource? _packetProtocolLoadCts;
+    private CancellationTokenSource? _packetHexLoadCts;
 
     private double _packetsTableFontSize = 12.0;
     public double PacketsTableFontSize
@@ -69,6 +77,59 @@ public sealed class MainViewModel : ViewModelBase
         set => Set(ref _packetsTableFontSize, value);
     }
     public ProcessPacketsViewModel ProcessPackets { get; }
+
+    private sealed class PidPacketIndex
+    {
+        private readonly List<PacketInfo> _packets = new();
+        private readonly Dictionary<string, PacketInfo> _firstPacketsByDomain = new(StringComparer.OrdinalIgnoreCase);
+        private bool _isSorted = true;
+
+        public void Add(PacketInfo packet)
+        {
+            if (_packets.Count > 0 && ComparePacketsByTimestampAndNo(_packets[^1], packet) > 0)
+                _isSorted = false;
+
+            _packets.Add(packet);
+
+            string? domain = NormalizeTimelineDomainKey(TryExtractTimelineDomain(packet));
+            if (domain is null)
+                return;
+
+            if (!_firstPacketsByDomain.TryGetValue(domain, out var existing)
+                || ComparePacketsByTimestampAndNo(packet, existing) < 0)
+            {
+                _firstPacketsByDomain[domain] = packet;
+            }
+        }
+
+        public IReadOnlyList<PacketInfo> GetOrderedPackets()
+        {
+            if (!_isSorted)
+            {
+                _packets.Sort(ComparePacketsByTimestampAndNo);
+                _isSorted = true;
+            }
+
+            return _packets;
+        }
+
+        public PacketInfo? GetFirstPacketForDomain(string? domain)
+        {
+            string? normalized = NormalizeTimelineDomainKey(domain);
+            return normalized is not null && _firstPacketsByDomain.TryGetValue(normalized, out var packet)
+                ? packet
+                : null;
+        }
+    }
+
+    private sealed class PacketDetailsCacheEntry
+    {
+        public required long PacketNo { get; init; }
+        public DateTime LastAccessUtc { get; set; }
+        public string? HexDump { get; set; }
+        public FlowDocument? BaseHexDocument { get; set; }
+        public ProtocolNode? ProtocolRoot { get; set; }
+    }
 
 
 
@@ -177,17 +238,25 @@ public sealed class MainViewModel : ViewModelBase
         private set => Set(ref _hexDocument, value);
     }
 
+    private int _packetDetailsTabIndex;
+    public int PacketDetailsTabIndex
+    {
+        get => _packetDetailsTabIndex;
+        set
+        {
+            if (!Set(ref _packetDetailsTabIndex, value))
+                return;
+
+            CancelPendingPacketDetailsLoad();
+            EnsureSelectedPacketDetailsLoaded(rebuildHexDocumentForCurrentRange: value == PacketHexDetailsTabIndex);
+        }
+    }
+
     private (int start, int length)? _selectedRange;
     public (int start, int length)? SelectedRange
     {
         get => _selectedRange;
-        set
-        {
-            if (!Set(ref _selectedRange, value)) return;
-
-            // при виборі вузла дерева — підсвічуємо hex
-            RebuildHexDocument();
-        }
+        set => SetSelectedRange(value, refreshHexDocument: true);
     }
 
     // Відповідає за кореневий вузол дерева протоколів для вибраного пакета.
@@ -315,7 +384,13 @@ public sealed class MainViewModel : ViewModelBase
     public int LeftTabIndex
     {
         get => _leftTabIndex;
-        set => Set(ref _leftTabIndex, value);
+        set
+        {
+            if (!Set(ref _leftTabIndex, value))
+                return;
+
+            Stats.IsViewActive = value == StatisticsTabIndex;
+        }
     }
 
     // ===================== FILTERS (FLOW + UI) =====================
@@ -323,6 +398,7 @@ public sealed class MainViewModel : ViewModelBase
     // Flow filter is handled by FlowFilterService
 
     private PacketFilterModel _uiFilter = new();
+    private Func<PacketInfo, bool>? _uiFilterPredicate;
     private Func<PacketInfo, bool>? _displayFilterPredicate;
     private bool _hasValidDisplayFilter;
 
@@ -574,6 +650,8 @@ public sealed class MainViewModel : ViewModelBase
             _captureController.ResetSessionState();
             RawBytesStore.Clear();
             Packets.Clear();
+            ResetPacketIndices();
+            ClearPacketDetailsCache();
             ProcessPackets.Reset();
             _flowsVm.Flows.Clear();
             _flowAggregator.Reset();
@@ -608,7 +686,7 @@ public sealed class MainViewModel : ViewModelBase
                 {
                     ct.ThrowIfCancellationRequested();
 
-                    var info = _parser.Parse(pkt.TimestampUtc, pkt.Data.Length, new RawPacketData(pkt.Data, pkt.LinkLayerType));
+                    var info = _parser.Parse(pkt.TimestampUtc, pkt.Data.Length, new RawPacketData(pkt.Data, pkt.LinkLayerType), PacketParseProfile.Full);
                     info.No = Interlocked.Increment(ref _packetNo);
 
                     parsed.Add(info);
@@ -623,6 +701,7 @@ public sealed class MainViewModel : ViewModelBase
                 return (parsed, totalBytes, first, last);
             }, ct);
 
+            IndexPackets(loaded.parsed, 0);
             Packets.ReplaceAll(loaded.parsed);
 
             var pidAgg = loaded.parsed
@@ -690,6 +769,8 @@ public sealed class MainViewModel : ViewModelBase
         _captureController.ResetSessionState();
         RawBytesStore.Clear();
         Packets.Clear();
+        ResetPacketIndices();
+        ClearPacketDetailsCache();
         ProcessPackets.Reset();
         _flowsVm.Flows.Clear();
         _flowAggregator.Reset();
@@ -792,6 +873,8 @@ public sealed class MainViewModel : ViewModelBase
 
             if (toFlush.Count > 0)
             {
+                int startStorageIndex = Packets.Count;
+                IndexPackets(toFlush, startStorageIndex);
                 bool useReset = !_packetsViewHasFilter && toFlush.Count >= _collectionResetThreshold;
                 Packets.AddRange(toFlush, useReset: useReset);
             }
@@ -823,53 +906,248 @@ public sealed class MainViewModel : ViewModelBase
 
     private void UpdateDetails(PacketInfo? p)
     {
+        CancelPendingPacketDetailsLoad();
         ProtocolRoot = null;
         HexDump = "";
-        HexDocument = new FlowDocument();
+        HexDocument = CreateStatusFlowDocument(string.Empty);
+        SetSelectedRange(null, refreshHexDocument: false);
+
         if (p is null)
             return;
 
-        var bytes = p.RawBytes ?? (p.RawBytesId is null ? null : RawBytesStore.Get(p.RawBytesId));
-        if (bytes == null || bytes.Length == 0) return;
-
-        HexDump = _hexDumpService.BuildHexDump(bytes, 16);
-
-        // скидаємо виділення
-        _selectedRange = null;
-        OnPropertyChanged(nameof(SelectedRange));
-
-        // будуємо документ (без підсвітки)
-        HexDocument = _hexDumpService.BuildHexDocument(bytes, 16, null);
-
-        try
-        {
-            var link = (LinkLayers)p.LinkLayerType;
-            var parsedPacket = Packet.ParsePacket(link, bytes);
-            ProtocolRoot = PacketTreeBuilder.Build(parsedPacket, p);
-        }
-        catch (Exception ex)
-        {
-            var node = new Presentation.Helpers.ProtocolNode { Header = $"Parse error: {ex.Message}" };
-            ProtocolRoot = node;
-        }
+        EnsureSelectedPacketDetailsLoaded(rebuildHexDocumentForCurrentRange: true);
     }
 
     private void RebuildHexDocument()
     {
         if (SelectedPacket is null)
+            return;
+
+        EnsureSelectedPacketHexDetailsLoaded(SelectedPacket, rebuildHexDocumentForCurrentRange: true);
+    }
+
+    private void EnsureSelectedPacketDetailsLoaded(bool rebuildHexDocumentForCurrentRange = false)
+    {
+        if (SelectedPacket is null)
+            return;
+
+        EnsureSelectedPacketProtocolDetailsLoaded(SelectedPacket);
+        EnsureSelectedPacketHexDetailsLoaded(SelectedPacket, rebuildHexDocumentForCurrentRange);
+    }
+
+    private async void EnsureSelectedPacketProtocolDetailsLoaded(PacketInfo packet)
+    {
+        var entry = GetOrCreatePacketDetailsCacheEntry(packet);
+        if (entry.ProtocolRoot is not null)
         {
-            HexDocument = new FlowDocument(new Paragraph(new Run("")));
+            if (IsSelectedPacket(packet))
+                ProtocolRoot = entry.ProtocolRoot;
+
             return;
         }
 
-        var bytes = SelectedPacket.RawBytes ?? (SelectedPacket.RawBytesId is null ? null : RawBytesStore.Get(SelectedPacket.RawBytesId));
-        if (bytes is null || bytes.Length == 0)
+        if (!TryGetPacketBytes(packet, out var bytes))
         {
-            HexDocument = new FlowDocument(new Paragraph(new Run("")));
+            var noDataNode = CreateStatusProtocolNode("No packet data.");
+            entry.ProtocolRoot = noDataNode;
+            if (IsSelectedPacket(packet))
+                ProtocolRoot = noDataNode;
+
             return;
         }
 
-        HexDocument = _hexDumpService.BuildHexDocumentHighlighted(bytes, 16, SelectedRange);
+        if (IsSelectedPacket(packet))
+            ProtocolRoot = CreateStatusProtocolNode("Loading packet structure...");
+
+        var token = ResetPacketProtocolLoadToken();
+        try
+        {
+            var protocolRoot = await Task.Run(() => BuildProtocolRoot(packet, bytes), token);
+            if (token.IsCancellationRequested)
+                return;
+
+            entry.ProtocolRoot = protocolRoot;
+            TouchPacketDetailsCacheEntry(entry);
+
+            if (IsSelectedPacket(packet))
+                ProtocolRoot = protocolRoot;
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    private async void EnsureSelectedPacketHexDetailsLoaded(PacketInfo packet, bool rebuildHexDocumentForCurrentRange)
+    {
+        var entry = GetOrCreatePacketDetailsCacheEntry(packet);
+        if (!TryGetPacketBytes(packet, out var bytes))
+        {
+            HexDump = "";
+            HexDocument = CreateStatusFlowDocument("No packet data.");
+            return;
+        }
+
+        if (entry.HexDump is null)
+        {
+            if (IsSelectedPacket(packet))
+            {
+                HexDump = "";
+                HexDocument = CreateStatusFlowDocument("Loading hex dump...");
+            }
+
+            var token = ResetPacketHexLoadToken();
+            try
+            {
+                entry.HexDump = await Task.Run(() => _hexDumpService.BuildHexDump(bytes, 16), token);
+                if (token.IsCancellationRequested)
+                    return;
+
+                TouchPacketDetailsCacheEntry(entry);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+        }
+
+        if (!IsSelectedPacket(packet))
+            return;
+
+        HexDump = entry.HexDump ?? string.Empty;
+        HexDocument = BuildHexDocument(packet, entry, bytes, rebuildHexDocumentForCurrentRange);
+    }
+
+    private FlowDocument BuildHexDocument(PacketInfo packet, PacketDetailsCacheEntry entry, byte[] bytes, bool rebuildHexDocumentForCurrentRange)
+    {
+        TouchPacketDetailsCacheEntry(entry);
+
+        if (SelectedRange is { } range)
+            return _hexDumpService.BuildHexDocumentHighlighted(bytes, 16, range);
+
+        if (rebuildHexDocumentForCurrentRange || entry.BaseHexDocument is null)
+            entry.BaseHexDocument = _hexDumpService.BuildHexDocument(bytes, 16, null);
+
+        return entry.BaseHexDocument;
+    }
+
+    private static ProtocolNode BuildProtocolRoot(PacketInfo packet, byte[] bytes)
+    {
+        try
+        {
+            var link = (LinkLayers)packet.LinkLayerType;
+            var parsedPacket = Packet.ParsePacket(link, bytes);
+            return PacketTreeBuilder.Build(parsedPacket, packet, bytes);
+        }
+        catch (Exception ex)
+        {
+            return CreateStatusProtocolNode($"Parse error: {ex.Message}");
+        }
+    }
+
+    private static FlowDocument CreateStatusFlowDocument(string message)
+        => new(new Paragraph(new Run(message ?? string.Empty)));
+
+    private static ProtocolNode CreateStatusProtocolNode(string message)
+        => new() { Header = message ?? string.Empty, IsExpanded = true };
+
+    private void SetSelectedRange((int start, int length)? range, bool refreshHexDocument)
+    {
+        if (!Set(ref _selectedRange, range))
+            return;
+
+        if (refreshHexDocument)
+            RebuildHexDocument();
+    }
+
+    private static bool TryGetPacketBytes(PacketInfo packet, out byte[] bytes)
+    {
+        bytes = packet.RawBytes ?? (packet.RawBytesId is null ? Array.Empty<byte>() : RawBytesStore.Get(packet.RawBytesId) ?? Array.Empty<byte>());
+        return bytes.Length > 0;
+    }
+
+    private bool IsSelectedPacket(PacketInfo packet)
+        => SelectedPacket?.No == packet.No;
+
+    private PacketDetailsCacheEntry GetOrCreatePacketDetailsCacheEntry(PacketInfo packet)
+    {
+        if (!_packetDetailsCache.TryGetValue(packet.No, out var entry))
+        {
+            entry = new PacketDetailsCacheEntry
+            {
+                PacketNo = packet.No,
+                LastAccessUtc = DateTime.UtcNow
+            };
+            _packetDetailsCache[packet.No] = entry;
+            TrimPacketDetailsCacheIfNeeded();
+            return entry;
+        }
+
+        TouchPacketDetailsCacheEntry(entry);
+        return entry;
+    }
+
+    private void TouchPacketDetailsCacheEntry(PacketDetailsCacheEntry entry)
+        => entry.LastAccessUtc = DateTime.UtcNow;
+
+    private void TrimPacketDetailsCacheIfNeeded()
+    {
+        while (_packetDetailsCache.Count > PacketDetailsCacheCapacity)
+        {
+            var oldest = _packetDetailsCache.Values
+                .OrderBy(candidate => candidate.LastAccessUtc)
+                .FirstOrDefault();
+
+            if (oldest is null)
+                break;
+
+            _packetDetailsCache.Remove(oldest.PacketNo);
+        }
+    }
+
+    private void ClearPacketDetailsCache()
+    {
+        CancelPendingPacketDetailsLoad();
+        _packetDetailsCache.Clear();
+    }
+
+    private CancellationToken ResetPacketProtocolLoadToken()
+    {
+        CancelPendingPacketProtocolLoad();
+        _packetProtocolLoadCts = new CancellationTokenSource();
+        return _packetProtocolLoadCts.Token;
+    }
+
+    private CancellationToken ResetPacketHexLoadToken()
+    {
+        CancelPendingPacketHexLoad();
+        _packetHexLoadCts = new CancellationTokenSource();
+        return _packetHexLoadCts.Token;
+    }
+
+    private void CancelPendingPacketDetailsLoad()
+    {
+        CancelPendingPacketProtocolLoad();
+        CancelPendingPacketHexLoad();
+    }
+
+    private void CancelPendingPacketProtocolLoad()
+    {
+        if (_packetProtocolLoadCts is null)
+            return;
+
+        _packetProtocolLoadCts.Cancel();
+        _packetProtocolLoadCts.Dispose();
+        _packetProtocolLoadCts = null;
+    }
+
+    private void CancelPendingPacketHexLoad()
+    {
+        if (_packetHexLoadCts is null)
+            return;
+
+        _packetHexLoadCts.Cancel();
+        _packetHexLoadCts.Dispose();
+        _packetHexLoadCts = null;
     }
 
 
@@ -918,9 +1196,9 @@ public sealed class MainViewModel : ViewModelBase
             return false;
 
         // 2) Advanced UI filter
-        if (!_uiFilterIsEmpty)
+        if (_uiFilterPredicate is not null)
         {
-            if (!_packetFilterService.MatchesUiFilter(p, _uiFilter))
+            if (!_uiFilterPredicate(p))
                 return false;
         }
 
@@ -935,6 +1213,7 @@ public sealed class MainViewModel : ViewModelBase
     private void RefreshPacketsFilteringUi()
     {
         _uiFilterIsEmpty = _uiFilter.IsEmpty;
+        _uiFilterPredicate = _uiFilterIsEmpty ? null : _packetFilterService.CompileUiFilter(_uiFilter);
         bool hasDisplayFilter = _hasValidDisplayFilter && !string.IsNullOrWhiteSpace(DisplayFilterText);
 
         bool needFilter = _flowFilterService.IsActive || !_uiFilterIsEmpty || hasDisplayFilter;
@@ -969,6 +1248,61 @@ public sealed class MainViewModel : ViewModelBase
 
         OnPropertyChanged(nameof(IsFlowFollowActive));
         _clearFlowFilterCommand.RaiseCanExecuteChanged();
+    }
+
+    private void ResetPacketIndices()
+    {
+        _packetStorageIndexByNo.Clear();
+        _packetsByPid.Clear();
+    }
+
+    private void IndexPackets(IReadOnlyList<PacketInfo> packets, int startStorageIndex)
+    {
+        for (int i = 0; i < packets.Count; i++)
+        {
+            var packet = packets[i];
+            _packetStorageIndexByNo[packet.No] = startStorageIndex + i;
+
+            if (packet.Pid is not int pid || pid <= 0)
+                continue;
+
+            if (!_packetsByPid.TryGetValue(pid, out var index))
+            {
+                index = new PidPacketIndex();
+                _packetsByPid[pid] = index;
+            }
+
+            index.Add(packet);
+        }
+    }
+
+    private bool TryGetPacketStorageIndex(PacketInfo packet, out int storageIndex)
+        => _packetStorageIndexByNo.TryGetValue(packet.No, out storageIndex);
+
+    private bool IsPacketVisibleInView(PacketInfo packet)
+        => !_packetsViewHasFilter || PassesCombinedFilters(packet);
+
+    private static int ComparePacketsByTimestampAndNo(PacketInfo left, PacketInfo right)
+    {
+        int timestampComparison = left.Timestamp.CompareTo(right.Timestamp);
+        return timestampComparison != 0
+            ? timestampComparison
+            : left.No.CompareTo(right.No);
+    }
+
+    private static string? NormalizeTimelineDomainKey(string? domain)
+        => string.IsNullOrWhiteSpace(domain) ? null : domain.Trim();
+
+    private bool TryGetOrderedPacketsForPid(int pid, out IReadOnlyList<PacketInfo> packets)
+    {
+        if (_packetsByPid.TryGetValue(pid, out var index))
+        {
+            packets = index.GetOrderedPackets();
+            return true;
+        }
+
+        packets = Array.Empty<PacketInfo>();
+        return false;
     }
 
     private void ApplyDisplayFilterText()
@@ -1078,7 +1412,7 @@ public sealed class MainViewModel : ViewModelBase
 
         LeftTabIndex = PacketsTabIndex;
 
-        if (!PacketsView.Cast<PacketInfo>().Contains(packet))
+        if (!IsPacketVisibleInView(packet))
         {
             _flowFilterService.Clear();
             _uiFilter = new PacketFilterModel
@@ -1120,16 +1454,12 @@ public sealed class MainViewModel : ViewModelBase
             filter.ProtocolValue = conversation.Protocol;
         }
 
+        var packet = FindFirstPacketForConversation(conversation);
+
         ApplyPacketDrillDown(
             filter,
             $"Filtered packets for {conversation.ConversationLabel}.",
-            packets => packets
-                .Where(packet => packet.Pid == conversation.Pid)
-                .Where(packet => string.Equals(packet.SrcIp, conversation.RemoteIp, StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(packet.DstIp, conversation.RemoteIp, StringComparison.OrdinalIgnoreCase))
-                .OrderBy(packet => packet.Timestamp)
-                .ThenBy(packet => packet.No)
-                .FirstOrDefault());
+            packet);
     }
 
     private void ShowPacketsForSessionCluster(ProcessSessionClusterRow sessionCluster)
@@ -1145,18 +1475,15 @@ public sealed class MainViewModel : ViewModelBase
             TimeToUtc = sessionCluster.LastSeen == default ? null : sessionCluster.LastSeen.ToUniversalTime()
         };
 
+        var packet = FindFirstPacketForSessionCluster(sessionCluster);
+
         ApplyPacketDrillDown(
             filter,
             $"Filtered packets for {sessionCluster.Title.ToLowerInvariant()}.",
-            packets => packets
-                .Where(packet => packet.Pid == sessionCluster.Pid)
-                .Where(packet => packet.Timestamp >= sessionCluster.FirstSeen && packet.Timestamp <= sessionCluster.LastSeen)
-                .OrderBy(packet => packet.Timestamp)
-                .ThenBy(packet => packet.No)
-                .FirstOrDefault());
+            packet);
     }
 
-    private void ApplyPacketDrillDown(PacketFilterModel filter, string successStatus, Func<IEnumerable<PacketInfo>, PacketInfo?> packetSelector)
+    private void ApplyPacketDrillDown(PacketFilterModel filter, string successStatus, PacketInfo? packet)
     {
         _flowFilterService.Clear();
         _uiFilter = filter;
@@ -1164,8 +1491,7 @@ public sealed class MainViewModel : ViewModelBase
         RefreshPacketsFilteringUi();
         LeftTabIndex = PacketsTabIndex;
 
-        var packet = packetSelector(PacketsView.Cast<PacketInfo>());
-        if (packet is null)
+        if (packet is null || !IsPacketVisibleInView(packet))
         {
             StatusText = "No packets matched the selected investigation slice.";
             return;
@@ -1177,10 +1503,8 @@ public sealed class MainViewModel : ViewModelBase
 
     private PacketInfo? FindPacketForTimelineEvent(ProcessStatRow.InvestigationTimelineEvent timelineEvent)
     {
-        var packetsForProcess = Packets
-            .Where(packet => packet.Pid == timelineEvent.Pid)
-            .OrderBy(packet => packet.Timestamp)
-            .ThenBy(packet => packet.No);
+        if (!TryGetOrderedPacketsForPid(timelineEvent.Pid, out var packetsForProcess))
+            return null;
 
         return timelineEvent.Target?.Kind switch
         {
@@ -1195,40 +1519,118 @@ public sealed class MainViewModel : ViewModelBase
         };
     }
 
-    private static PacketInfo? FindPacketForFirstDomain(ProcessStatRow.InvestigationTimelineEvent timelineEvent, IEnumerable<PacketInfo> packetsForProcess)
+    private PacketInfo? FindPacketForFirstDomain(ProcessStatRow.InvestigationTimelineEvent timelineEvent, IReadOnlyList<PacketInfo> packetsForProcess)
     {
-        if (string.IsNullOrWhiteSpace(timelineEvent.Target?.Value))
-            return null;
-
-        var match = packetsForProcess.FirstOrDefault(packet =>
-            string.Equals(TryExtractTimelineDomain(packet), timelineEvent.Target.Value, StringComparison.OrdinalIgnoreCase));
+        PacketInfo? match = null;
+        if (_packetsByPid.TryGetValue(timelineEvent.Pid, out var index))
+            match = index.GetFirstPacketForDomain(timelineEvent.Target?.Value);
 
         return match ?? FindPacketNearTimestamp(timelineEvent.Timestamp, packetsForProcess);
     }
 
-    private static PacketInfo? FindPacketNearTimestamp(DateTime timestamp, IEnumerable<PacketInfo> packetsForProcess)
+    private static PacketInfo? FindPacketNearTimestamp(DateTime timestamp, IReadOnlyList<PacketInfo> packetsForProcess)
     {
-        PacketInfo? bestPacket = null;
-        long bestDistanceTicks = long.MaxValue;
+        if (packetsForProcess.Count == 0)
+            return null;
 
-        foreach (var packet in packetsForProcess)
+        int low = 0;
+        int high = packetsForProcess.Count - 1;
+
+        while (low <= high)
         {
-            long distance = Math.Abs((packet.Timestamp - timestamp).Ticks);
-            if (distance >= bestDistanceTicks)
-                continue;
+            int mid = low + ((high - low) / 2);
+            var packet = packetsForProcess[mid];
+            int comparison = packet.Timestamp.CompareTo(timestamp);
 
-            bestDistanceTicks = distance;
-            bestPacket = packet;
+            if (comparison < 0)
+            {
+                low = mid + 1;
+            }
+            else if (comparison > 0)
+            {
+                high = mid - 1;
+            }
+            else
+            {
+                while (mid > 0 && packetsForProcess[mid - 1].Timestamp == timestamp)
+                    mid--;
 
-            if (distance == 0)
-                break;
+                return packetsForProcess[mid];
+            }
         }
 
-        return bestPacket;
+        if (low >= packetsForProcess.Count)
+            return packetsForProcess[^1];
+
+        if (high < 0)
+            return packetsForProcess[0];
+
+        var before = packetsForProcess[high];
+        var after = packetsForProcess[low];
+        long beforeDistance = Math.Abs((before.Timestamp - timestamp).Ticks);
+        long afterDistance = Math.Abs((after.Timestamp - timestamp).Ticks);
+
+        return beforeDistance <= afterDistance ? before : after;
+    }
+
+    private PacketInfo? FindFirstPacketForConversation(ProcessConversationRow conversation)
+    {
+        if (!TryGetOrderedPacketsForPid(conversation.Pid, out var packetsForProcess))
+            return null;
+
+        for (int i = 0; i < packetsForProcess.Count; i++)
+        {
+            var packet = packetsForProcess[i];
+            if (!string.Equals(packet.SrcIp, conversation.RemoteIp, StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(packet.DstIp, conversation.RemoteIp, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (conversation.RemotePort > 0
+                && packet.SrcPort != conversation.RemotePort
+                && packet.DstPort != conversation.RemotePort)
+            {
+                continue;
+            }
+
+            if (!string.IsNullOrWhiteSpace(conversation.Protocol)
+                && !string.Equals(packet.Protocol, conversation.Protocol, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            return packet;
+        }
+
+        return null;
+    }
+
+    private PacketInfo? FindFirstPacketForSessionCluster(ProcessSessionClusterRow sessionCluster)
+    {
+        if (!TryGetOrderedPacketsForPid(sessionCluster.Pid, out var packetsForProcess))
+            return null;
+
+        for (int i = 0; i < packetsForProcess.Count; i++)
+        {
+            var packet = packetsForProcess[i];
+            if (packet.Timestamp < sessionCluster.FirstSeen)
+                continue;
+
+            if (packet.Timestamp > sessionCluster.LastSeen)
+                break;
+
+            return packet;
+        }
+
+        return null;
     }
 
     private static string? TryExtractTimelineDomain(PacketInfo packet)
     {
+        if (!string.IsNullOrWhiteSpace(packet.DnsQueryName))
+            return packet.DnsQueryName;
+
         if (!string.Equals(packet.Protocol, "DNS", StringComparison.OrdinalIgnoreCase)
             && packet.SrcPort != 53
             && packet.DstPort != 53)
@@ -1263,40 +1665,60 @@ public sealed class MainViewModel : ViewModelBase
         if (offset == 0)
             return;
 
-        var visiblePackets = PacketsView.Cast<PacketInfo>().ToList();
-        if (visiblePackets.Count == 0)
+        int direction = Math.Sign(offset);
+        int remaining = Math.Abs(offset);
+        int startIndex;
+
+        if (SelectedPacket is not null && TryGetPacketStorageIndex(SelectedPacket, out var selectedStorageIndex))
+            startIndex = selectedStorageIndex;
+        else
+            startIndex = direction > 0 ? -1 : Packets.Count;
+
+        var packet = FindVisiblePacketFromIndex(startIndex, direction, remaining);
+        if (packet is null)
             return;
 
-        var currentIndex = SelectedPacket is null
-            ? (offset > 0 ? -1 : visiblePackets.Count)
-            : visiblePackets.IndexOf(SelectedPacket);
-
-        if (currentIndex < 0)
-            currentIndex = offset > 0 ? -1 : visiblePackets.Count;
-
-        var nextIndex = Math.Clamp(currentIndex + offset, 0, visiblePackets.Count - 1);
-        SelectedPacket = visiblePackets[nextIndex];
+        SelectedPacket = packet;
         LeftTabIndex = PacketsTabIndex;
     }
 
     private void SelectFirstPacket()
     {
-        var visiblePackets = PacketsView.Cast<PacketInfo>().ToList();
-        if (visiblePackets.Count == 0)
+        var packet = FindVisiblePacketFromIndex(-1, 1, 1);
+        if (packet is null)
             return;
 
-        SelectedPacket = visiblePackets[0];
+        SelectedPacket = packet;
         LeftTabIndex = PacketsTabIndex;
     }
 
     private void SelectLastPacket()
     {
-        var visiblePackets = PacketsView.Cast<PacketInfo>().ToList();
-        if (visiblePackets.Count == 0)
+        var packet = FindVisiblePacketFromIndex(Packets.Count, -1, 1);
+        if (packet is null)
             return;
 
-        SelectedPacket = visiblePackets[^1];
+        SelectedPacket = packet;
         LeftTabIndex = PacketsTabIndex;
+    }
+
+    private PacketInfo? FindVisiblePacketFromIndex(int startIndex, int direction, int visibleOffset)
+    {
+        if (Packets.Count == 0 || direction == 0 || visibleOffset <= 0)
+            return null;
+
+        for (int index = startIndex + direction; index >= 0 && index < Packets.Count; index += direction)
+        {
+            var packet = Packets[index];
+            if (!IsPacketVisibleInView(packet))
+                continue;
+
+            visibleOffset--;
+            if (visibleOffset == 0)
+                return packet;
+        }
+
+        return null;
     }
 
     private void ZoomPackets(int direction)

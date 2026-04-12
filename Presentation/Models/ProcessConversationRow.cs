@@ -5,6 +5,7 @@ public sealed class ProcessConversationRow
     public required int Pid { get; init; }
     public required string Protocol { get; init; }
     public required string RemoteIp { get; init; }
+    public string ResolvedHost { get; init; } = "";
     public required int RemotePort { get; init; }
     public required long PacketCount { get; init; }
     public required long TotalBytes { get; init; }
@@ -13,8 +14,10 @@ public sealed class ProcessConversationRow
     public required int OutboundPackets { get; init; }
     public required int InboundPackets { get; init; }
 
-    public string EndpointLabel => RemotePort > 0 ? $"{RemoteIp}:{RemotePort}" : RemoteIp;
-    public string ConversationLabel => string.IsNullOrWhiteSpace(Protocol) ? EndpointLabel : $"{Protocol} {EndpointLabel}";
+    public string EndpointLabel => FormatEndpoint(RemoteIp, RemotePort);
+    public string DisplayHost => string.IsNullOrWhiteSpace(ResolvedHost) ? RemoteIp : ResolvedHost;
+    public string DisplayEndpointLabel => FormatEndpoint(DisplayHost, RemotePort);
+    public string ConversationLabel => string.IsNullOrWhiteSpace(Protocol) ? DisplayEndpointLabel : $"{Protocol} {DisplayEndpointLabel}";
     public string PacketCountLabel => $"{PacketCount:N0} pkt";
     public string BytesLabel => FormatBytes(TotalBytes);
     public string DirectionLabel
@@ -41,5 +44,13 @@ public sealed class ProcessConversationRow
         if (bytes >= MB) return $"{bytes / MB:0.##} MB";
         if (bytes >= KB) return $"{bytes / KB:0.##} KB";
         return $"{bytes:N0} B";
+    }
+
+    private static string FormatEndpoint(string hostOrIp, int port)
+    {
+        if (string.IsNullOrWhiteSpace(hostOrIp))
+            return "";
+
+        return port > 0 ? $"{hostOrIp}:{port}" : hostOrIp;
     }
 }

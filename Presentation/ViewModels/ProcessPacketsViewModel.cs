@@ -8,8 +8,10 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
+using System.Windows;
 using System.Windows.Data;
 using System.Windows.Input;
+using System.Windows.Threading;
 
 namespace Presentation.ViewModels;
 
@@ -23,6 +25,7 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
     private readonly Dictionary<int, ProcessStatRow> _processStatsMap = new();
     private readonly Dictionary<int, int> _processPacketsSinceLastSample = new();
     private readonly HashSet<int> _burstingPids = new();
+    private bool _processStatsViewRefreshPending;
 
     private Action<int>? _showPacketsForPid;
     private Action<ProcessStatRow.InvestigationTimelineEvent>? _focusTimelineEvent;
@@ -31,6 +34,7 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
     private Action<string>? _reportStatus;
 
     public ObservableCollection<ProcessStatRow> ProcessStats { get; } = new();
+    public ObservableCollection<ProcessStatCardRow> VisibleProcessRows { get; } = new();
     public ICollectionView ProcessStatsView { get; }
 
     private ProcessStatRow? _selectedProcessStat;
@@ -39,13 +43,24 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
         get => _selectedProcessStat;
         set
         {
+            if (ReferenceEquals(_selectedProcessStat, value))
+                return;
+
+            var previous = _selectedProcessStat;
             if (!Set(ref _selectedProcessStat, value))
                 return;
+
+            if (previous is not null)
+                previous.IsSelectedInProcessGrid = false;
+
+            if (value is not null)
+                value.IsSelectedInProcessGrid = true;
 
             RefreshSelectedProcessDetails();
         }
     }
 
+    public ICommand SelectProcessStatCommand { get; }
     public ICommand ShowPacketsForPidCommand { get; }
     public ICommand FocusTimelineEventCommand { get; }
     public ICommand ShowPacketsForConversationCommand { get; }
@@ -186,6 +201,7 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
         _livenessTracker = livenessTracker;
         _remediationCoordinator = remediationCoordinator;
 
+        SelectProcessStatCommand = new RelayCommand(p => SelectProcessStat(p), p => p is ProcessStatRow);
         ShowPacketsForPidCommand = new RelayCommand(p => ShowPacketsForPid(p));
         FocusTimelineEventCommand = new RelayCommand(p => FocusTimelineEvent(p), p => p is ProcessStatRow.InvestigationTimelineEvent timelineEvent && timelineEvent.CanFocusPacket);
         ShowPacketsForConversationCommand = new RelayCommand(p => ShowPacketsForConversation(p), p => p is ProcessConversationRow conversation && conversation.Pid > 0);
@@ -197,30 +213,9 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
 
         ProcessStatsView = CollectionViewSource.GetDefaultView(ProcessStats);
         ProcessStatsView.Filter = MatchesCurrentFilters;
+        ProcessStatsView.SortDescriptions.Add(new SortDescription(nameof(ProcessStatRow.IsAlive), ListSortDirection.Descending));
         ProcessStatsView.SortDescriptions.Add(new SortDescription(nameof(ProcessStatRow.RiskScore), ListSortDirection.Descending));
         ProcessStatsView.SortDescriptions.Add(new SortDescription(nameof(ProcessStatRow.TotalBytes), ListSortDirection.Descending));
-
-        if (ProcessStatsView is ICollectionViewLiveShaping liveShaping && liveShaping.CanChangeLiveSorting)
-        {
-            liveShaping.LiveSortingProperties.Add(nameof(ProcessStatRow.RiskScore));
-            liveShaping.LiveSortingProperties.Add(nameof(ProcessStatRow.TotalBytes));
-            liveShaping.IsLiveSorting = true;
-        }
-
-        if (ProcessStatsView is ICollectionViewLiveShaping filtering && filtering.CanChangeLiveFiltering)
-        {
-            filtering.LiveFilteringProperties.Add(nameof(ProcessStatRow.RiskScore));
-            filtering.LiveFilteringProperties.Add(nameof(ProcessStatRow.BeaconSuspected));
-            filtering.LiveFilteringProperties.Add(nameof(ProcessStatRow.IsSigned));
-            filtering.LiveFilteringProperties.Add(nameof(ProcessStatRow.IsAlive));
-            filtering.LiveFilteringProperties.Add(nameof(ProcessStatRow.FirewallBlocked));
-            filtering.LiveFilteringProperties.Add(nameof(ProcessStatRow.ProcessName));
-            filtering.LiveFilteringProperties.Add(nameof(ProcessStatRow.Publisher));
-            filtering.LiveFilteringProperties.Add(nameof(ProcessStatRow.ExePath));
-            filtering.LiveFilteringProperties.Add(nameof(ProcessStatRow.TopRemoteEndpoint));
-            filtering.LiveFilteringProperties.Add(nameof(ProcessStatRow.FirstSuspiciousDomain));
-            filtering.IsLiveFiltering = true;
-        }
     }
 
     public void ConfigureActions(
@@ -249,6 +244,7 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
             row.PropertyChanged -= OnProcessStatPropertyChanged;
 
         ProcessStats.Clear();
+        VisibleProcessRows.Clear();
         SelectedProcessStat = null;
         SearchText = "";
         ShowHighRiskOnly = false;
@@ -416,6 +412,12 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
         _showPacketsForPid?.Invoke(pid);
     }
 
+    private void SelectProcessStat(object? parameter)
+    {
+        if (parameter is ProcessStatRow row)
+            SelectedProcessStat = row;
+    }
+
     private void FocusTimelineEvent(object? parameter)
     {
         if (parameter is not ProcessStatRow.InvestigationTimelineEvent timelineEvent || !timelineEvent.CanFocusPacket)
@@ -511,10 +513,71 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
     }
 
     private bool MatchesCurrentFilters(object item)
-    {
-        if (item is not ProcessStatRow row)
-            return false;
+        => item is ProcessStatRow row && MatchesCurrentFilters(row);
 
+    private void RefreshProcessStatsView()
+    {
+        ScheduleProcessStatsViewRefresh();
+    }
+
+    private void UpdateSummaryCounts()
+    {
+        int total = ProcessStats.Count;
+        int visible = 0;
+        int highRisk = 0;
+        int beacon = 0;
+        int exited = 0;
+        int blocked = 0;
+
+        foreach (var row in ProcessStats)
+        {
+            if (row.RiskScore >= 70)
+                highRisk++;
+
+            if (row.BeaconSuspected)
+                beacon++;
+
+            if (!row.IsAlive)
+                exited++;
+
+            if (row.FirewallBlocked)
+                blocked++;
+
+            if (MatchesCurrentFilters(row))
+                visible++;
+        }
+
+        TotalProcessCount = total;
+        VisibleProcessCount = visible;
+        HighRiskProcessCount = highRisk;
+        BeaconProcessCount = beacon;
+        ExitedProcessCount = exited;
+        BlockedProcessCount = blocked;
+    }
+
+    private void OnProcessStatPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (sender is not ProcessStatRow)
+            return;
+
+        if (string.IsNullOrWhiteSpace(e.PropertyName)
+            || e.PropertyName is nameof(ProcessStatRow.RiskScore)
+            or nameof(ProcessStatRow.BeaconSuspected)
+            or nameof(ProcessStatRow.IsSigned)
+            or nameof(ProcessStatRow.IsAlive)
+            or nameof(ProcessStatRow.FirewallBlocked)
+            or nameof(ProcessStatRow.ProcessName)
+            or nameof(ProcessStatRow.Publisher)
+            or nameof(ProcessStatRow.ExePath)
+            or nameof(ProcessStatRow.TopRemoteEndpoint)
+            or nameof(ProcessStatRow.FirstSuspiciousDomain))
+        {
+            ScheduleProcessStatsViewRefresh();
+        }
+    }
+
+    private bool MatchesCurrentFilters(ProcessStatRow row)
+    {
         if (ShowHighRiskOnly && row.RiskScore < 70)
             return false;
 
@@ -541,40 +604,43 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
             || ContainsIgnoreCase(row.FirstSuspiciousDomain, search);
     }
 
-    private void RefreshProcessStatsView()
+    private void ScheduleProcessStatsViewRefresh()
     {
+        if (_processStatsViewRefreshPending)
+            return;
+
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher is null)
+        {
+            ExecutePendingProcessStatsViewRefresh();
+            return;
+        }
+
+        _processStatsViewRefreshPending = true;
+        dispatcher.BeginInvoke(
+            new Action(ExecutePendingProcessStatsViewRefresh),
+            DispatcherPriority.Background);
+    }
+
+    private void ExecutePendingProcessStatsViewRefresh()
+    {
+        _processStatsViewRefreshPending = false;
         ProcessStatsView.Refresh();
+        RebuildVisibleProcessRows();
         UpdateSummaryCounts();
     }
 
-    private void UpdateSummaryCounts()
+    private void RebuildVisibleProcessRows()
     {
-        TotalProcessCount = ProcessStats.Count;
-        VisibleProcessCount = ProcessStatsView.Cast<object>().Count();
-        HighRiskProcessCount = ProcessStats.Count(row => row.RiskScore >= 70);
-        BeaconProcessCount = ProcessStats.Count(row => row.BeaconSuspected);
-        ExitedProcessCount = ProcessStats.Count(row => !row.IsAlive);
-        BlockedProcessCount = ProcessStats.Count(row => row.FirewallBlocked);
-    }
+        var visibleRows = ProcessStatsView.Cast<ProcessStatRow>().ToArray();
+        VisibleProcessRows.Clear();
 
-    private void OnProcessStatPropertyChanged(object? sender, PropertyChangedEventArgs e)
-    {
-        if (sender is not ProcessStatRow)
-            return;
-
-        if (string.IsNullOrWhiteSpace(e.PropertyName)
-            || e.PropertyName is nameof(ProcessStatRow.RiskScore)
-            or nameof(ProcessStatRow.BeaconSuspected)
-            or nameof(ProcessStatRow.IsSigned)
-            or nameof(ProcessStatRow.IsAlive)
-            or nameof(ProcessStatRow.FirewallBlocked)
-            or nameof(ProcessStatRow.ProcessName)
-            or nameof(ProcessStatRow.Publisher)
-            or nameof(ProcessStatRow.ExePath)
-            or nameof(ProcessStatRow.TopRemoteEndpoint)
-            or nameof(ProcessStatRow.FirstSuspiciousDomain))
+        for (int i = 0; i < visibleRows.Length; i += 3)
         {
-            RefreshProcessStatsView();
+            int count = Math.Min(3, visibleRows.Length - i);
+            var chunk = new ProcessStatRow[count];
+            Array.Copy(visibleRows, i, chunk, 0, count);
+            VisibleProcessRows.Add(new ProcessStatCardRow(chunk));
         }
     }
 
@@ -599,6 +665,9 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
 
     private static string? TryExtractDomain(PacketInfo packet)
     {
+        if (!string.IsNullOrWhiteSpace(packet.DnsQueryName))
+            return packet.DnsQueryName;
+
         if (!string.Equals(packet.Protocol, "DNS", StringComparison.OrdinalIgnoreCase)
             && packet.SrcPort != 53
             && packet.DstPort != 53)
@@ -638,7 +707,8 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
         string protocol = string.IsNullOrWhiteSpace(packet.Protocol) ? "Secure protocol" : packet.Protocol;
         string eventInfo = string.IsNullOrWhiteSpace(packet.Info) ? "handshake" : packet.Info.Trim();
         string destination = FormatEndpoint(packet.DstIp, packet.DstPort);
-        detail = $"{protocol} {eventInfo} with {destination}";
+        string hostSuffix = string.IsNullOrWhiteSpace(packet.ServerNameHint) ? "" : $" ({packet.ServerNameHint})";
+        detail = $"{protocol} {eventInfo} with {destination}{hostSuffix}";
         return true;
     }
 

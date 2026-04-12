@@ -10,33 +10,68 @@
         <helpers:ProcessIconConverter x:Key="ProcessIconConverter"/>
 
         <Style x:Key="StatsSectionTitleStyle" TargetType="TextBlock" BasedOn="{StaticResource ViewTitleTextStyle}">
-            <Setter Property="FontSize" Value="17"/>
+            <Setter Property="FontSize" Value="15"/>
+        </Style>
+
+        <Style x:Key="StatsItemPrimaryTextStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+        </Style>
+
+        <Style x:Key="StatsItemSecondaryTextStyle" TargetType="TextBlock" BasedOn="{StaticResource MutedTextBlockStyle}">
+            <Setter Property="FontSize" Value="10"/>
+            <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+        </Style>
+
+        <Style x:Key="StatsValueTextStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="VerticalAlignment" Value="Top"/>
+            <Setter Property="Margin" Value="8,0,0,0"/>
+        </Style>
+
+        <Style x:Key="StatsBadgeContainerStyle" TargetType="Border">
+            <Setter Property="Width" Value="28"/>
+            <Setter Property="Height" Value="28"/>
+            <Setter Property="Margin" Value="0,0,8,0"/>
+            <Setter Property="CornerRadius" Value="7"/>
+            <Setter Property="Background" Value="{StaticResource CardAltBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrushSoft}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+
+        <Style x:Key="StatsItemContainerStyle" TargetType="Border">
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrushSoft}"/>
+            <Setter Property="BorderThickness" Value="0,0,0,1"/>
+            <Setter Property="Padding" Value="0,0,0,6"/>
+            <Setter Property="Margin" Value="0,0,0,6"/>
         </Style>
 
         <Style x:Key="ThinProgressBarStyle" TargetType="ProgressBar">
-            <Setter Property="Height" Value="5"/>
-            <Setter Property="Margin" Value="0,8,0,0"/>
+            <Setter Property="Height" Value="4"/>
+            <Setter Property="Margin" Value="0,5,0,0"/>
             <Setter Property="Maximum" Value="100"/>
             <Setter Property="Foreground" Value="#FFF2B400"/>
             <Setter Property="Background" Value="{StaticResource AccentBrushSoft}"/>
         </Style>
     </UserControl.Resources>
 
-    <Grid Margin="10" Background="{StaticResource AppBackgroundBrush}">
+    <Grid Margin="8" Background="{StaticResource AppBackgroundBrush}">
         <Grid.RowDefinitions>
             <RowDefinition Height="*"/>
-            <RowDefinition Height="12"/>
+            <RowDefinition Height="8"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
         <Grid Grid.Row="0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="12"/>
+                <ColumnDefinition Width="8"/>
                 <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="12"/>
+                <ColumnDefinition Width="8"/>
                 <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="12"/>
+                <ColumnDefinition Width="8"/>
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
 
@@ -44,7 +79,7 @@
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="12"/>
+                        <RowDefinition Height="8"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
 
@@ -57,7 +92,7 @@
                         <ItemsControl ItemsSource="{Binding TopProcesses}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate DataType="{x:Type models:ProcessTrafficRow}">
-                                    <Border BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="0,0,0,1" Padding="0,0,0,10" Margin="0,0,0,10">
+                                    <Border Style="{StaticResource StatsItemContainerStyle}">
                                         <Grid>
                                             <Grid.RowDefinitions>
                                                 <RowDefinition Height="Auto"/>
@@ -69,15 +104,8 @@
                                                 <ColumnDefinition Width="Auto"/>
                                             </Grid.ColumnDefinitions>
 
-                                            <Border Grid.RowSpan="2"
-                                                    Width="34"
-                                                    Height="34"
-                                                    Margin="0,0,10,0"
-                                                    CornerRadius="8"
-                                                    Background="{StaticResource CardAltBrush}"
-                                                    BorderBrush="{StaticResource BorderBrushSoft}"
-                                                    BorderThickness="1">
-                                                <Image Width="18" Height="18" VerticalAlignment="Center" HorizontalAlignment="Center">
+                                            <Border Grid.RowSpan="2" Style="{StaticResource StatsBadgeContainerStyle}">
+                                                <Image Width="14" Height="14" VerticalAlignment="Center" HorizontalAlignment="Center">
                                                     <Image.Source>
                                                         <Binding Path="Pid" Converter="{StaticResource ProcessIconConverter}"/>
                                                     </Image.Source>
@@ -85,15 +113,11 @@
                                             </Border>
 
                                             <StackPanel Grid.Column="1">
-                                                <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
-                                                <TextBlock Text="{Binding Subtitle}" Style="{StaticResource MutedTextBlockStyle}" TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock Text="{Binding Title}" Style="{StaticResource StatsItemPrimaryTextStyle}"/>
+                                                <TextBlock Text="{Binding Subtitle}" Style="{StaticResource StatsItemSecondaryTextStyle}"/>
                                             </StackPanel>
 
-                                            <TextBlock Grid.Column="2"
-                                                       Text="{Binding BytesLabel}"
-                                                       FontWeight="SemiBold"
-                                                       VerticalAlignment="Top"
-                                                       Margin="10,0,0,0"/>
+                                            <TextBlock Grid.Column="2" Text="{Binding BytesLabel}" Style="{StaticResource StatsValueTextStyle}"/>
 
                                             <ProgressBar Grid.Row="1"
                                                          Grid.Column="1"
@@ -113,7 +137,7 @@
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="12"/>
+                        <RowDefinition Height="8"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
 
@@ -126,7 +150,7 @@
                         <ItemsControl ItemsSource="{Binding TopHosts}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate DataType="{x:Type models:HostStatRow}">
-                                    <Border BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="0,0,0,1" Padding="0,0,0,10" Margin="0,0,0,10">
+                                    <Border Style="{StaticResource StatsItemContainerStyle}">
                                         <Grid>
                                             <Grid.RowDefinitions>
                                                 <RowDefinition Height="Auto"/>
@@ -138,32 +162,21 @@
                                                 <ColumnDefinition Width="Auto"/>
                                             </Grid.ColumnDefinitions>
 
-                                            <Border Grid.RowSpan="2"
-                                                    Width="34"
-                                                    Height="34"
-                                                    Margin="0,0,10,0"
-                                                    CornerRadius="8"
-                                                    Background="{StaticResource CardAltBrush}"
-                                                    BorderBrush="{StaticResource BorderBrushSoft}"
-                                                    BorderThickness="1">
+                                            <Border Grid.RowSpan="2" Style="{StaticResource StatsBadgeContainerStyle}">
                                                 <TextBlock Text="{Binding BadgeText}"
                                                            FontWeight="SemiBold"
-                                                           FontSize="11"
+                                                           FontSize="9"
                                                            VerticalAlignment="Center"
                                                            HorizontalAlignment="Center"
                                                            Foreground="{StaticResource TextSecondaryBrush}"/>
                                             </Border>
 
                                             <StackPanel Grid.Column="1">
-                                                <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
-                                                <TextBlock Text="{Binding Subtitle}" Style="{StaticResource MutedTextBlockStyle}" TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock Text="{Binding Title}" Style="{StaticResource StatsItemPrimaryTextStyle}"/>
+                                                <TextBlock Text="{Binding Subtitle}" Style="{StaticResource StatsItemSecondaryTextStyle}"/>
                                             </StackPanel>
 
-                                            <TextBlock Grid.Column="2"
-                                                       Text="{Binding BytesLabel}"
-                                                       FontWeight="SemiBold"
-                                                       VerticalAlignment="Top"
-                                                       Margin="10,0,0,0"/>
+                                            <TextBlock Grid.Column="2" Text="{Binding BytesLabel}" Style="{StaticResource StatsValueTextStyle}"/>
 
                                             <ProgressBar Grid.Row="1"
                                                          Grid.Column="1"
@@ -183,7 +196,7 @@
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="12"/>
+                        <RowDefinition Height="8"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
 
@@ -196,7 +209,7 @@
                         <ItemsControl ItemsSource="{Binding TopTrafficTypes}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate DataType="{x:Type models:TrafficTypeStatRow}">
-                                    <Border BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="0,0,0,1" Padding="0,0,0,10" Margin="0,0,0,10">
+                                    <Border Style="{StaticResource StatsItemContainerStyle}">
                                         <Grid>
                                             <Grid.RowDefinitions>
                                                 <RowDefinition Height="Auto"/>
@@ -208,32 +221,21 @@
                                                 <ColumnDefinition Width="Auto"/>
                                             </Grid.ColumnDefinitions>
 
-                                            <Border Grid.RowSpan="2"
-                                                    Width="34"
-                                                    Height="34"
-                                                    Margin="0,0,10,0"
-                                                    CornerRadius="8"
-                                                    Background="{StaticResource CardAltBrush}"
-                                                    BorderBrush="{StaticResource BorderBrushSoft}"
-                                                    BorderThickness="1">
+                                            <Border Grid.RowSpan="2" Style="{StaticResource StatsBadgeContainerStyle}">
                                                 <TextBlock Text="{Binding BadgeText}"
                                                            FontWeight="SemiBold"
-                                                           FontSize="10"
+                                                           FontSize="9"
                                                            VerticalAlignment="Center"
                                                            HorizontalAlignment="Center"
                                                            Foreground="{StaticResource TextSecondaryBrush}"/>
                                             </Border>
 
                                             <StackPanel Grid.Column="1">
-                                                <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap"/>
-                                                <TextBlock Text="{Binding Subtitle}" Style="{StaticResource MutedTextBlockStyle}" TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock Text="{Binding Title}" Style="{StaticResource StatsItemPrimaryTextStyle}"/>
+                                                <TextBlock Text="{Binding Subtitle}" Style="{StaticResource StatsItemSecondaryTextStyle}"/>
                                             </StackPanel>
 
-                                            <TextBlock Grid.Column="2"
-                                                       Text="{Binding BytesLabel}"
-                                                       FontWeight="SemiBold"
-                                                       VerticalAlignment="Top"
-                                                       Margin="10,0,0,0"/>
+                                            <TextBlock Grid.Column="2" Text="{Binding BytesLabel}" Style="{StaticResource StatsValueTextStyle}"/>
 
                                             <ProgressBar Grid.Row="1"
                                                          Grid.Column="1"
@@ -253,7 +255,7 @@
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="12"/>
+                        <RowDefinition Height="8"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
 
@@ -266,7 +268,7 @@
                         <ItemsControl ItemsSource="{Binding TopConversations}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate DataType="{x:Type models:ConversationTrafficRow}">
-                                    <Border BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="0,0,0,1" Padding="0,0,0,10" Margin="0,0,0,10">
+                                    <Border Style="{StaticResource StatsItemContainerStyle}">
                                         <Grid>
                                             <Grid.RowDefinitions>
                                                 <RowDefinition Height="Auto"/>
@@ -279,15 +281,8 @@
                                                 <ColumnDefinition Width="Auto"/>
                                             </Grid.ColumnDefinitions>
 
-                                            <Border Grid.RowSpan="3"
-                                                    Width="34"
-                                                    Height="34"
-                                                    Margin="0,0,10,0"
-                                                    CornerRadius="8"
-                                                    Background="{StaticResource CardAltBrush}"
-                                                    BorderBrush="{StaticResource BorderBrushSoft}"
-                                                    BorderThickness="1">
-                                                <Image Width="18" Height="18" VerticalAlignment="Center" HorizontalAlignment="Center">
+                                            <Border Grid.RowSpan="3" Style="{StaticResource StatsBadgeContainerStyle}">
+                                                <Image Width="14" Height="14" VerticalAlignment="Center" HorizontalAlignment="Center">
                                                     <Image.Source>
                                                         <Binding Path="Pid" Converter="{StaticResource ProcessIconConverter}"/>
                                                     </Image.Source>
@@ -295,16 +290,12 @@
                                             </Border>
 
                                             <StackPanel Grid.Column="1">
-                                                <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
-                                                <TextBlock Text="{Binding Subtitle}" Style="{StaticResource MutedTextBlockStyle}" TextTrimming="CharacterEllipsis"/>
-                                                <TextBlock Grid.Row="2" Text="{Binding PacketCountLabel}" Style="{StaticResource MutedTextBlockStyle}" TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock Text="{Binding Title}" Style="{StaticResource StatsItemPrimaryTextStyle}"/>
+                                                <TextBlock Text="{Binding Subtitle}" Style="{StaticResource StatsItemSecondaryTextStyle}"/>
+                                                <TextBlock Grid.Row="2" Text="{Binding PacketCountLabel}" Style="{StaticResource StatsItemSecondaryTextStyle}"/>
                                             </StackPanel>
 
-                                            <TextBlock Grid.Column="2"
-                                                       Text="{Binding BytesLabel}"
-                                                       FontWeight="SemiBold"
-                                                       VerticalAlignment="Top"
-                                                       Margin="10,0,0,0"/>
+                                            <TextBlock Grid.Column="2" Text="{Binding BytesLabel}" Style="{StaticResource StatsValueTextStyle}"/>
 
                                             <ProgressBar Grid.Row="2"
                                                          Grid.Column="1"
@@ -321,7 +312,7 @@
             </Border>
         </Grid>
 
-        <Border Grid.Row="2" Style="{StaticResource SectionCardStyle}" Padding="16,14">
+        <Border Grid.Row="2" Style="{StaticResource SectionCardStyle}" Padding="12,10">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
@@ -336,13 +327,13 @@
                 </StackPanel>
 
                 <StackPanel Grid.Column="1">
-                    <TextBlock Text="{Binding SummaryTotalBytesHuman}" FontSize="22" FontWeight="SemiBold"/>
-                    <TextBlock Text="{Binding SummaryTotalPackets, StringFormat={}{0:N0} packets}" Style="{StaticResource MutedTextBlockStyle}"/>
+                    <TextBlock Text="{Binding SummaryTotalBytesHuman}" FontSize="18" FontWeight="SemiBold"/>
+                    <TextBlock Text="{Binding SummaryTotalPackets, StringFormat={}{0:N0} packets}" Style="{StaticResource StatsItemSecondaryTextStyle}"/>
                 </StackPanel>
 
                 <StackPanel Grid.Column="2">
-                    <TextBlock Text="{Binding SummaryBytesPerSec}" FontSize="22" FontWeight="SemiBold"/>
-                    <TextBlock Text="{Binding SummaryPacketsPerSec}" Style="{StaticResource MutedTextBlockStyle}"/>
+                    <TextBlock Text="{Binding SummaryBytesPerSec}" FontSize="18" FontWeight="SemiBold"/>
+                    <TextBlock Text="{Binding SummaryPacketsPerSec}" Style="{StaticResource StatsItemSecondaryTextStyle}"/>
                 </StackPanel>
 
                 <CheckBox Grid.Column="3"

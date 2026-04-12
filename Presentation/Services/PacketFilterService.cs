@@ -81,6 +81,58 @@ internal sealed class PacketFilterService : IPacketFilterService
         return true;
     }
 
+    public Func<PacketInfo, bool>? CompileUiFilter(PacketFilterModel f)
+    {
+        if (f is null || f.IsEmpty)
+            return null;
+
+        string? srcIpValue = NormalizeTextPattern(f.SrcIpValue);
+        string? dstIpValue = NormalizeTextPattern(f.DstIpValue);
+        string? anyIpValue = NormalizeTextPattern(f.AnyIpValue);
+        string? protocolValue = NormalizeTextPattern(f.ProtocolValue);
+        string? infoValue = NormalizeTextPattern(f.InfoValue);
+        string? processNameValue = NormalizeTextPattern(f.ProcessNameValue);
+        DateTime? fromLocal = f.TimeFromUtc?.ToLocalTime();
+        DateTime? toLocal = f.TimeToUtc?.ToLocalTime();
+
+        return p =>
+        {
+            if (!MatchTextValue(p.SrcIp, f.SrcIpOp, srcIpValue)) return false;
+            if (!MatchTextValue(p.DstIp, f.DstIpOp, dstIpValue)) return false;
+
+            if (f.AnyIpOp != TextMatchOp.Any && anyIpValue is not null)
+            {
+                bool srcOk = MatchTextValue(p.SrcIp, f.AnyIpOp, anyIpValue);
+                bool dstOk = MatchTextValue(p.DstIp, f.AnyIpOp, anyIpValue);
+                if (!srcOk && !dstOk) return false;
+            }
+
+            if (!MatchNumberValue(p.SrcPort, f.SrcPortOp, f.SrcPortValue)) return false;
+            if (!MatchNumberValue(p.DstPort, f.DstPortOp, f.DstPortValue)) return false;
+
+            if (f.AnyPortOp != NumberMatchOp.Any && f.AnyPortValue.HasValue)
+            {
+                bool srcOk = MatchNumberValue(p.SrcPort, f.AnyPortOp, f.AnyPortValue);
+                bool dstOk = MatchNumberValue(p.DstPort, f.AnyPortOp, f.AnyPortValue);
+                if (!srcOk && !dstOk) return false;
+            }
+
+            if (!MatchTextValue(p.Protocol, f.ProtocolOp, protocolValue)) return false;
+            if (!MatchTextValue(p.Info, f.InfoOp, infoValue)) return false;
+
+            if (!MatchNumberValue(p.Pid, f.PidOp, f.PidValue)) return false;
+            if (!MatchTextValue(p.ProcessName, f.ProcessNameOp, processNameValue)) return false;
+
+            if (f.MinLength.HasValue && p.Length < f.MinLength.Value) return false;
+            if (f.MaxLength.HasValue && p.Length > f.MaxLength.Value) return false;
+
+            if (fromLocal.HasValue && p.Timestamp < fromLocal.Value) return false;
+            if (toLocal.HasValue && p.Timestamp > toLocal.Value) return false;
+
+            return true;
+        };
+    }
+
     public bool TryCompileDisplayFilter(string? expression, out Func<PacketInfo, bool>? predicate, out string? error)
     {
         predicate = null;
@@ -132,7 +184,7 @@ internal sealed class PacketFilterService : IPacketFilterService
 
     private sealed class ProtocolNode(string protocolToken) : IFilterNode
     {
-        private readonly string _protocolToken = protocolToken;
+        private readonly string _protocolToken = protocolToken.Trim().ToLowerInvariant();
 
         public bool Evaluate(PacketInfo packet) => MatchesProtocolToken(packet, _protocolToken);
     }
@@ -151,43 +203,28 @@ internal sealed class PacketFilterService : IPacketFilterService
 
     private sealed class ComparisonNode : IFilterNode
     {
-        private readonly string _field;
-        private readonly TokenKind _op;
-        private readonly string _rawValue;
-        private readonly FieldValueKind _fieldKind;
+        private readonly Func<PacketInfo, bool> _evaluator;
 
         public ComparisonNode(string field, TokenKind op, string rawValue)
         {
-            _field = field;
-            _op = op;
-            _rawValue = rawValue;
-            _fieldKind = GetFieldValueKind(field);
+            string normalizedField = NormalizeField(field);
+            var fieldKind = GetFieldValueKind(normalizedField);
 
-            if (_fieldKind == FieldValueKind.Unknown)
+            if (fieldKind == FieldValueKind.Unknown)
                 throw new DisplayFilterParseException($"Unsupported display filter field '{field}'.");
 
-            if (_fieldKind == FieldValueKind.Numeric && op == TokenKind.Contains)
+            if (fieldKind == FieldValueKind.Numeric && op == TokenKind.Contains)
                 throw new DisplayFilterParseException($"Operator 'contains' is not supported for '{field}'.");
+
+            _evaluator = fieldKind switch
+            {
+                FieldValueKind.Numeric => CompileNumericComparison(normalizedField, op, rawValue, field),
+                FieldValueKind.String => CompileStringComparison(normalizedField, op, rawValue, field),
+                _ => _ => false
+            };
         }
 
-        public bool Evaluate(PacketInfo packet)
-        {
-            var normalizedField = NormalizeField(_field);
-
-            if (_fieldKind == FieldValueKind.Numeric)
-            {
-                var numericValues = GetNumericValues(packet, normalizedField);
-                return numericValues.Any() && EvaluateNumeric(numericValues, _op, _rawValue, _field);
-            }
-
-            if (_fieldKind == FieldValueKind.String)
-            {
-                var stringValues = GetStringValues(packet, normalizedField);
-                return stringValues.Any() && EvaluateString(stringValues, _op, _rawValue, normalizedField);
-            }
-
-            return false;
-        }
+        public bool Evaluate(PacketInfo packet) => _evaluator(packet);
     }
 
     private sealed class DisplayFilterParser
@@ -452,72 +489,102 @@ internal sealed class PacketFilterService : IPacketFilterService
         String
     }
 
-    private static IEnumerable<long?> GetNumericValues(PacketInfo packet, string field)
-        => field switch
-        {
-            "frame.len" or "len" => [packet.Length],
-            "pid" => [packet.Pid],
-            "port" => [packet.SrcPort, packet.DstPort],
-            "srcport" => [packet.SrcPort],
-            "dstport" => [packet.DstPort],
-            "tcp.srcport" => IsTransport(packet, "tcp") ? [packet.SrcPort] : Array.Empty<long?>(),
-            "tcp.dstport" => IsTransport(packet, "tcp") ? [packet.DstPort] : Array.Empty<long?>(),
-            "udp.srcport" => IsTransport(packet, "udp") ? [packet.SrcPort] : Array.Empty<long?>(),
-            "udp.dstport" => IsTransport(packet, "udp") ? [packet.DstPort] : Array.Empty<long?>(),
-            "tcp.port" => IsTransport(packet, "tcp") ? [packet.SrcPort, packet.DstPort] : Array.Empty<long?>(),
-            "udp.port" => IsTransport(packet, "udp") ? [packet.SrcPort, packet.DstPort] : Array.Empty<long?>(),
-            _ => Array.Empty<long?>()
-        };
-
-    private static IEnumerable<string> GetStringValues(PacketInfo packet, string field)
-        => field switch
-        {
-            "protocol" or "proto" => GetProtocolFields(packet),
-            "transport" => GetNonEmpty(packet.TransportProtocol),
-            "ip.addr" => GetNonEmpty(packet.SrcIp, packet.DstIp),
-            "ip.src" => GetNonEmpty(packet.SrcIp),
-            "ip.dst" => GetNonEmpty(packet.DstIp),
-            "ipv4.addr" => IsProtocolFamily(packet, "ipv4") ? GetNonEmpty(packet.SrcIp, packet.DstIp) : Array.Empty<string>(),
-            "ipv6.addr" => IsProtocolFamily(packet, "ipv6") ? GetNonEmpty(packet.SrcIp, packet.DstIp) : Array.Empty<string>(),
-            "eth.addr" or "mac.addr" => GetNonEmpty(packet.SrcMac, packet.DstMac),
-            "eth.src" or "mac.src" => GetNonEmpty(packet.SrcMac),
-            "eth.dst" or "mac.dst" => GetNonEmpty(packet.DstMac),
-            "process" or "process.name" => GetNonEmpty(packet.ProcessName),
-            "info" => GetNonEmpty(packet.Info),
-            _ => Array.Empty<string>()
-        };
-
-    private static bool EvaluateNumeric(IEnumerable<long?> values, TokenKind op, string rawValue, string field)
+    private static Func<PacketInfo, bool> CompileNumericComparison(string field, TokenKind op, string rawValue, string originalField)
     {
         if (!long.TryParse(rawValue, NumberStyles.Integer, CultureInfo.InvariantCulture, out var expected))
-            throw new DisplayFilterParseException($"Field '{field}' expects a numeric value.");
+            throw new DisplayFilterParseException($"Field '{originalField}' expects a numeric value.");
 
-        return values.Where(v => v.HasValue).Any(v => CompareNumbers(v!.Value, expected, op));
+        return field switch
+        {
+            "frame.len" or "len" => packet => CompareNumbers(packet.Length, expected, op),
+            "pid" => packet => packet.Pid.HasValue && CompareNumbers(packet.Pid.Value, expected, op),
+            "port" => packet => MatchesAnyNumeric(packet.SrcPort, packet.DstPort, expected, op),
+            "srcport" => packet => MatchesNumeric(packet.SrcPort, expected, op),
+            "dstport" => packet => MatchesNumeric(packet.DstPort, expected, op),
+            "tcp.srcport" => packet => IsTransport(packet, "tcp") && MatchesNumeric(packet.SrcPort, expected, op),
+            "tcp.dstport" => packet => IsTransport(packet, "tcp") && MatchesNumeric(packet.DstPort, expected, op),
+            "udp.srcport" => packet => IsTransport(packet, "udp") && MatchesNumeric(packet.SrcPort, expected, op),
+            "udp.dstport" => packet => IsTransport(packet, "udp") && MatchesNumeric(packet.DstPort, expected, op),
+            "tcp.port" => packet => IsTransport(packet, "tcp") && MatchesAnyNumeric(packet.SrcPort, packet.DstPort, expected, op),
+            "udp.port" => packet => IsTransport(packet, "udp") && MatchesAnyNumeric(packet.SrcPort, packet.DstPort, expected, op),
+            _ => _ => false
+        };
     }
 
-    private static bool EvaluateString(IEnumerable<string> values, TokenKind op, string rawValue, string field)
+    private static Func<PacketInfo, bool> CompileStringComparison(string field, TokenKind op, string rawValue, string originalField)
     {
         string candidate = rawValue.Trim();
         if (string.IsNullOrEmpty(candidate))
-            return false;
+            return _ => false;
 
-        if (field == "protocol" || field == "proto")
+        return field switch
         {
-            return op switch
-            {
-                TokenKind.Eq => values.Any(v => MatchesProtocolString(v, candidate)),
-                TokenKind.Ne => values.All(v => !MatchesProtocolString(v, candidate)),
-                TokenKind.Contains => values.Any(v => ContainsIgnoreCase(v, candidate)),
-                _ => throw new DisplayFilterParseException($"Operator '{FormatOperator(op)}' is not supported for '{field}'.")
-            };
-        }
+            "protocol" or "proto" => CompileProtocolFieldComparison(op, candidate, originalField),
+            "transport" => packet => EvaluateSingleString(packet.TransportProtocol, op, candidate, originalField),
+            "ip.addr" => packet => EvaluateMultiString(op, candidate, packet.SrcIp, packet.DstIp),
+            "ip.src" => packet => EvaluateSingleString(packet.SrcIp, op, candidate, originalField),
+            "ip.dst" => packet => EvaluateSingleString(packet.DstIp, op, candidate, originalField),
+            "ipv4.addr" => packet => IsProtocolFamily(packet, "ipv4") && EvaluateMultiString(op, candidate, packet.SrcIp, packet.DstIp),
+            "ipv6.addr" => packet => IsProtocolFamily(packet, "ipv6") && EvaluateMultiString(op, candidate, packet.SrcIp, packet.DstIp),
+            "eth.addr" or "mac.addr" => packet => EvaluateMultiString(op, candidate, packet.SrcMac, packet.DstMac),
+            "eth.src" or "mac.src" => packet => EvaluateSingleString(packet.SrcMac, op, candidate, originalField),
+            "eth.dst" or "mac.dst" => packet => EvaluateSingleString(packet.DstMac, op, candidate, originalField),
+            "process" or "process.name" => packet => EvaluateSingleString(packet.ProcessName, op, candidate, originalField),
+            "info" => packet => EvaluateSingleString(packet.Info, op, candidate, originalField),
+            _ => _ => false
+        };
+    }
+
+    private static Func<PacketInfo, bool> CompileProtocolFieldComparison(TokenKind op, string candidate, string originalField)
+    {
+        string normalizedCandidate = candidate.Trim().ToLowerInvariant();
 
         return op switch
         {
-            TokenKind.Eq => values.Any(v => string.Equals(v, candidate, StringComparison.OrdinalIgnoreCase)),
-            TokenKind.Ne => values.All(v => !string.Equals(v, candidate, StringComparison.OrdinalIgnoreCase)),
-            TokenKind.Contains => values.Any(v => ContainsIgnoreCase(v, candidate)),
+            TokenKind.Eq => packet => ProtocolFieldMatches(packet, normalizedCandidate),
+            TokenKind.Ne => packet => !ProtocolFieldMatches(packet, normalizedCandidate),
+            TokenKind.Contains => packet => ProtocolFieldContains(packet, candidate),
+            _ => throw new DisplayFilterParseException($"Operator '{FormatOperator(op)}' is not supported for '{originalField}'.")
+        };
+    }
+
+    private static bool MatchesNumeric(int? value, long expected, TokenKind op)
+        => value.HasValue && CompareNumbers(value.Value, expected, op);
+
+    private static bool MatchesAnyNumeric(int? first, int? second, long expected, TokenKind op)
+        => MatchesNumeric(first, expected, op) || MatchesNumeric(second, expected, op);
+
+    private static bool EvaluateSingleString(string? value, TokenKind op, string candidate, string field)
+    {
+        bool hasValue = !string.IsNullOrWhiteSpace(value);
+        if (!hasValue)
+            return false;
+
+        return op switch
+        {
+            TokenKind.Eq => string.Equals(value, candidate, StringComparison.OrdinalIgnoreCase),
+            TokenKind.Ne => !string.Equals(value, candidate, StringComparison.OrdinalIgnoreCase),
+            TokenKind.Contains => ContainsIgnoreCase(value, candidate),
             _ => throw new DisplayFilterParseException($"Operator '{FormatOperator(op)}' is not supported for '{field}'.")
+        };
+    }
+
+    private static bool EvaluateMultiString(TokenKind op, string candidate, string? first, string? second)
+    {
+        bool firstHasValue = !string.IsNullOrWhiteSpace(first);
+        bool secondHasValue = !string.IsNullOrWhiteSpace(second);
+        if (!firstHasValue && !secondHasValue)
+            return false;
+
+        return op switch
+        {
+            TokenKind.Eq => (firstHasValue && string.Equals(first, candidate, StringComparison.OrdinalIgnoreCase))
+                || (secondHasValue && string.Equals(second, candidate, StringComparison.OrdinalIgnoreCase)),
+            TokenKind.Ne => (!firstHasValue || !string.Equals(first, candidate, StringComparison.OrdinalIgnoreCase))
+                && (!secondHasValue || !string.Equals(second, candidate, StringComparison.OrdinalIgnoreCase)),
+            TokenKind.Contains => (firstHasValue && ContainsIgnoreCase(first, candidate))
+                || (secondHasValue && ContainsIgnoreCase(second, candidate)),
+            _ => throw new DisplayFilterParseException($"Operator '{FormatOperator(op)}' is not supported for string fields.")
         };
     }
 
@@ -532,28 +599,12 @@ internal sealed class PacketFilterService : IPacketFilterService
         _ => throw new DisplayFilterParseException($"Operator '{FormatOperator(op)}' requires a string field.")
     };
 
-    private static IEnumerable<string> GetProtocolFields(PacketInfo packet)
-    {
-        var values = new List<string>(4);
-        AddIfNotEmpty(values, packet.Protocol);
-        AddIfNotEmpty(values, packet.TransportProtocol);
-
-        if (IsProtocolFamily(packet, "ipv4"))
-            AddIfNotEmpty(values, "IPv4");
-
-        if (IsProtocolFamily(packet, "ipv6"))
-            AddIfNotEmpty(values, "IPv6");
-
-        return values;
-    }
-
     private static bool MatchesProtocolToken(PacketInfo packet, string token)
     {
-        string normalized = token.Trim().ToLowerInvariant();
-        if (string.IsNullOrEmpty(normalized))
+        if (string.IsNullOrEmpty(token))
             return true;
 
-        return normalized switch
+        return token switch
         {
             "arp" => EqualsIgnoreCase(packet.Protocol, "ARP"),
             "tcp" => IsTransport(packet, "tcp"),
@@ -568,25 +619,25 @@ internal sealed class PacketFilterService : IPacketFilterService
             "https" => StartsWithIgnoreCase(packet.Protocol, "TLS") || EqualsIgnoreCase(packet.Protocol, "SSL"),
             "tls" or "ssl" => StartsWithIgnoreCase(packet.Protocol, "TLS") || EqualsIgnoreCase(packet.Protocol, "SSL"),
             "quic" => EqualsIgnoreCase(packet.Protocol, "QUIC"),
-            _ => GetProtocolFields(packet).Any(v => MatchesProtocolString(v, normalized))
+            _ => ProtocolFieldMatches(packet, token)
         };
     }
 
     private static bool MatchesProtocolString(string value, string token)
     {
-        string normalizedValue = value.Trim().ToLowerInvariant();
-        string normalizedToken = token.Trim().ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(value))
+            return false;
 
-        if (normalizedToken is "https" or "tls")
-            return normalizedValue.StartsWith("tls", StringComparison.OrdinalIgnoreCase) || normalizedValue == "ssl";
+        if (token is "https" or "tls")
+            return value.StartsWith("tls", StringComparison.OrdinalIgnoreCase) || string.Equals(value, "ssl", StringComparison.OrdinalIgnoreCase);
 
-        if (normalizedToken == "icmp")
-            return normalizedValue.StartsWith("icmp", StringComparison.OrdinalIgnoreCase);
+        if (token == "icmp")
+            return value.StartsWith("icmp", StringComparison.OrdinalIgnoreCase);
 
-        if (normalizedToken == "ip")
-            return normalizedValue == "ipv4";
+        if (token == "ip")
+            return string.Equals(value, "ipv4", StringComparison.OrdinalIgnoreCase);
 
-        return normalizedValue == normalizedToken;
+        return string.Equals(value, token, StringComparison.OrdinalIgnoreCase);
     }
 
     private static string NormalizeField(string field) => field.Trim().ToLowerInvariant() switch
@@ -630,13 +681,53 @@ internal sealed class PacketFilterService : IPacketFilterService
         _ => FieldValueKind.Unknown
     };
 
-    private static IEnumerable<string> GetNonEmpty(params string?[] values)
-        => values.Where(v => !string.IsNullOrWhiteSpace(v))!.Select(v => v!.Trim());
+    private static bool ProtocolFieldMatches(PacketInfo packet, string normalizedToken)
+        => MatchesProtocolString(packet.Protocol, normalizedToken)
+            || MatchesProtocolString(packet.TransportProtocol, normalizedToken)
+            || (IsProtocolFamily(packet, "ipv4") && MatchesProtocolString("IPv4", normalizedToken))
+            || (IsProtocolFamily(packet, "ipv6") && MatchesProtocolString("IPv6", normalizedToken));
 
-    private static void AddIfNotEmpty(ICollection<string> values, string? value)
+    private static bool ProtocolFieldContains(PacketInfo packet, string candidate)
+        => ContainsIgnoreCase(packet.Protocol, candidate)
+            || ContainsIgnoreCase(packet.TransportProtocol, candidate)
+            || (IsProtocolFamily(packet, "ipv4") && ContainsIgnoreCase("IPv4", candidate))
+            || (IsProtocolFamily(packet, "ipv6") && ContainsIgnoreCase("IPv6", candidate));
+
+    private static string? NormalizeTextPattern(string? value)
     {
-        if (!string.IsNullOrWhiteSpace(value))
-            values.Add(value.Trim());
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+
+        return value.Trim();
+    }
+
+    private static bool MatchTextValue(string? value, TextMatchOp op, string? pattern)
+    {
+        if (op == TextMatchOp.Any || string.IsNullOrWhiteSpace(pattern))
+            return true;
+
+        value ??= string.Empty;
+        return op switch
+        {
+            TextMatchOp.Equals => string.Equals(value, pattern, StringComparison.OrdinalIgnoreCase),
+            TextMatchOp.NotEquals => !string.Equals(value, pattern, StringComparison.OrdinalIgnoreCase),
+            TextMatchOp.Contains => ContainsIgnoreCase(value, pattern),
+            TextMatchOp.NotContains => !ContainsIgnoreCase(value, pattern),
+            _ => true
+        };
+    }
+
+    private static bool MatchNumberValue(int? value, NumberMatchOp op, int? pattern)
+    {
+        if (op == NumberMatchOp.Any || pattern is null)
+            return true;
+
+        return op switch
+        {
+            NumberMatchOp.Equals => value == pattern,
+            NumberMatchOp.NotEquals => value != pattern,
+            _ => true
+        };
     }
 
     private static bool IsTransport(PacketInfo packet, string transport)
@@ -647,8 +738,8 @@ internal sealed class PacketFilterService : IPacketFilterService
         || string.Equals(packet.Protocol, family == "ipv4" ? "IP" : family, StringComparison.OrdinalIgnoreCase)
         || string.Equals(packet.TransportProtocol, family, StringComparison.OrdinalIgnoreCase);
 
-    private static bool ContainsIgnoreCase(string source, string value)
-        => source.IndexOf(value, StringComparison.OrdinalIgnoreCase) >= 0;
+    private static bool ContainsIgnoreCase(string? source, string value)
+        => !string.IsNullOrWhiteSpace(source) && source.IndexOf(value, StringComparison.OrdinalIgnoreCase) >= 0;
 
     private static bool EqualsIgnoreCase(string? left, string right)
         => string.Equals(left, right, StringComparison.OrdinalIgnoreCase);

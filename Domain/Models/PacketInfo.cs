@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Net;
 
 // Відповідає за модель відображення пакета в системі (дані для UI/агрегації/експорту).
@@ -31,6 +32,9 @@ public sealed class PacketInfo
 
     public string TcpFlags { get; init; } = "";   // "SYN, ACK" ...
     public string Info { get; init; } = "";       // короткий опис (DNS query / TCP handshake / etc.)
+    public string DnsQueryName { get; init; } = "";
+    public IReadOnlyList<string> DnsAnswerIps { get; init; } = Array.Empty<string>();
+    public string ServerNameHint { get; init; } = "";
     // Відповідає за збереження сирих даних пакета: зберігаємо лише id у RawBytesStore
     public int? RawBytesId { get; init; }
 

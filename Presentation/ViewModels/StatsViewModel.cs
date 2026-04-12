@@ -1,5 +1,6 @@
 using Domain.Models;
 using Presentation.Models;
+using Presentation.Services;
 using System.Collections.ObjectModel;
 using System.Net;
 using System.Net.Sockets;
@@ -8,7 +9,15 @@ namespace Presentation.ViewModels;
 
 public sealed class StatsViewModel : ViewModelBase
 {
+    private static readonly TimeSpan ActiveTopListsRefreshInterval = TimeSpan.FromMilliseconds(1500);
+    private const int MaxTopProcesses = 40;
+    private const int MaxTopHosts = 40;
+    private const int MaxTopTrafficTypes = 24;
+    private const int MaxTopConversations = 40;
+    private const int MaxTopConversationsPerProcess = 8;
+
     private readonly ProcessPacketsViewModel _processPackets;
+    private readonly HostResolutionService _hostResolutionService;
 
     private static readonly IReadOnlyDictionary<(string Transport, int Port), (string Key, string Title, string Badge)> TrafficPortMap
         = new Dictionary<(string Transport, int Port), (string Key, string Title, string Badge)>
@@ -35,6 +44,20 @@ public sealed class StatsViewModel : ViewModelBase
     public ObservableCollection<HostStatRow> TopHosts { get; } = new();
     public ObservableCollection<TrafficTypeStatRow> TopTrafficTypes { get; } = new();
 
+    private bool _isViewActive;
+    public bool IsViewActive
+    {
+        get => _isViewActive;
+        set
+        {
+            if (!Set(ref _isViewActive, value))
+                return;
+
+            if (value)
+                RefreshTopLists(force: true);
+        }
+    }
+
     private bool _hideMulticastBroadcast = true;
     public bool HideMulticastBroadcast
     {
@@ -42,7 +65,7 @@ public sealed class StatsViewModel : ViewModelBase
         set
         {
             if (Set(ref _hideMulticastBroadcast, value))
-                RefreshTopLists();
+                RefreshTopLists(force: true);
         }
     }
 
@@ -73,9 +96,12 @@ public sealed class StatsViewModel : ViewModelBase
     private string _summaryBytesPerSec = "-";
     public string SummaryBytesPerSec { get => _summaryBytesPerSec; private set => Set(ref _summaryBytesPerSec, value); }
 
-    public StatsViewModel(ProcessPacketsViewModel processPackets)
+    private DateTime _lastTopListsRefreshUtc = DateTime.MinValue;
+
+    public StatsViewModel(ProcessPacketsViewModel processPackets, HostResolutionService hostResolutionService)
     {
         _processPackets = processPackets;
+        _hostResolutionService = hostResolutionService;
     }
 
     public void Reset()
@@ -91,6 +117,7 @@ public sealed class StatsViewModel : ViewModelBase
         SummaryTotalBytesHuman = "-";
         SummaryPacketsPerSec = "-";
         SummaryBytesPerSec = "-";
+        _lastTopListsRefreshUtc = DateTime.MinValue;
 
         TopProcesses.Clear();
         TopConversations.Clear();
@@ -119,8 +146,24 @@ public sealed class StatsViewModel : ViewModelBase
         RefreshTopLists();
     }
 
-    private void RefreshTopLists()
+    private void RefreshTopLists(bool force = false)
     {
+        if (!force)
+        {
+            if (!IsViewActive)
+                return;
+
+            var nowUtc = DateTime.UtcNow;
+            if ((nowUtc - _lastTopListsRefreshUtc) < ActiveTopListsRefreshInterval)
+                return;
+
+            _lastTopListsRefreshUtc = nowUtc;
+        }
+        else
+        {
+            _lastTopListsRefreshUtc = DateTime.UtcNow;
+        }
+
         UpdateTopConversations();
         UpdateTopProcesses();
         UpdateTopHosts(_lastFlowsTop);
@@ -129,7 +172,7 @@ public sealed class StatsViewModel : ViewModelBase
 
     private void UpdateTopConversations()
     {
-        var top = _processPackets.GetTopConversations()
+        var top = _processPackets.GetTopConversations(MaxTopConversations, MaxTopConversationsPerProcess)
             .ToList();
 
         long maxBytes = top.Count == 0 ? 1 : top.Max(item => item.Conversation.TotalBytes);
@@ -140,8 +183,8 @@ public sealed class StatsViewModel : ViewModelBase
             {
                 Pid = item.Process.Pid,
                 ProcessName = item.Process.ProcessName,
-                EndpointLabel = item.Conversation.EndpointLabel,
-                Title = $"{item.Process.ProcessName} -> {item.Conversation.EndpointLabel}",
+                EndpointLabel = item.Conversation.DisplayEndpointLabel,
+                Title = $"{item.Process.ProcessName} -> {item.Conversation.DisplayEndpointLabel}",
                 Subtitle = string.IsNullOrWhiteSpace(item.Conversation.Protocol)
                     ? item.Conversation.DirectionLabel
                     : $"{item.Conversation.Protocol} | {item.Conversation.DirectionLabel}",
@@ -158,6 +201,7 @@ public sealed class StatsViewModel : ViewModelBase
         var top = _processPackets.ProcessStats
             .Where(row => row.TotalBytes > 0 && !string.IsNullOrWhiteSpace(row.ProcessName))
             .OrderByDescending(row => row.TotalBytes)
+            .Take(MaxTopProcesses)
             .ToList();
 
         long maxBytes = top.Count == 0 ? 1 : top.Max(row => row.TotalBytes);
@@ -181,11 +225,12 @@ public sealed class StatsViewModel : ViewModelBase
 
         foreach (var flow in flows)
         {
+            string hostIp = ResolveHostIp(flow);
             string host = ResolveHost(flow);
             if (string.IsNullOrWhiteSpace(host))
                 continue;
 
-            string type = GetIpType(host);
+            string type = GetIpType(hostIp);
             if (HideMulticastBroadcast && (type == "Multicast" || type == "Broadcast"))
                 continue;
 
@@ -206,6 +251,7 @@ public sealed class StatsViewModel : ViewModelBase
                 kv.Value.Bytes
             })
             .OrderByDescending(item => item.Bytes)
+            .Take(MaxTopHosts)
             .ToList();
 
         long maxBytes = top.Count == 0 ? 1 : top.Max(item => item.Bytes);
@@ -250,6 +296,7 @@ public sealed class StatsViewModel : ViewModelBase
                 kv.Value.Flows
             })
             .OrderByDescending(item => item.Bytes)
+            .Take(MaxTopTrafficTypes)
             .ToList();
 
         long maxBytes = top.Count == 0 ? 1 : top.Max(item => item.Bytes);
@@ -282,7 +329,22 @@ public sealed class StatsViewModel : ViewModelBase
         return $"{pid} | {liveness}";
     }
 
-    private static string ResolveHost(FlowInfo flow)
+    private string ResolveHost(FlowInfo flow)
+    {
+        if (!string.IsNullOrWhiteSpace(flow.RemoteIp))
+            return _hostResolutionService.ResolveHostOrOriginal(flow.RemoteIp);
+
+        if (!string.IsNullOrWhiteSpace(flow.DstIp))
+            return _hostResolutionService.ResolveHostOrOriginal(flow.DstIp);
+
+        string endpointIp = ExtractIp(flow.RemoteEndpoint);
+        if (!string.IsNullOrWhiteSpace(endpointIp))
+            return _hostResolutionService.ResolveHostOrOriginal(endpointIp);
+
+        return _hostResolutionService.ResolveHostOrOriginal(flow.Key.DstIp);
+    }
+
+    private static string ResolveHostIp(FlowInfo flow)
     {
         if (!string.IsNullOrWhiteSpace(flow.RemoteIp))
             return flow.RemoteIp;
@@ -343,10 +405,17 @@ public sealed class StatsViewModel : ViewModelBase
 
     private static void ReplaceWith<T>(ObservableCollection<T> target, IEnumerable<T> items)
     {
-        target.Clear();
+        var list = items as IList<T> ?? items.ToList();
+        int shared = Math.Min(target.Count, list.Count);
 
-        foreach (var item in items)
-            target.Add(item);
+        for (int i = 0; i < shared; i++)
+            target[i] = list[i];
+
+        while (target.Count > list.Count)
+            target.RemoveAt(target.Count - 1);
+
+        for (int i = shared; i < list.Count; i++)
+            target.Add(list[i]);
     }
 
     private static string GetIpType(string ip)

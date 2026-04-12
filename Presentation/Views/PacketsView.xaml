@@ -163,61 +163,96 @@
 
         <GridSplitter Grid.Row="2" Height="6" HorizontalAlignment="Stretch"/>
 
-        <!-- Details + Hex -->
+        <!-- Packet Details -->
         <Grid Grid.Row="3">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="6"/>
-                <ColumnDefinition Width="*"/>
-            </Grid.ColumnDefinitions>
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="1.1*"/>
+                    <ColumnDefinition Width="10"/>
+                    <ColumnDefinition Width="1.35*"/>
+                </Grid.ColumnDefinitions>
 
-            <GroupBox Grid.Column="0" Header="Packet Details" Margin="0">
-                <TreeView ItemsSource="{Binding ProtocolRoots}">
-                    <TreeView.Resources>
-                        <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#FFDDF1E2"/>
-                        <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}" Color="#FFE8F5EB"/>
-                        <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="#FF243748"/>
-                        <HierarchicalDataTemplate DataType="{x:Type helpers:ProtocolNode}" ItemsSource="{Binding Items}">
-                            <TextBlock Text="{Binding Header}" />
-                        </HierarchicalDataTemplate>
+                <Border Grid.Column="0"
+                        Style="{StaticResource SectionCardStyle}"
+                        Padding="10"
+                        Background="{StaticResource CardAltBrush}">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
 
-                        <Style TargetType="{x:Type TreeViewItem}">
-                            <EventSetter Event="PreviewMouseLeftButtonUp" Handler="ProtocolTreeItem_PreviewMouseLeftButtonUp"/>
-                            <!-- ensure DataContext is used for Tag when generated containers are created -->
-                            <Setter Property="Tag" Value="{Binding Tag, Mode=OneWay}" />
-                            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
-                            <Style.Triggers>
-                                <Trigger Property="IsSelected" Value="True">
-                                    <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
-                                </Trigger>
-                            </Style.Triggers>
-                        </Style>
-                    </TreeView.Resources>
-                </TreeView>
-            </GroupBox>
+                        <TextBlock Text="Protocol"
+                                   FontWeight="SemiBold"
+                                   Foreground="{StaticResource TextPrimaryBrush}"/>
 
-            <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch"/>
+                        <TreeView Grid.Row="1"
+                                  Margin="0,8,0,0"
+                                  ItemsSource="{Binding ProtocolRoots}"
+                                  HorizontalContentAlignment="Stretch"
+                                  VerticalContentAlignment="Center"
+                                  ScrollViewer.CanContentScroll="True"
+                                  VirtualizingPanel.IsVirtualizing="True"
+                                  VirtualizingPanel.VirtualizationMode="Recycling">
+                            <TreeView.ItemContainerStyle>
+                                <Style TargetType="{x:Type TreeViewItem}">
+                                    <EventSetter Event="PreviewMouseLeftButtonUp" Handler="ProtocolTreeItem_PreviewMouseLeftButtonUp"/>
+                                    <Setter Property="Tag" Value="{Binding Tag, Mode=OneWay}" />
+                                    <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+                                    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                    <Setter Property="VerticalContentAlignment" Value="Center"/>
+                                    <Style.Triggers>
+                                        <Trigger Property="IsSelected" Value="True">
+                                            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+                                        </Trigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TreeView.ItemContainerStyle>
+                            <TreeView.Resources>
+                                <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#FFDDF1E2"/>
+                                <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}" Color="#FFE8F5EB"/>
+                                <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="#FF243748"/>
+                                <HierarchicalDataTemplate DataType="{x:Type helpers:ProtocolNode}" ItemsSource="{Binding Items}">
+                                    <TextBlock Text="{Binding Header}" />
+                                </HierarchicalDataTemplate>
+                            </TreeView.Resources>
+                        </TreeView>
+                    </Grid>
+                </Border>
 
-            <GroupBox Grid.Column="2" Margin="0">
-                <GroupBox.Header>
-                    <DockPanel LastChildFill="True">
-                        <Button DockPanel.Dock="Right"
-                                Content="💾"
-                                Command="{Binding CopyHexCommand}"
-                                Style="{StaticResource HexHeaderButtonStyle}"
-                                ToolTip="Copy hex to clipboard"/>
-                        <TextBlock Text="Hex"
-                                   VerticalAlignment="Center"/>
-                    </DockPanel>
-                </GroupBox.Header>
-                <RichTextBox helpers:RichTextBoxAssist.BindableDocument="{Binding HexDocument}"
-                             IsReadOnly="True"
-                             FontFamily="Consolas"
-                             FontSize="12"
-                             VerticalScrollBarVisibility="Auto"
-                             HorizontalScrollBarVisibility="Hidden"
-                             Margin="0"/>
-            </GroupBox>
+                <Border Grid.Column="2"
+                        Style="{StaticResource SectionCardStyle}"
+                        Padding="10"
+                        Background="{StaticResource CardAltBrush}">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+
+                        <DockPanel Grid.Row="0" LastChildFill="True">
+                            <Button DockPanel.Dock="Right"
+                                    Content="💾"
+                                    Command="{Binding CopyHexCommand}"
+                                    Style="{StaticResource HexHeaderButtonStyle}"
+                                    ToolTip="Copy hex to clipboard"/>
+                            <TextBlock Text="Hex"
+                                       VerticalAlignment="Center"
+                                       FontWeight="SemiBold"
+                                       Foreground="{StaticResource TextPrimaryBrush}"/>
+                        </DockPanel>
+
+                        <RichTextBox Grid.Row="1"
+                                     Margin="0,8,0,0"
+                                     helpers:RichTextBoxAssist.BindableDocument="{Binding HexDocument}"
+                                     IsReadOnly="True"
+                                     FontFamily="Consolas"
+                                     FontSize="12"
+                                     VerticalScrollBarVisibility="Auto"
+                                     HorizontalScrollBarVisibility="Hidden"/>
+                    </Grid>
+                </Border>
+            </Grid>
         </Grid>
     </Grid>
 </UserControl>

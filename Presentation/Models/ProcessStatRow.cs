@@ -36,8 +36,26 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
         public string FocusPacketLabel => "Show packet";
     }
 
+    private readonly List<string> _pendingPropertyNames = new();
+    private int _deferNotificationsDepth;
+    private bool _riskDirty = true;
+
     public int Pid { get; }
     public string ProcessName { get; }
+
+    private bool _isSelectedInProcessGrid;
+    public bool IsSelectedInProcessGrid
+    {
+        get => _isSelectedInProcessGrid;
+        set
+        {
+            if (_isSelectedInProcessGrid == value)
+                return;
+
+            _isSelectedInProcessGrid = value;
+            OnPropertyChanged();
+        }
+    }
 
     private bool _isAlive;
     public bool IsAlive { get => _isAlive; set { if (_isAlive != value) { _isAlive = value; OnPropertyChanged(); OnPropertyChanged(nameof(LivenessLabel)); OnPropertyChanged(nameof(LivenessBrush)); } } }
@@ -52,15 +70,15 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
     public string LastSeenLabel => LastSeen == default ? "" : $"Last: {LastSeen:HH:mm:ss}";
 
     private string _exePath = "";
-    public string ExePath { get => _exePath; set { if (_exePath != value) { _exePath = value; OnPropertyChanged(); OnPropertyChanged(nameof(ExePathShort)); OnPropertyChanged(nameof(ExePathIsEmpty)); RecomputeRisk(); } } }
+    public string ExePath { get => _exePath; set { if (_exePath != value) { _exePath = value; OnPropertyChanged(); OnPropertyChanged(nameof(ExePathShort)); OnPropertyChanged(nameof(ExePathIsEmpty)); InvalidateRisk(); } } }
     public bool ExePathIsEmpty => string.IsNullOrWhiteSpace(_exePath);
     public string ExePathShort => string.IsNullOrWhiteSpace(_exePath) ? "" : Path.GetFileName(_exePath);
 
     private string _publisher = "";
-    public string Publisher { get => _publisher; set { if (_publisher != value) { _publisher = value; OnPropertyChanged(); RecomputeRisk(); } } }
+    public string Publisher { get => _publisher; set { if (_publisher != value) { _publisher = value; OnPropertyChanged(); InvalidateRisk(); } } }
 
     private bool _isSigned;
-    public bool IsSigned { get => _isSigned; set { if (_isSigned != value) { _isSigned = value; OnPropertyChanged(); OnPropertyChanged(nameof(SignedLabel)); RecomputeRisk(); } } }
+    public bool IsSigned { get => _isSigned; set { if (_isSigned != value) { _isSigned = value; OnPropertyChanged(); OnPropertyChanged(nameof(SignedLabel)); InvalidateRisk(); } } }
     public string SignedLabel => Pid <= 0 ? "" : (IsSigned ? "Signed" : "Unsigned");
 
     private string _signerSubject = "";
@@ -85,6 +103,9 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
         get => _riskReasons;
         private set
         {
+            if (AreEquivalentRiskReasons(_riskReasons, value))
+                return;
+
             _riskReasons = value;
             OnPropertyChanged();
             OnPropertyChanged(nameof(HasRiskReasons));
@@ -137,13 +158,13 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
     public long TotalBytes { get => _totalBytes; set { if (_totalBytes != value) { _totalBytes = value; OnPropertyChanged(); OnPropertyChanged(nameof(TrafficMb)); OnPropertyChanged(nameof(TotalBytesHuman)); } } }
 
     private int _distinctRemoteEndpoints;
-    public int DistinctRemoteEndpoints { get => _distinctRemoteEndpoints; set { if (_distinctRemoteEndpoints != value) { _distinctRemoteEndpoints = value; OnPropertyChanged(); RecomputeRisk(); } } }
+    public int DistinctRemoteEndpoints { get => _distinctRemoteEndpoints; set { if (_distinctRemoteEndpoints != value) { _distinctRemoteEndpoints = value; OnPropertyChanged(); InvalidateRisk(); } } }
 
     private string _topRemoteEndpoint = "";
     public string TopRemoteEndpoint { get => _topRemoteEndpoint; set { if (_topRemoteEndpoint != value) { _topRemoteEndpoint = value; OnPropertyChanged(); } } }
 
     private bool _beaconSuspected;
-    public bool BeaconSuspected { get => _beaconSuspected; set { if (_beaconSuspected != value) { _beaconSuspected = value; OnPropertyChanged(); OnPropertyChanged(nameof(BeaconLabel)); RecomputeRisk(); } } }
+    public bool BeaconSuspected { get => _beaconSuspected; set { if (_beaconSuspected != value) { _beaconSuspected = value; OnPropertyChanged(); OnPropertyChanged(nameof(BeaconLabel)); InvalidateRisk(); } } }
 
     private double _beaconIntervalSec;
     public double BeaconIntervalSec { get => _beaconIntervalSec; set { if (Math.Abs(_beaconIntervalSec - value) > 0.001) { _beaconIntervalSec = value; OnPropertyChanged(); OnPropertyChanged(nameof(BeaconLabel)); } } }
@@ -169,7 +190,7 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
                 _firstSuspiciousDomain = value;
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(HasSuspiciousDomain));
-                RecomputeRisk();
+                InvalidateRisk();
             }
         }
     }
@@ -186,7 +207,7 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
             {
                 _suspiciousDomainReason = value;
                 OnPropertyChanged();
-                RecomputeRisk();
+                InvalidateRisk();
             }
         }
     }
@@ -201,7 +222,7 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
             {
                 _identityChangeCount = value;
                 OnPropertyChanged();
-                RecomputeRisk();
+                InvalidateRisk();
             }
         }
     }
@@ -231,18 +252,22 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
             {
                 _exitedAfterTrafficPeak = value;
                 OnPropertyChanged();
-                RecomputeRisk();
+                InvalidateRisk();
             }
         }
     }
 
     // rolling samples of packets per update interval
-    private readonly Queue<int> _samples = new();
-    public IReadOnlyList<int> Samples => _samples.ToArray();
+    private readonly List<int> _samples = new(MaxSamples);
+    private int _lastSamplePackets;
+    private double _avgSamplePackets;
+    private int _peakSamplePackets;
 
-    public int LastSamplePackets => _samples.Count == 0 ? 0 : _samples.Last();
-    public double AvgSamplePackets => _samples.Count == 0 ? 0 : _samples.Average();
-    public int PeakSamplePackets => _samples.Count == 0 ? 0 : _samples.Max();
+    public IReadOnlyList<int> Samples => _samples;
+
+    public int LastSamplePackets => _lastSamplePackets;
+    public double AvgSamplePackets => _avgSamplePackets;
+    public int PeakSamplePackets => _peakSamplePackets;
 
     public Geometry? SparklineGeometry { get => _sparklineGeometry; private set { _sparklineGeometry = value; OnPropertyChanged(); } }
     private Geometry? _sparklineGeometry;
@@ -261,31 +286,37 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
 
         _isAlive = true;
 
-        RecomputeRisk();
+        RecomputeRiskIfNeeded();
     }
 
     public void UpdateIdentity(string exePath, string publisher, bool isSigned, string signerSubject, int parentPid, string parentName)
-    {
-        ExePath = exePath;
-        Publisher = publisher;
-        IsSigned = isSigned;
-        SignerSubject = signerSubject;
-        ParentPid = parentPid;
-        ParentName = parentName;
-    }
+        => DeferNotifications(() =>
+        {
+            ExePath = exePath;
+            Publisher = publisher;
+            IsSigned = isSigned;
+            SignerSubject = signerSubject;
+            ParentPid = parentPid;
+            ParentName = parentName;
+        });
 
     public void AddSample(int value)
     {
-        if (_samples.Count >= MaxSamples)
-            _samples.Dequeue();
-        _samples.Enqueue(value);
-        RebuildGeometry();
+        DeferNotifications(() =>
+        {
+            if (_samples.Count >= MaxSamples)
+                _samples.RemoveAt(0);
 
-        RecomputeRisk();
+            _samples.Add(value);
+            RecomputeSampleStats();
+            RebuildGeometry();
+            InvalidateRisk();
 
-        OnPropertyChanged(nameof(LastSamplePackets));
-        OnPropertyChanged(nameof(AvgSamplePackets));
-        OnPropertyChanged(nameof(PeakSamplePackets));
+            OnPropertyChanged(nameof(Samples));
+            OnPropertyChanged(nameof(LastSamplePackets));
+            OnPropertyChanged(nameof(AvgSamplePackets));
+            OnPropertyChanged(nameof(PeakSamplePackets));
+        });
     }
 
     private static string FormatBytes(long bytes)
@@ -310,9 +341,8 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
 
         double width = 180; // fits column
         double height = 24;
-        var pts = _samples.ToArray();
-        int n = pts.Length;
-        int max = pts.Max();
+        int n = _samples.Count;
+        int max = PeakSamplePackets;
         if (max == 0) max = 1;
 
         var geom = new StreamGeometry();
@@ -321,7 +351,7 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
             for (int i = 0; i < n; i++)
             {
                 double x = (i * width) / (MaxSamples - 1);
-                double y = height - ((double)pts[i] / max) * height;
+                double y = height - ((double)_samples[i] / max) * height;
                 if (i == 0)
                     ctx.BeginFigure(new Point(x, y), false, false);
                 else
@@ -332,8 +362,102 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
         SparklineGeometry = geom;
     }
 
+    private void RecomputeSampleStats()
+    {
+        if (_samples.Count == 0)
+        {
+            _lastSamplePackets = 0;
+            _avgSamplePackets = 0;
+            _peakSamplePackets = 0;
+            return;
+        }
+
+        long sum = 0;
+        int peak = 0;
+        for (int i = 0; i < _samples.Count; i++)
+        {
+            int sample = _samples[i];
+            sum += sample;
+            if (sample > peak)
+                peak = sample;
+        }
+
+        _lastSamplePackets = _samples[^1];
+        _avgSamplePackets = sum / (double)_samples.Count;
+        _peakSamplePackets = peak;
+    }
+
     public event PropertyChangedEventHandler? PropertyChanged;
-    private void OnPropertyChanged([CallerMemberName] string? name = null) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+    private void OnPropertyChanged([CallerMemberName] string? name = null)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return;
+
+        if (_deferNotificationsDepth > 0)
+        {
+            bool exists = false;
+            for (int i = 0; i < _pendingPropertyNames.Count; i++)
+            {
+                if (string.Equals(_pendingPropertyNames[i], name, StringComparison.Ordinal))
+                {
+                    exists = true;
+                    break;
+                }
+            }
+
+            if (!exists)
+                _pendingPropertyNames.Add(name);
+
+            return;
+        }
+
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+    }
+
+    private void DeferNotifications(Action action)
+    {
+        _deferNotificationsDepth++;
+        try
+        {
+            action();
+        }
+        finally
+        {
+            _deferNotificationsDepth--;
+            if (_deferNotificationsDepth == 0)
+            {
+                RecomputeRiskIfNeeded();
+                FlushDeferredPropertyChanges();
+            }
+        }
+    }
+
+    private void FlushDeferredPropertyChanges()
+    {
+        if (_pendingPropertyNames.Count == 0)
+            return;
+
+        for (int i = 0; i < _pendingPropertyNames.Count; i++)
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(_pendingPropertyNames[i]));
+
+        _pendingPropertyNames.Clear();
+    }
+
+    private void InvalidateRisk()
+    {
+        _riskDirty = true;
+        if (_deferNotificationsDepth == 0)
+            RecomputeRiskIfNeeded();
+    }
+
+    private void RecomputeRiskIfNeeded()
+    {
+        if (!_riskDirty)
+            return;
+
+        _riskDirty = false;
+        RecomputeRisk();
+    }
 
     private void RecomputeRisk()
     {
@@ -424,13 +548,16 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
 
     public void RecordFirstSuspiciousDomain(DateTime timestamp, string domain, string reason)
     {
-        if (!HasSuspiciousDomain)
+        DeferNotifications(() =>
         {
-            FirstSuspiciousDomain = domain;
-            SuspiciousDomainReason = reason;
-        }
+            if (!HasSuspiciousDomain)
+            {
+                FirstSuspiciousDomain = domain;
+                SuspiciousDomainReason = reason;
+            }
 
-        AddTimelineEventIfMissing("first-suspicious-domain", timestamp, "First suspicious domain", $"{domain} ({reason})", new InvestigationTimelineTarget("first-suspicious-domain", domain));
+            AddTimelineEventIfMissing("first-suspicious-domain", timestamp, "First suspicious domain", $"{domain} ({reason})", new InvestigationTimelineTarget("first-suspicious-domain", domain));
+        });
     }
 
     public void RecordTrafficPeak(DateTime timestamp, int packetsPerInterval)
@@ -462,10 +589,11 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
     }
 
     public void RecordIdentityChanged(DateTime timestamp, string detail)
-    {
-        IdentityChangeCount++;
-        AppendTimelineEvent($"process-identity-{timestamp.Ticks}", timestamp, "Process identity changed", detail);
-    }
+        => DeferNotifications(() =>
+        {
+            IdentityChangeCount++;
+            AppendTimelineEvent($"process-identity-{timestamp.Ticks}", timestamp, "Process identity changed", detail);
+        });
 
     public void RecordFirewallBlock(DateTime timestamp)
     {
@@ -481,20 +609,14 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
 
     public void UpdateConversations(IEnumerable<ProcessConversationRow> conversations)
     {
-        Conversations.Clear();
-        foreach (var conversation in conversations)
-            Conversations.Add(conversation);
-
+        ReplaceCollection(Conversations, conversations, AreEquivalentConversations);
         OnPropertyChanged(nameof(HasConversations));
         OnPropertyChanged(nameof(ConversationEmptyState));
     }
 
     public void UpdateSessionClusters(IEnumerable<ProcessSessionClusterRow> sessionClusters)
     {
-        SessionClusters.Clear();
-        foreach (var sessionCluster in sessionClusters)
-            SessionClusters.Add(sessionCluster);
-
+        ReplaceCollection(SessionClusters, sessionClusters, AreEquivalentSessionClusters);
         OnPropertyChanged(nameof(HasSessionClusters));
         OnPropertyChanged(nameof(SessionClustersEmptyState));
     }
@@ -551,6 +673,86 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
 
         return -1;
     }
+
+    private static void ReplaceCollection<T>(ObservableCollection<T> target, IEnumerable<T> source, Func<T, T, bool> areEquivalent)
+    {
+        var desired = source as IReadOnlyList<T> ?? source.ToArray();
+        if (HasSameContent(target, desired, areEquivalent))
+            return;
+
+        int sharedCount = Math.Min(target.Count, desired.Count);
+        for (int i = 0; i < sharedCount; i++)
+        {
+            if (!areEquivalent(target[i], desired[i]))
+                target[i] = desired[i];
+        }
+
+        while (target.Count > desired.Count)
+            target.RemoveAt(target.Count - 1);
+
+        for (int i = target.Count; i < desired.Count; i++)
+            target.Add(desired[i]);
+    }
+
+    private static bool HasSameContent<T>(ObservableCollection<T> current, IReadOnlyList<T> desired, Func<T, T, bool> areEquivalent)
+    {
+        if (current.Count != desired.Count)
+            return false;
+
+        for (int i = 0; i < current.Count; i++)
+        {
+            if (!areEquivalent(current[i], desired[i]))
+                return false;
+        }
+
+        return true;
+    }
+
+    private static bool AreEquivalentRiskReasons(IReadOnlyList<RiskReason> left, IReadOnlyList<RiskReason> right)
+    {
+        if (ReferenceEquals(left, right))
+            return true;
+
+        if (left.Count != right.Count)
+            return false;
+
+        for (int i = 0; i < left.Count; i++)
+        {
+            if (left[i].Points != right[i].Points
+                || !string.Equals(left[i].Summary, right[i].Summary, StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool AreEquivalentConversations(ProcessConversationRow left, ProcessConversationRow right)
+        => left.Pid == right.Pid
+            && left.RemotePort == right.RemotePort
+            && left.PacketCount == right.PacketCount
+            && left.TotalBytes == right.TotalBytes
+            && left.FirstSeen == right.FirstSeen
+            && left.LastSeen == right.LastSeen
+            && left.OutboundPackets == right.OutboundPackets
+            && left.InboundPackets == right.InboundPackets
+            && string.Equals(left.Protocol, right.Protocol, StringComparison.Ordinal)
+            && string.Equals(left.RemoteIp, right.RemoteIp, StringComparison.Ordinal)
+            && string.Equals(left.ResolvedHost, right.ResolvedHost, StringComparison.Ordinal);
+
+    private static bool AreEquivalentSessionClusters(ProcessSessionClusterRow left, ProcessSessionClusterRow right)
+        => left.Pid == right.Pid
+            && left.Index == right.Index
+            && left.FirstSeen == right.FirstSeen
+            && left.LastSeen == right.LastSeen
+            && left.PacketCount == right.PacketCount
+            && left.TotalBytes == right.TotalBytes
+            && left.DistinctRemoteEndpoints == right.DistinctRemoteEndpoints
+            && left.OutboundPackets == right.OutboundPackets
+            && left.InboundPackets == right.InboundPackets
+            && left.IsActive == right.IsActive
+            && string.Equals(left.TopRemoteEndpoint, right.TopRemoteEndpoint, StringComparison.Ordinal);
 
     private static string? GetRiskyLocationLabel(string exePath)
     {

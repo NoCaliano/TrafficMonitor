@@ -15,9 +15,9 @@ namespace Presentation.Helpers
         /// Будує кореневий TreeViewItem з вкладеними вузлами Ethernet/IP/TCP/UDP…
         /// У Tag кожного вузла кладеться (start,length) для підсвітки в Hex.
         /// </summary>
-        public static ProtocolNode Build(Packet packet, PacketInfo row)
+        public static ProtocolNode Build(Packet packet, PacketInfo row, byte[]? rawBytes = null)
         {
-            var bytes = row.RawBytes ?? Domain.Models.RawBytesStore.Get(row.RawBytesId);
+            var bytes = rawBytes ?? row.RawBytes ?? Domain.Models.RawBytesStore.Get(row.RawBytesId);
             if (bytes == null || bytes.Length == 0)
                 return T("No data");
 

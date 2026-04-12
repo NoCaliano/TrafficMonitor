@@ -38,6 +38,7 @@ public partial class App : System.Windows.Application
                 services.AddSingleton<IFlowFilterService, FlowFilterService>();
                 services.AddSingleton<IUserPromptService, UserPromptService>();
                 services.AddSingleton<WindowsRemediationService>();
+                services.AddSingleton<HostResolutionService>();
                 services.AddSingleton<ProcessForensicsTracker>();
                 services.AddSingleton<ProcessLivenessTracker>();
                 services.AddSingleton<ProcessRemediationCoordinator>();

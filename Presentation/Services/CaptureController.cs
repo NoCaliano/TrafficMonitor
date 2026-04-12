@@ -108,7 +108,7 @@ public sealed class CaptureController : ICaptureController
                 var parsed = new List<PacketInfo>(batch.Count);
                 foreach (var e in batch)
                 {
-                    var p = _parser.Parse(e.Timestamp, e.Length, e.RawCapture);
+                    var p = _parser.Parse(e.Timestamp, e.Length, e.RawCapture, PacketParseProfile.Live);
                     p.No = Interlocked.Increment(ref _packetNo);
                     parsed.Add(p);
                 }

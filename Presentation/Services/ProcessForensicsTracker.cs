@@ -15,6 +15,7 @@ public sealed class ProcessForensicsTracker
         string BeaconDetail);
 
     private readonly ILocalAddressService _localAddressService;
+    private readonly HostResolutionService _hostResolutionService;
 
     private HashSet<string> _localIps = new(StringComparer.OrdinalIgnoreCase);
     private DateTime _lastLocalIpsRefreshUtc = DateTime.MinValue;
@@ -23,7 +24,8 @@ public sealed class ProcessForensicsTracker
     private readonly Dictionary<int, HashSet<RemoteEndpointKey>> _distinctRemotes = new();
     private readonly Dictionary<(int Pid, RemoteEndpointKey Endpoint), long> _endpointBytes = new();
     private readonly Dictionary<int, (RemoteEndpointKey Endpoint, long Bytes)> _topRemoteByBytes = new();
-    private readonly Dictionary<(int Pid, RemoteEndpointKey Endpoint), ConversationState> _conversations = new();
+    private readonly Dictionary<int, Dictionary<RemoteEndpointKey, ConversationState>> _conversationsByPid = new();
+    private readonly Dictionary<int, List<ConversationState>> _topConversationSnapshotsByPid = new();
     private readonly Dictionary<int, List<SessionClusterState>> _sessionClusters = new();
 
     private readonly Dictionary<(int Pid, RemoteEndpointKey Endpoint), BeaconState> _beaconStates = new();
@@ -40,16 +42,20 @@ public sealed class ProcessForensicsTracker
     private static readonly TimeSpan FlowTtl = TimeSpan.FromMinutes(10);
 
     private const int MaxDistinctRemoteEndpointsPerPid = 5000;
+    private const int MaxConversationSnapshotEntriesPerPid = 128;
 
-    public ProcessForensicsTracker(ILocalAddressService localAddressService)
+    public ProcessForensicsTracker(ILocalAddressService localAddressService, HostResolutionService hostResolutionService)
     {
         _localAddressService = localAddressService;
+        _hostResolutionService = hostResolutionService;
         RefreshLocalIpsIfNeeded(force: true);
     }
 
     public ProcessForensicsUpdate Update(PacketInfo p, ProcessStatRow row)
     {
         var update = default(ProcessForensicsUpdate);
+
+        _hostResolutionService.Observe(p);
 
         if (row.Pid <= 0)
             return update;
@@ -171,7 +177,8 @@ public sealed class ProcessForensicsTracker
         _distinctRemotes.Clear();
         _endpointBytes.Clear();
         _topRemoteByBytes.Clear();
-        _conversations.Clear();
+        _conversationsByPid.Clear();
+        _topConversationSnapshotsByPid.Clear();
         _sessionClusters.Clear();
         _beaconStates.Clear();
         _bestBeaconByPid.Clear();
@@ -180,47 +187,74 @@ public sealed class ProcessForensicsTracker
         _udpFlowLastSeenUtc.Clear();
         _lastCleanupUtc = DateTime.MinValue;
         _lastLocalIpsRefreshUtc = DateTime.MinValue;
+        _hostResolutionService.Reset();
         RefreshLocalIpsIfNeeded(force: true);
     }
 
     public IReadOnlyList<ProcessConversationRow> GetConversationSnapshot(int pid, int take = 100)
     {
-        if (pid <= 0)
+        if (pid <= 0 || take <= 0 || !_conversationsByPid.TryGetValue(pid, out var conversationsForPid) || conversationsForPid.Count == 0)
             return Array.Empty<ProcessConversationRow>();
 
-        return _conversations
-            .Where(kv => kv.Key.Pid == pid)
-            .OrderByDescending(kv => kv.Value.Bytes)
-            .ThenByDescending(kv => kv.Value.Packets)
-            .ThenByDescending(kv => kv.Value.LastSeen)
-            .Take(take)
-            .Select(kv => new ProcessConversationRow
+        IReadOnlyList<ConversationState> snapshotStates;
+        if (take <= MaxConversationSnapshotEntriesPerPid
+            && _topConversationSnapshotsByPid.TryGetValue(pid, out var topStates)
+            && topStates.Count > 0)
+        {
+            snapshotStates = topStates;
+        }
+        else
+        {
+            snapshotStates = conversationsForPid.Values
+                .OrderByDescending(state => state.Bytes)
+                .ThenByDescending(state => state.Packets)
+                .ThenByDescending(state => state.LastSeen)
+                .Take(take)
+                .ToArray();
+        }
+
+        int count = Math.Min(take, snapshotStates.Count);
+        if (count == 0)
+            return Array.Empty<ProcessConversationRow>();
+
+        var rows = new ProcessConversationRow[count];
+        for (int i = 0; i < count; i++)
+        {
+            var state = snapshotStates[i];
+            _hostResolutionService.TryResolve(state.Endpoint.Ip, out var resolvedHost);
+            rows[i] = new ProcessConversationRow
             {
-                Pid = kv.Key.Pid,
-                Protocol = kv.Key.Endpoint.Protocol,
-                RemoteIp = kv.Key.Endpoint.Ip,
-                RemotePort = kv.Key.Endpoint.Port,
-                PacketCount = kv.Value.Packets,
-                TotalBytes = kv.Value.Bytes,
-                FirstSeen = kv.Value.FirstSeen,
-                LastSeen = kv.Value.LastSeen,
-                OutboundPackets = kv.Value.OutboundPackets,
-                InboundPackets = kv.Value.InboundPackets
-            })
-            .ToArray();
+                Pid = pid,
+                Protocol = state.Endpoint.Protocol,
+                RemoteIp = state.Endpoint.Ip,
+                ResolvedHost = resolvedHost,
+                RemotePort = state.Endpoint.Port,
+                PacketCount = state.Packets,
+                TotalBytes = state.Bytes,
+                FirstSeen = state.FirstSeen,
+                LastSeen = state.LastSeen,
+                OutboundPackets = state.OutboundPackets,
+                InboundPackets = state.InboundPackets
+            };
+        }
+
+        return rows;
     }
 
     public IReadOnlyList<ProcessSessionClusterRow> GetSessionClusterSnapshot(int pid, int take = 24)
     {
-        if (pid <= 0 || !_sessionClusters.TryGetValue(pid, out var clusters) || clusters.Count == 0)
+        if (pid <= 0 || take <= 0 || !_sessionClusters.TryGetValue(pid, out var clusters) || clusters.Count == 0)
             return Array.Empty<ProcessSessionClusterRow>();
 
         int total = clusters.Count;
+        int count = Math.Min(take, total);
+        var rows = new ProcessSessionClusterRow[count];
+        int rowIndex = 0;
 
-        return clusters
-            .OrderByDescending(cluster => cluster.LastSeen)
-            .Take(take)
-            .Select(cluster => new ProcessSessionClusterRow
+        for (int clusterIndex = total - 1; clusterIndex >= total - count; clusterIndex--)
+        {
+            var cluster = clusters[clusterIndex];
+            rows[rowIndex++] = new ProcessSessionClusterRow
             {
                 Pid = pid,
                 Index = cluster.Index,
@@ -233,8 +267,10 @@ public sealed class ProcessForensicsTracker
                 OutboundPackets = cluster.OutboundPackets,
                 InboundPackets = cluster.InboundPackets,
                 IsActive = cluster.Index == total
-            })
-            .ToArray();
+            };
+        }
+
+        return rows;
     }
 
     private void RefreshLocalIpsIfNeeded(bool force)
@@ -250,13 +286,16 @@ public sealed class ProcessForensicsTracker
 
     private void UpdateConversation((int Pid, RemoteEndpointKey Endpoint) key, PacketInfo packet, bool srcLocal, bool dstLocal)
     {
-        if (!_conversations.TryGetValue(key, out var state))
+        if (!_conversationsByPid.TryGetValue(key.Pid, out var conversationsForPid))
         {
-            state = new ConversationState
-            {
-                FirstSeen = packet.Timestamp,
-                LastSeen = packet.Timestamp
-            };
+            conversationsForPid = new Dictionary<RemoteEndpointKey, ConversationState>();
+            _conversationsByPid[key.Pid] = conversationsForPid;
+        }
+
+        if (!conversationsForPid.TryGetValue(key.Endpoint, out var state))
+        {
+            state = new ConversationState(key.Endpoint, packet.Timestamp);
+            conversationsForPid[key.Endpoint] = state;
         }
 
         state.Packets++;
@@ -273,7 +312,7 @@ public sealed class ProcessForensicsTracker
         else if (dstLocal && !srcLocal)
             state.InboundPackets++;
 
-        _conversations[key] = state;
+        UpdateTopConversationSnapshot(key.Pid, state);
     }
 
     private void UpdateSessionCluster(int pid, RemoteEndpointKey endpoint, PacketInfo packet, bool srcLocal, bool dstLocal)
@@ -336,6 +375,55 @@ public sealed class ProcessForensicsTracker
             return false;
 
         return (timestamp - cluster.LastSeen) >= SessionClusterGapThreshold;
+    }
+
+    private void UpdateTopConversationSnapshot(int pid, ConversationState state)
+    {
+        if (!_topConversationSnapshotsByPid.TryGetValue(pid, out var topStates))
+        {
+            topStates = new List<ConversationState>(Math.Min(MaxConversationSnapshotEntriesPerPid, 32));
+            _topConversationSnapshotsByPid[pid] = topStates;
+        }
+
+        int existingIndex = topStates.FindIndex(candidate => ReferenceEquals(candidate, state));
+        if (existingIndex >= 0)
+            topStates.RemoveAt(existingIndex);
+
+        int insertIndex = 0;
+        while (insertIndex < topStates.Count && CompareConversationSnapshotOrder(state, topStates[insertIndex]) >= 0)
+            insertIndex++;
+
+        if (insertIndex >= MaxConversationSnapshotEntriesPerPid && topStates.Count >= MaxConversationSnapshotEntriesPerPid)
+            return;
+
+        topStates.Insert(insertIndex, state);
+        if (topStates.Count > MaxConversationSnapshotEntriesPerPid)
+            topStates.RemoveAt(topStates.Count - 1);
+    }
+
+    private static int CompareConversationSnapshotOrder(ConversationState left, ConversationState right)
+    {
+        int comparison = right.Bytes.CompareTo(left.Bytes);
+        if (comparison != 0)
+            return comparison;
+
+        comparison = right.Packets.CompareTo(left.Packets);
+        if (comparison != 0)
+            return comparison;
+
+        comparison = right.LastSeen.CompareTo(left.LastSeen);
+        if (comparison != 0)
+            return comparison;
+
+        comparison = string.Compare(left.Endpoint.Protocol, right.Endpoint.Protocol, StringComparison.OrdinalIgnoreCase);
+        if (comparison != 0)
+            return comparison;
+
+        comparison = string.Compare(left.Endpoint.Ip, right.Endpoint.Ip, StringComparison.OrdinalIgnoreCase);
+        if (comparison != 0)
+            return comparison;
+
+        return left.Endpoint.Port.CompareTo(right.Endpoint.Port);
     }
 
     private bool IsNewOutboundFlowStart(int pid, PacketInfo p, RemoteEndpointKey endpoint, DateTime utc)
@@ -448,6 +536,14 @@ public sealed class ProcessForensicsTracker
 
     private sealed class ConversationState
     {
+        public ConversationState(RemoteEndpointKey endpoint, DateTime timestamp)
+        {
+            Endpoint = endpoint;
+            FirstSeen = timestamp;
+            LastSeen = timestamp;
+        }
+
+        public RemoteEndpointKey Endpoint { get; }
         public long Packets;
         public long Bytes;
         public DateTime FirstSeen;
