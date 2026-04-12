@@ -2,7 +2,7 @@ using Domain.Models;
 using System;
 using System.Collections.Generic;
 
-namespace Presentation.Services;
+namespace Application.Networking;
 
 public sealed class HostResolutionService
 {

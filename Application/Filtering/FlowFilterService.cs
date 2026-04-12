@@ -1,8 +1,9 @@
+using Application.Abstractions;
 using Domain.Models;
 
-namespace Presentation.Services;
+namespace Application.Filtering;
 
-internal sealed class FlowFilterService : IFlowFilterService
+public sealed class FlowFilterService : IFlowFilterService
 {
     private FlowKey? _active;
     private bool _includeReverse;

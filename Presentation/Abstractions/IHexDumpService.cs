@@ -1,6 +1,6 @@
 using System.Windows.Documents;
 
-namespace Presentation.Services;
+namespace Presentation.Abstractions;
 
 public interface IHexDumpService
 {

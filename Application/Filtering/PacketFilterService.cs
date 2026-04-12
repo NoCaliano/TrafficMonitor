@@ -1,10 +1,10 @@
+using Application.Abstractions;
 using Domain.Models;
-using Presentation.Models;
 using System.Globalization;
 
-namespace Presentation.Services;
+namespace Application.Filtering;
 
-internal sealed class PacketFilterService : IPacketFilterService
+public sealed class PacketFilterService : IPacketFilterService
 {
     public bool MatchesUiFilter(PacketInfo p, PacketFilterModel f)
     {

@@ -1,6 +1,6 @@
 using Domain.Models;
 
-namespace Presentation.Services;
+namespace Application.Abstractions;
 
 public interface IFlowFilterService
 {

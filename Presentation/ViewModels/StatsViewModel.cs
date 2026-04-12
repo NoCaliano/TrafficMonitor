@@ -1,6 +1,7 @@
+using Application.Capture;
+using Application.Networking;
 using Domain.Models;
 using Presentation.Models;
-using Presentation.Services;
 using System.Collections.ObjectModel;
 using System.Net;
 using System.Net.Sockets;

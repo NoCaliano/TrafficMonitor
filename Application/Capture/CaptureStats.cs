@@ -1,4 +1,4 @@
-﻿namespace Presentation.Models;
+namespace Application.Capture;
 
 public sealed class CaptureStats
 {

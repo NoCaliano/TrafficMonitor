@@ -1,6 +1,7 @@
+using Presentation.Abstractions;
 using System.Windows;
 
-namespace Presentation.Services;
+namespace Presentation.Dialogs;
 
 public sealed class UserPromptService : IUserPromptService
 {

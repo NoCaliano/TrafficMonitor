@@ -1,5 +1,5 @@
-﻿// Відповідає за модель UI-фільтра (поля + оператори) для PacketsView.Filter.
-namespace Presentation.Models;
+// Відповідає за модель UI-фільтра (поля + оператори) для PacketsView.Filter.
+namespace Application.Filtering;
 
 public enum TextMatchOp
 {

@@ -1,16 +1,14 @@
 using Application.Abstractions;
 using Domain.Models;
-using System.Threading.Channels;
-using System.Diagnostics;
-using Presentation.Models;
-using System.Threading;
 using System;
 using System.Collections.Generic;
-using System.Threading.Tasks;
+using System.Diagnostics;
 using System.Linq;
-using System;
+using System.Threading;
+using System.Threading.Channels;
+using System.Threading.Tasks;
 
-namespace Presentation.Services;
+namespace Application.Capture;
 
 public sealed class CaptureController : ICaptureController
 {

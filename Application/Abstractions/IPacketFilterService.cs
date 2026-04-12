@@ -1,7 +1,7 @@
+using Application.Filtering;
 using Domain.Models;
-using Presentation.Models;
 
-namespace Presentation.Services;
+namespace Application.Abstractions;
 
 public interface IPacketFilterService
 {

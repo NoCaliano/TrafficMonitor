@@ -1,12 +1,19 @@
 ﻿// Відповідає за старт застосунку, налаштування DI/логування та відкриття головного вікна через Host.
 using Application.Abstractions;
+using Application.Capture;
+using Application.Filtering;
+using Application.Networking;
 using Infrastructure.Aggregation;
 using Infrastructure.Capture;
 using Infrastructure.Networking;
 using Infrastructure.Parsing;
+using Infrastructure.Remediation;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Presentation.Abstractions;
+using Presentation.Dialogs;
+using Presentation.Formatting;
 using Presentation.Services;
 using Presentation.ViewModels;
 using System.Windows;
@@ -51,7 +58,7 @@ public partial class App : System.Windows.Application
                 services.AddTransient<FlowsViewModel>();
                 services.AddTransient<Func<Func<bool>, Action, FlowsViewModel>>(sp => (uiNonEmpty, onFilterChanged) => ActivatorUtilities.CreateInstance<FlowsViewModel>(sp, uiNonEmpty, onFilterChanged));
                 // FiltersViewModel requires initial PacketFilterModel -> factory
-                services.AddTransient(sp => (Func<Presentation.Models.PacketFilterModel, FiltersViewModel>)(p => ActivatorUtilities.CreateInstance<FiltersViewModel>(sp, p)));
+                services.AddTransient(sp => (Func<PacketFilterModel, FiltersViewModel>)(p => ActivatorUtilities.CreateInstance<FiltersViewModel>(sp, p)));
 
                 // Capture controller (expose via interface)
                 services.AddSingleton<ICaptureController, CaptureController>();

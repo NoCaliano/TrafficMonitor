@@ -2,7 +2,7 @@ using Domain.Models;
 using System.IO;
 using System.Text;
 
-namespace Presentation.Services;
+namespace Infrastructure.Capture;
 
 public static class PcapFileWriter
 {

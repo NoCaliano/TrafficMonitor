@@ -1,11 +1,14 @@
 ﻿// Відповідає за: прийом raw пакетів, парсинг через IPacketParser, батчинг і показ у DataGrid.
 using Application.Abstractions;
+using Application.Capture;
+using Application.Filtering;
 using Domain.Models;
+using Infrastructure.Capture;
 using Infrastructure.Networking;
 using Microsoft.Win32;
 using PacketDotNet;
+using Presentation.Abstractions;
 using Presentation.Helpers;
-using Presentation.Services;
 using Presentation.Models;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
@@ -721,7 +724,7 @@ public sealed class MainViewModel : ViewModelBase
                 ? (loaded.last.Value - loaded.first.Value)
                 : TimeSpan.Zero;
 
-            Stats.Update(top, new Presentation.Models.CaptureStats
+            Stats.Update(top, new CaptureStats
             {
                 TotalPackets = loaded.parsed.Count,
                 TotalBytes = loaded.totalBytes,

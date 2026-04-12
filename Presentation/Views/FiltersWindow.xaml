@@ -1,7 +1,7 @@
 ﻿<Window x:Class="Presentation.Views.FiltersWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:pm="clr-namespace:Presentation.Models"
+        xmlns:pm="clr-namespace:Application.Filtering;assembly=Application"
         Title="Filters"
         SizeToContent="WidthAndHeight"
         WindowStartupLocation="CenterOwner"

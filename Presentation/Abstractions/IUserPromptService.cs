@@ -1,6 +1,6 @@
 using System.Windows;
 
-namespace Presentation.Services;
+namespace Presentation.Abstractions;
 
 public interface IUserPromptService
 {

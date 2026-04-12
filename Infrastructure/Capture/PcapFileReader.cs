@@ -1,7 +1,7 @@
 using PacketDotNet;
 using System.IO;
 
-namespace Presentation.Services;
+namespace Infrastructure.Capture;
 
 public static class PcapFileReader
 {

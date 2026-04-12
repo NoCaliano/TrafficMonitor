@@ -3,7 +3,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 
-namespace Presentation.Services;
+namespace Infrastructure.Remediation;
 
 public sealed class WindowsRemediationService
 {
