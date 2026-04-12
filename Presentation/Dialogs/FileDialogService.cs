@@ -32,4 +32,18 @@ public sealed class FileDialogService : IFileDialogService
 
         return dlg.ShowDialog(owner) == true ? dlg.FileName : null;
     }
+
+    public string? ShowSaveIncidentReportDialog(Window? owner, string suggestedFileName)
+    {
+        var dlg = new SaveFileDialog
+        {
+            Title = "Export incident report",
+            Filter = "HTML report (*.html)|*.html|JSON report (*.json)|*.json|All files (*.*)|*.*",
+            DefaultExt = ".html",
+            AddExtension = true,
+            FileName = suggestedFileName
+        };
+
+        return dlg.ShowDialog(owner) == true ? dlg.FileName : null;
+    }
 }

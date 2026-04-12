@@ -342,6 +342,19 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
     private string _dominantDnsRoot = "";
     private int _dominantDnsRootCount;
 
+    public long OutboundBytes => _outboundBytes;
+    public long InboundBytes => _inboundBytes;
+    public long OutboundPacketsObserved => _outboundPacketsObserved;
+    public long InboundPacketsObserved => _inboundPacketsObserved;
+    public int DnsQueryCount => _dnsQueryCount;
+    public int UniqueDnsQueryCount => _distinctDnsQueries.Count;
+    public int DnsTxtQueryCount => _dnsTxtQueryCount;
+    public int DnsEncodedQueryCount => _dnsEncodedQueryCount;
+    public int DnsLongestLabelLength => _dnsLongestLabelLength;
+    public string DominantDnsRoot => _dominantDnsRoot;
+    public int DominantDnsRootCount => _dominantDnsRootCount;
+    public string BeaconEndpoint => _beaconEndpoint;
+
     // rolling samples of packets per update interval
     private readonly List<int> _samples = new(MaxSamples);
     private int _lastSamplePackets;

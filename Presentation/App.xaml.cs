@@ -43,12 +43,14 @@ public partial class App : System.Windows.Application
                 services.AddSingleton<IHexDumpService, HexDumpService>();
                 services.AddSingleton<IPacketFilterService, PacketFilterService>();
                 services.AddSingleton<IFlowFilterService, FlowFilterService>();
+                services.AddSingleton<IFileDialogService, FileDialogService>();
                 services.AddSingleton<IUserPromptService, UserPromptService>();
                 services.AddSingleton<WindowsRemediationService>();
                 services.AddSingleton<HostResolutionService>();
                 services.AddSingleton<ProcessForensicsTracker>();
                 services.AddSingleton<ProcessLivenessTracker>();
                 services.AddSingleton<ProcessRemediationCoordinator>();
+                services.AddSingleton<ProcessIncidentReportExportService>();
 
                 // ViewModels
                 services.AddSingleton<MainViewModel>();

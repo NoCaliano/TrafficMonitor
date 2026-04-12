@@ -1,5 +1,6 @@
 using Domain.Models;
 using Infrastructure.Networking;
+using Presentation.Abstractions;
 using Presentation.Models;
 using Presentation.Services;
 using System;
@@ -7,6 +8,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Windows;
 using System.Windows.Data;
@@ -21,6 +23,8 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
     private readonly ProcessForensicsTracker _forensicsTracker;
     private readonly ProcessLivenessTracker _livenessTracker;
     private readonly ProcessRemediationCoordinator _remediationCoordinator;
+    private readonly IFileDialogService _fileDialogService;
+    private readonly ProcessIncidentReportExportService _incidentReportExportService;
 
     private readonly Dictionary<int, ProcessStatRow> _processStatsMap = new();
     private readonly Dictionary<int, int> _processPacketsSinceLastSample = new();
@@ -69,6 +73,7 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
     public ICommand KillProcessCommand { get; }
     public ICommand BlockProcessFirewallCommand { get; }
     public ICommand UnblockProcessFirewallCommand { get; }
+    public ICommand ExportIncidentReportCommand { get; }
 
     private string _searchText = "";
     public string SearchText
@@ -194,12 +199,16 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
         ProcessMapperService processMapperService,
         ProcessForensicsTracker forensicsTracker,
         ProcessLivenessTracker livenessTracker,
-        ProcessRemediationCoordinator remediationCoordinator)
+        ProcessRemediationCoordinator remediationCoordinator,
+        IFileDialogService fileDialogService,
+        ProcessIncidentReportExportService incidentReportExportService)
     {
         _processMapperService = processMapperService;
         _forensicsTracker = forensicsTracker;
         _livenessTracker = livenessTracker;
         _remediationCoordinator = remediationCoordinator;
+        _fileDialogService = fileDialogService;
+        _incidentReportExportService = incidentReportExportService;
 
         SelectProcessStatCommand = new RelayCommand(p => SelectProcessStat(p), p => p is ProcessStatRow);
         ShowPacketsForPidCommand = new RelayCommand(p => ShowPacketsForPid(p));
@@ -210,6 +219,7 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
         KillProcessCommand = new RelayCommand(p => KillProcess(p));
         BlockProcessFirewallCommand = new RelayCommand(p => BlockProcessInFirewall(p));
         UnblockProcessFirewallCommand = new RelayCommand(p => UnblockProcessInFirewall(p));
+        ExportIncidentReportCommand = new RelayCommand(p => ExportIncidentReport(p));
 
         ProcessStatsView = CollectionViewSource.GetDefaultView(ProcessStats);
         ProcessStatsView.Filter = MatchesCurrentFilters;
@@ -505,6 +515,46 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
             _reportStatus?.Invoke(status);
     }
 
+    private void ExportIncidentReport(object? parameter)
+    {
+        var row = ResolveReportRow(parameter);
+        if (row is null || row.Pid <= 0)
+        {
+            ReportStatus("No process selected for incident report export.");
+            return;
+        }
+
+        SelectProcess(row.Pid);
+
+        string suggestedFileName = BuildIncidentReportFileName(row);
+        string? path = _fileDialogService.ShowSaveIncidentReportDialog(System.Windows.Application.Current?.MainWindow, suggestedFileName);
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            ReportStatus("Incident report export canceled.");
+            return;
+        }
+
+        try
+        {
+            var report = new ProcessIncidentReportExportService.ProcessIncidentReport(
+                ExportedAtLocal: DateTime.Now,
+                GeneratedBy: "TrafficMonitor",
+                MachineName: Environment.MachineName,
+                ProcessDetails: _processMapperService.GetProcessDetailsCached(row.Pid),
+                Process: row,
+                Conversations: _forensicsTracker.GetConversationSnapshot(row.Pid),
+                SessionClusters: _forensicsTracker.GetSessionClusterSnapshot(row.Pid));
+
+            _incidentReportExportService.Export(path, report);
+            ReportStatus($"Incident report exported: {Path.GetFileName(path)}");
+        }
+        catch (Exception ex)
+        {
+            ReportStatus("Incident report export failed.");
+            MessageBox.Show(ex.Message, "Export incident report failed", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
     private void RegisterProcessRow(ProcessStatRow row)
     {
         _processStatsMap[row.Pid] = row;
@@ -657,6 +707,29 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
 
     private static bool ContainsIgnoreCase(string? value, string search)
         => !string.IsNullOrWhiteSpace(value) && value.IndexOf(search, StringComparison.OrdinalIgnoreCase) >= 0;
+
+    private ProcessStatRow? ResolveReportRow(object? parameter)
+    {
+        if (parameter is ProcessStatRow row)
+            return row;
+
+        if (parameter is int pid && _processStatsMap.TryGetValue(pid, out var rowByPid))
+            return rowByPid;
+
+        return SelectedProcessStat;
+    }
+
+    private static string BuildIncidentReportFileName(ProcessStatRow row)
+    {
+        string processName = string.IsNullOrWhiteSpace(row.ProcessName) ? "process" : row.ProcessName.Trim();
+        var invalidChars = Path.GetInvalidFileNameChars();
+        var sanitizedChars = processName.Select(ch => invalidChars.Contains(ch) ? '_' : ch).ToArray();
+        string sanitizedName = new string(sanitizedChars).Trim();
+        if (string.IsNullOrWhiteSpace(sanitizedName))
+            sanitizedName = "process";
+
+        return $"incident_{sanitizedName}_{row.Pid}_{DateTime.Now:yyyyMMdd_HHmmss}.html";
+    }
 
     private static string BuildPacketTimelineDetail(PacketInfo packet)
     {

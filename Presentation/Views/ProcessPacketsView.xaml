@@ -530,6 +530,14 @@
                                 Style="{StaticResource ChipButtonStyle}"
                                 HorizontalAlignment="Stretch"
                                 Margin="0,0,6,0"/>
+                        <Button Grid.Row="1"
+                                Grid.Column="2"
+                                Content="Export report"
+                                Command="{Binding DataContext.ExportIncidentReportCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
+                                CommandParameter="{Binding Pid}"
+                                Style="{StaticResource ChipButtonStyle}"
+                                HorizontalAlignment="Stretch"
+                                Margin="0,0,0,0"/>
                     </Grid>
                 </Grid>
             </Border>
