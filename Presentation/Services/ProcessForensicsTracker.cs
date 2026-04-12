@@ -78,6 +78,15 @@ public sealed class ProcessForensicsTracker
         int remotePort = srcLocal ? (p.DstPort ?? -1) : (p.SrcPort ?? -1);
 
         var endpoint = new RemoteEndpointKey(p.Protocol, remoteIp, remotePort);
+        row.ObserveSecureEndpointIntelligence(
+            p.Timestamp,
+            endpoint.ToString(),
+            p.ServerNameHint,
+            p.TlsClientFingerprintKind,
+            p.TlsClientFingerprint,
+            p.TlsCertificateFingerprint,
+            p.TlsCertificateNames,
+            p.TlsCertificateSubject);
 
         if (!_distinctRemotes.TryGetValue(row.Pid, out var set))
         {

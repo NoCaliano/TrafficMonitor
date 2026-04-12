@@ -96,6 +96,23 @@ public sealed class ProcessIncidentReportExportService
             DnsLongestLabelLength: process.DnsLongestLabelLength,
             DominantDnsRoot: process.DominantDnsRoot,
             DominantDnsRootCount: process.DominantDnsRootCount,
+            UniqueDomainCount: process.UniqueDomainCount,
+            LatestNewDomain: process.LatestNewDomain,
+            RareTldScore: process.RareTldScore,
+            RareTldDomain: process.RareTldDomain,
+            RareTld: process.RareTld,
+            DgaLikeDomainCount: process.DgaLikeDomainCount,
+            TopDgaLikeDomain: process.TopDgaLikeDomain,
+            TopDgaLikeScore: process.TopDgaLikeScore,
+            PrimaryJa3Lite: process.PrimaryJa3Lite,
+            PrimaryJa3LiteCount: process.PrimaryJa3LiteCount,
+            PrimaryJa4Lite: process.PrimaryJa4Lite,
+            PrimaryJa4LiteCount: process.PrimaryJa4LiteCount,
+            SniCertificateMismatchCount: process.SniCertificateMismatchCount,
+            LastSniCertificateMismatch: process.LastSniCertificateMismatch,
+            MostReusedCertificateFingerprint: process.MostReusedCertificateFingerprint,
+            MostReusedCertificateDomainCount: process.MostReusedCertificateDomainCount,
+            MostReusedCertificateDomainsSummary: process.MostReusedCertificateDomainsSummary,
             DetailsName: details.Name,
             DetailsExePath: details.ExePath,
             DetailsPublisher: details.Publisher,
@@ -116,6 +133,15 @@ public sealed class ProcessIncidentReportExportService
                     ConfidenceLabel: scenario.ConfidenceLabel,
                     RiskPoints: scenario.RiskPoints,
                     Evidence: scenario.Evidence.Select(evidence => evidence.Summary).ToArray()))
+                .ToArray(),
+            TlsDnsInsights: process.TlsDnsInsights
+                .Select(insight => new TlsDnsInsightDocument(
+                    Title: insight.Title,
+                    Summary: insight.Summary,
+                    Score: insight.Score,
+                    ScoreLabel: insight.ScoreLabel,
+                    SeverityLabel: insight.SeverityLabel,
+                    Evidence: insight.Evidence.Select(evidence => evidence.Summary).ToArray()))
                 .ToArray(),
             RiskReasons: process.RiskReasons
                 .Select(reason => new RiskReasonDocument(reason.Summary, reason.Points))
@@ -214,6 +240,20 @@ public sealed class ProcessIncidentReportExportService
             AppendDefinitionLine(sb, "Suspicious domain", $"{document.Summary.FirstSuspiciousDomain} ({document.Summary.SuspiciousDomainReason})");
         if (document.Summary.DnsQueryCount > 0)
             AppendDefinitionLine(sb, "DNS activity", $"{document.Summary.DnsQueryCount:N0} queries, {document.Summary.UniqueDnsQueryCount:N0} unique, {document.Summary.DnsTxtQueryCount:N0} TXT, {document.Summary.DnsEncodedQueryCount:N0} encoded-looking");
+        if (!string.IsNullOrWhiteSpace(document.Summary.PrimaryJa3Lite))
+            AppendDefinitionLine(sb, "JA3-lite", $"{document.Summary.PrimaryJa3Lite} ({document.Summary.PrimaryJa3LiteCount:N0} hits)");
+        if (!string.IsNullOrWhiteSpace(document.Summary.PrimaryJa4Lite))
+            AppendDefinitionLine(sb, "JA4-lite", $"{document.Summary.PrimaryJa4Lite} ({document.Summary.PrimaryJa4LiteCount:N0} hits)");
+        if (document.Summary.UniqueDomainCount > 0)
+            AppendDefinitionLine(sb, "Observed domains", $"{document.Summary.UniqueDomainCount:N0} unique; latest {document.Summary.LatestNewDomain}");
+        if (document.Summary.RareTldScore > 0)
+            AppendDefinitionLine(sb, "Rare-TLD score", $"{document.Summary.RareTldScore:N0} ({document.Summary.RareTldDomain} / {document.Summary.RareTld})");
+        if (document.Summary.DgaLikeDomainCount > 0)
+            AppendDefinitionLine(sb, "DGA-like domains", $"{document.Summary.DgaLikeDomainCount:N0} seen; top {document.Summary.TopDgaLikeDomain} ({document.Summary.TopDgaLikeScore}/100)");
+        if (document.Summary.SniCertificateMismatchCount > 0)
+            AppendDefinitionLine(sb, "SNI / certificate mismatch", $"{document.Summary.SniCertificateMismatchCount:N0} event(s); latest {document.Summary.LastSniCertificateMismatch}");
+        if (document.Summary.MostReusedCertificateDomainCount > 0)
+            AppendDefinitionLine(sb, "Certificate reuse", $"{document.Summary.MostReusedCertificateDomainCount:N0} domains on {document.Summary.MostReusedCertificateFingerprint}");
         sb.AppendLine("  </div>");
 
         sb.AppendLine("  <h2>Detection scenarios</h2>");
@@ -235,6 +275,32 @@ public sealed class ProcessIncidentReportExportService
                     sb.AppendLine("      <ul>");
                     for (int i = 0; i < scenario.Evidence.Length; i++)
                         sb.AppendLine($"        <li>{Html(scenario.Evidence[i])}</li>");
+                    sb.AppendLine("      </ul>");
+                }
+                sb.AppendLine("    </div>");
+            }
+            sb.AppendLine("  </div>");
+        }
+
+        sb.AppendLine("  <h2>TLS / DNS intelligence</h2>");
+        if (document.TlsDnsInsights.Length == 0)
+        {
+            sb.AppendLine("  <div class=\"card\"><p class=\"subtle\">No TLS or DNS intelligence findings were derived.</p></div>");
+        }
+        else
+        {
+            sb.AppendLine("  <div class=\"card\">");
+            foreach (var insight in document.TlsDnsInsights)
+            {
+                sb.AppendLine("    <div class=\"scenario\">");
+                sb.AppendLine($"      <h3>{Html(insight.Title)}</h3>");
+                sb.AppendLine($"      <p><span class=\"tag\">{Html(insight.SeverityLabel)}</span><span class=\"tag\">{Html(insight.ScoreLabel)}</span></p>");
+                sb.AppendLine($"      <p>{Html(insight.Summary)}</p>");
+                if (insight.Evidence.Length > 0)
+                {
+                    sb.AppendLine("      <ul>");
+                    for (int i = 0; i < insight.Evidence.Length; i++)
+                        sb.AppendLine($"        <li>{Html(insight.Evidence[i])}</li>");
                     sb.AppendLine("      </ul>");
                 }
                 sb.AppendLine("    </div>");
@@ -379,6 +445,7 @@ public sealed class ProcessIncidentReportExportService
         string MachineName,
         IncidentSummaryDocument Summary,
         DetectionScenarioDocument[] DetectionScenarios,
+        TlsDnsInsightDocument[] TlsDnsInsights,
         RiskReasonDocument[] RiskReasons,
         TimelineEventDocument[] Timeline,
         ConversationDocument[] Conversations,
@@ -423,6 +490,23 @@ public sealed class ProcessIncidentReportExportService
         int DnsLongestLabelLength,
         string DominantDnsRoot,
         int DominantDnsRootCount,
+        int UniqueDomainCount,
+        string LatestNewDomain,
+        int RareTldScore,
+        string RareTldDomain,
+        string RareTld,
+        int DgaLikeDomainCount,
+        string TopDgaLikeDomain,
+        int TopDgaLikeScore,
+        string PrimaryJa3Lite,
+        int PrimaryJa3LiteCount,
+        string PrimaryJa4Lite,
+        int PrimaryJa4LiteCount,
+        int SniCertificateMismatchCount,
+        string LastSniCertificateMismatch,
+        string MostReusedCertificateFingerprint,
+        int MostReusedCertificateDomainCount,
+        string MostReusedCertificateDomainsSummary,
         string DetailsName,
         string DetailsExePath,
         string DetailsPublisher,
@@ -436,6 +520,14 @@ public sealed class ProcessIncidentReportExportService
         int Confidence,
         string ConfidenceLabel,
         int RiskPoints,
+        string[] Evidence);
+
+    private sealed record TlsDnsInsightDocument(
+        string Title,
+        string Summary,
+        int Score,
+        string ScoreLabel,
+        string SeverityLabel,
         string[] Evidence);
 
     private sealed record RiskReasonDocument(string Summary, int Points);

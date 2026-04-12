@@ -9,6 +9,7 @@ using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Net;
 using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 
 namespace Infrastructure.Parsing;
@@ -83,7 +84,13 @@ public sealed class PacketDotNetParser : IPacketParser
             string info = "",
             string dnsQueryName = "",
             IReadOnlyList<string>? dnsAnswerIps = null,
-            string serverNameHint = "")
+            string serverNameHint = "",
+            string tlsClientFingerprintKind = "",
+            string tlsClientFingerprint = "",
+            string tlsHandshakeType = "",
+            string tlsCertificateFingerprint = "",
+            IReadOnlyList<string>? tlsCertificateNames = null,
+            string tlsCertificateSubject = "")
         {
             return new PacketInfo
             {
@@ -107,6 +114,12 @@ public sealed class PacketDotNetParser : IPacketParser
                 DnsQueryName = dnsQueryName,
                 DnsAnswerIps = dnsAnswerIps ?? Array.Empty<string>(),
                 ServerNameHint = serverNameHint,
+                TlsClientFingerprintKind = tlsClientFingerprintKind,
+                TlsClientFingerprint = tlsClientFingerprint,
+                TlsHandshakeType = tlsHandshakeType,
+                TlsCertificateFingerprint = tlsCertificateFingerprint,
+                TlsCertificateNames = tlsCertificateNames ?? Array.Empty<string>(),
+                TlsCertificateSubject = tlsCertificateSubject,
 
                 Pid = pid,
                 ProcessName = processName,
@@ -122,19 +135,56 @@ public sealed class PacketDotNetParser : IPacketParser
             ReadOnlySpan<byte> payload,
             out string dnsQueryName,
             out IReadOnlyList<string> dnsAnswerIps,
-            out string serverNameHint)
+            out string serverNameHint,
+            out string tlsClientFingerprintKind,
+            out string tlsClientFingerprint,
+            out string tlsHandshakeType,
+            out string tlsCertificateFingerprint,
+            out IReadOnlyList<string> tlsCertificateNames,
+            out string tlsCertificateSubject)
         {
             dnsQueryName = string.Empty;
             dnsAnswerIps = Array.Empty<string>();
             serverNameHint = string.Empty;
-
-            if (!enableDeepInspection)
-                return;
+            tlsClientFingerprintKind = string.Empty;
+            tlsClientFingerprint = string.Empty;
+            tlsHandshakeType = string.Empty;
+            tlsCertificateFingerprint = string.Empty;
+            tlsCertificateNames = Array.Empty<string>();
+            tlsCertificateSubject = string.Empty;
 
             if (string.Equals(detectedProtocol, "DNS", StringComparison.OrdinalIgnoreCase))
-                TryExtractDnsResolution(payload, tcpLengthPrefixed: true, out dnsQueryName, out dnsAnswerIps);
-            else if (LooksLikeTlsProtocol(detectedProtocol))
-                TryExtractTlsServerName(payload, out serverNameHint);
+            {
+                if (enableDeepInspection)
+                    TryExtractDnsResolution(payload, tcpLengthPrefixed: true, out dnsQueryName, out dnsAnswerIps);
+
+                return;
+            }
+
+            if (!LooksLikeTlsProtocol(detectedProtocol))
+                return;
+
+            if (TryExtractTlsClientHelloIntelligence(payload, out var tlsServerName, out var ja3Lite))
+            {
+                serverNameHint = tlsServerName;
+                tlsClientFingerprintKind = "JA3-lite";
+                tlsClientFingerprint = ja3Lite;
+                tlsHandshakeType = "ClientHello";
+            }
+            else
+            {
+                TryGetTlsHandshakeTypeFromRecord(payload, out tlsHandshakeType);
+            }
+
+            if (TryExtractTlsServerCertificateIntelligence(payload, out var certificateFingerprint, out var certificateNames, out var certificateSubject))
+            {
+                tlsCertificateFingerprint = certificateFingerprint;
+                tlsCertificateNames = certificateNames;
+                tlsCertificateSubject = certificateSubject;
+
+                if (string.IsNullOrWhiteSpace(tlsHandshakeType))
+                    tlsHandshakeType = "Certificate";
+            }
         }
 
         void PopulateUdpDeepInspection(
@@ -142,19 +192,42 @@ public sealed class PacketDotNetParser : IPacketParser
             ReadOnlySpan<byte> payload,
             out string dnsQueryName,
             out IReadOnlyList<string> dnsAnswerIps,
-            out string serverNameHint)
+            out string serverNameHint,
+            out string tlsClientFingerprintKind,
+            out string tlsClientFingerprint,
+            out string tlsHandshakeType,
+            out string tlsCertificateFingerprint,
+            out IReadOnlyList<string> tlsCertificateNames,
+            out string tlsCertificateSubject)
         {
             dnsQueryName = string.Empty;
             dnsAnswerIps = Array.Empty<string>();
             serverNameHint = string.Empty;
-
-            if (!enableDeepInspection)
-                return;
+            tlsClientFingerprintKind = string.Empty;
+            tlsClientFingerprint = string.Empty;
+            tlsHandshakeType = string.Empty;
+            tlsCertificateFingerprint = string.Empty;
+            tlsCertificateNames = Array.Empty<string>();
+            tlsCertificateSubject = string.Empty;
 
             if (string.Equals(detectedProtocol, "DNS", StringComparison.OrdinalIgnoreCase))
-                TryExtractDnsResolution(payload, tcpLengthPrefixed: false, out dnsQueryName, out dnsAnswerIps);
-            else if (string.Equals(detectedProtocol, "QUIC", StringComparison.OrdinalIgnoreCase))
-                TryExtractQuicServerName(payload, out serverNameHint);
+            {
+                if (enableDeepInspection)
+                    TryExtractDnsResolution(payload, tcpLengthPrefixed: false, out dnsQueryName, out dnsAnswerIps);
+
+                return;
+            }
+
+            if (!string.Equals(detectedProtocol, "QUIC", StringComparison.OrdinalIgnoreCase))
+                return;
+
+            if (TryExtractQuicClientHelloIntelligence(payload, out var quicServerName, out var ja4Lite))
+            {
+                serverNameHint = quicServerName;
+                tlsClientFingerprintKind = "JA4-lite";
+                tlsClientFingerprint = ja4Lite;
+                tlsHandshakeType = "ClientHello";
+            }
         }
 
         PacketInfo ParseIpv4At(ReadOnlySpan<byte> span, int ipStart, string srcMacStr, string dstMacStr)
@@ -213,7 +286,18 @@ public sealed class PacketDotNetParser : IPacketParser
                 int payloadStart = l4Start + tcpHeaderLen;
                 var tcpPayload = payloadStart <= span.Length ? span.Slice(payloadStart) : ReadOnlySpan<byte>.Empty;
                 string detectedProtocol = DetectTcpProtocol(tcpPayload, srcPort, dstPort, out var tcpDetail) ?? "TCP";
-                PopulateTcpDeepInspection(detectedProtocol, tcpPayload, out var dnsQueryName, out var dnsAnswerIps, out var serverNameHint);
+                PopulateTcpDeepInspection(
+                    detectedProtocol,
+                    tcpPayload,
+                    out var dnsQueryName,
+                    out var dnsAnswerIps,
+                    out var serverNameHint,
+                    out var tlsClientFingerprintKind,
+                    out var tlsClientFingerprint,
+                    out var tlsHandshakeType,
+                    out var tlsCertificateFingerprint,
+                    out var tlsCertificateNames,
+                    out var tlsCertificateSubject);
 
                 ResolveTcpProcess(srcIpAddr, srcPort, dstIpAddr, dstPort, out var pid, out var processName);
                 string info = BuildTcpInfo(detectedProtocol, srcIpStr, srcPort, dstIpStr, dstPort, flagsStr, payloadLen: tcpPayload.Length, detail: tcpDetail);
@@ -235,7 +319,13 @@ public sealed class PacketDotNetParser : IPacketParser
                     info: info,
                     dnsQueryName: dnsQueryName,
                     dnsAnswerIps: dnsAnswerIps,
-                    serverNameHint: serverNameHint
+                    serverNameHint: serverNameHint,
+                    tlsClientFingerprintKind: tlsClientFingerprintKind,
+                    tlsClientFingerprint: tlsClientFingerprint,
+                    tlsHandshakeType: tlsHandshakeType,
+                    tlsCertificateFingerprint: tlsCertificateFingerprint,
+                    tlsCertificateNames: tlsCertificateNames,
+                    tlsCertificateSubject: tlsCertificateSubject
                 );
             }
 
@@ -253,7 +343,18 @@ public sealed class PacketDotNetParser : IPacketParser
 
                 ResolveUdpProcess(srcIpAddr, srcPort, dstIpAddr, dstPort, out var pid, out var processName);
                 string detectedProtocol = DetectUdpProtocol(udpPayload, srcPort, dstPort, out var udpDetail) ?? "UDP";
-                PopulateUdpDeepInspection(detectedProtocol, udpPayload, out var dnsQueryName, out var dnsAnswerIps, out var serverNameHint);
+                PopulateUdpDeepInspection(
+                    detectedProtocol,
+                    udpPayload,
+                    out var dnsQueryName,
+                    out var dnsAnswerIps,
+                    out var serverNameHint,
+                    out var tlsClientFingerprintKind,
+                    out var tlsClientFingerprint,
+                    out var tlsHandshakeType,
+                    out var tlsCertificateFingerprint,
+                    out var tlsCertificateNames,
+                    out var tlsCertificateSubject);
                 string info = BuildUdpInfo(detectedProtocol, srcPort, dstPort, payloadLen, udpDetail);
 
                 return Make(
@@ -272,7 +373,13 @@ public sealed class PacketDotNetParser : IPacketParser
                     info: info,
                     dnsQueryName: dnsQueryName,
                     dnsAnswerIps: dnsAnswerIps,
-                    serverNameHint: serverNameHint
+                    serverNameHint: serverNameHint,
+                    tlsClientFingerprintKind: tlsClientFingerprintKind,
+                    tlsClientFingerprint: tlsClientFingerprint,
+                    tlsHandshakeType: tlsHandshakeType,
+                    tlsCertificateFingerprint: tlsCertificateFingerprint,
+                    tlsCertificateNames: tlsCertificateNames,
+                    tlsCertificateSubject: tlsCertificateSubject
                 );
             }
 
@@ -373,7 +480,18 @@ public sealed class PacketDotNetParser : IPacketParser
                 int payloadStart = l4Start + tcpHeaderLen;
                 var tcpPayload = payloadStart <= span.Length ? span.Slice(payloadStart) : ReadOnlySpan<byte>.Empty;
                 string detectedProtocol = DetectTcpProtocol(tcpPayload, srcPort, dstPort, out var tcpDetail) ?? "TCP";
-                PopulateTcpDeepInspection(detectedProtocol, tcpPayload, out var dnsQueryName, out var dnsAnswerIps, out var serverNameHint);
+                PopulateTcpDeepInspection(
+                    detectedProtocol,
+                    tcpPayload,
+                    out var dnsQueryName,
+                    out var dnsAnswerIps,
+                    out var serverNameHint,
+                    out var tlsClientFingerprintKind,
+                    out var tlsClientFingerprint,
+                    out var tlsHandshakeType,
+                    out var tlsCertificateFingerprint,
+                    out var tlsCertificateNames,
+                    out var tlsCertificateSubject);
 
                 ResolveTcpProcess(srcIpAddr, srcPort, dstIpAddr, dstPort, out var pid, out var processName);
                 string info = BuildTcpInfo(detectedProtocol, srcIpStr, srcPort, dstIpStr, dstPort, flagsStr, payloadLen: tcpPayload.Length, detail: tcpDetail);
@@ -395,7 +513,13 @@ public sealed class PacketDotNetParser : IPacketParser
                     info: info,
                     dnsQueryName: dnsQueryName,
                     dnsAnswerIps: dnsAnswerIps,
-                    serverNameHint: serverNameHint
+                    serverNameHint: serverNameHint,
+                    tlsClientFingerprintKind: tlsClientFingerprintKind,
+                    tlsClientFingerprint: tlsClientFingerprint,
+                    tlsHandshakeType: tlsHandshakeType,
+                    tlsCertificateFingerprint: tlsCertificateFingerprint,
+                    tlsCertificateNames: tlsCertificateNames,
+                    tlsCertificateSubject: tlsCertificateSubject
                 );
             }
 
@@ -413,7 +537,18 @@ public sealed class PacketDotNetParser : IPacketParser
 
                 ResolveUdpProcess(srcIpAddr, srcPort, dstIpAddr, dstPort, out var pid, out var processName);
                 string detectedProtocol = DetectUdpProtocol(udpPayload, srcPort, dstPort, out var udpDetail) ?? "UDP";
-                PopulateUdpDeepInspection(detectedProtocol, udpPayload, out var dnsQueryName, out var dnsAnswerIps, out var serverNameHint);
+                PopulateUdpDeepInspection(
+                    detectedProtocol,
+                    udpPayload,
+                    out var dnsQueryName,
+                    out var dnsAnswerIps,
+                    out var serverNameHint,
+                    out var tlsClientFingerprintKind,
+                    out var tlsClientFingerprint,
+                    out var tlsHandshakeType,
+                    out var tlsCertificateFingerprint,
+                    out var tlsCertificateNames,
+                    out var tlsCertificateSubject);
                 string info = BuildUdpInfo(detectedProtocol, srcPort, dstPort, payloadLen, udpDetail);
 
                 return Make(
@@ -432,7 +567,13 @@ public sealed class PacketDotNetParser : IPacketParser
                     info: info,
                     dnsQueryName: dnsQueryName,
                     dnsAnswerIps: dnsAnswerIps,
-                    serverNameHint: serverNameHint
+                    serverNameHint: serverNameHint,
+                    tlsClientFingerprintKind: tlsClientFingerprintKind,
+                    tlsClientFingerprint: tlsClientFingerprint,
+                    tlsHandshakeType: tlsHandshakeType,
+                    tlsCertificateFingerprint: tlsCertificateFingerprint,
+                    tlsCertificateNames: tlsCertificateNames,
+                    tlsCertificateSubject: tlsCertificateSubject
                 );
             }
 
@@ -812,6 +953,46 @@ public sealed class PacketDotNetParser : IPacketParser
             && (protocol.StartsWith("TLS", StringComparison.OrdinalIgnoreCase)
                 || protocol.Equals("SSL", StringComparison.OrdinalIgnoreCase));
 
+    private static bool TryExtractTlsClientHelloIntelligence(ReadOnlySpan<byte> payload, out string serverName, out string fingerprint)
+    {
+        serverName = string.Empty;
+        fingerprint = string.Empty;
+
+        if (!TryGetTlsClientHelloBodyFromRecord(payload, out var handshakeBody))
+            return false;
+
+        TryGetTlsClientHelloServerName(handshakeBody, out serverName);
+        TryBuildTlsJa3LiteFingerprint(handshakeBody, out fingerprint);
+        return !string.IsNullOrWhiteSpace(serverName) || !string.IsNullOrWhiteSpace(fingerprint);
+    }
+
+    private static bool TryExtractQuicClientHelloIntelligence(ReadOnlySpan<byte> payload, out string serverName, out string fingerprint)
+    {
+        serverName = string.Empty;
+        fingerprint = string.Empty;
+
+        if (!TryDecryptQuicInitialCryptoStream(payload, out var cryptoStream))
+            return false;
+
+        if (!TryGetTlsClientHelloBodyFromCryptoStream(cryptoStream, out var handshakeBody))
+            return false;
+
+        TryGetTlsClientHelloServerName(handshakeBody, out serverName);
+        TryBuildQuicJa4LiteFingerprint(handshakeBody, out fingerprint);
+        return !string.IsNullOrWhiteSpace(serverName) || !string.IsNullOrWhiteSpace(fingerprint);
+    }
+
+    private static bool TryGetTlsHandshakeTypeFromRecord(ReadOnlySpan<byte> payload, out string handshakeType)
+    {
+        handshakeType = string.Empty;
+
+        if (!TryGetTlsHandshakeBodyFromRecord(payload, out var type, out _))
+            return false;
+
+        handshakeType = GetTlsHandshakeName(type);
+        return !string.IsNullOrWhiteSpace(handshakeType);
+    }
+
     private static bool TryExtractTlsServerName(ReadOnlySpan<byte> payload, out string serverName)
     {
         serverName = string.Empty;
@@ -824,6 +1005,52 @@ public sealed class PacketDotNetParser : IPacketParser
 
     private static bool TryGetTlsClientHelloBodyFromRecord(ReadOnlySpan<byte> payload, out ReadOnlySpan<byte> handshakeBody)
     {
+        return TryGetTlsHandshakeBodyFromRecord(payload, desiredHandshakeType: 1, out handshakeBody);
+    }
+
+    private static bool TryGetTlsHandshakeBodyFromRecord(ReadOnlySpan<byte> payload, byte desiredHandshakeType, out ReadOnlySpan<byte> handshakeBody)
+    {
+        handshakeBody = ReadOnlySpan<byte>.Empty;
+        if (payload.Length < 9)
+            return false;
+
+        byte contentType = payload[0];
+        if (contentType != 22)
+            return false;
+
+        ushort recordVersion = ReadU16BE(payload, 1);
+        if ((recordVersion >> 8) != 3)
+            return false;
+
+        ushort recordLength = ReadU16BE(payload, 3);
+        if (recordLength == 0)
+            return false;
+
+        var recordBody = payload.Slice(5, Math.Min(recordLength, payload.Length - 5));
+        int offset = 0;
+        while (offset + 4 <= recordBody.Length)
+        {
+            byte handshakeType = recordBody[offset];
+            int handshakeLength = (recordBody[offset + 1] << 16) | (recordBody[offset + 2] << 8) | recordBody[offset + 3];
+            offset += 4;
+            if (handshakeLength <= 0 || offset + handshakeLength > recordBody.Length)
+                return false;
+
+            if (handshakeType == desiredHandshakeType)
+            {
+                handshakeBody = recordBody.Slice(offset, handshakeLength);
+                return true;
+            }
+
+            offset += handshakeLength;
+        }
+
+        return false;
+    }
+
+    private static bool TryGetTlsHandshakeBodyFromRecord(ReadOnlySpan<byte> payload, out byte handshakeType, out ReadOnlySpan<byte> handshakeBody)
+    {
+        handshakeType = 0;
         handshakeBody = ReadOnlySpan<byte>.Empty;
 
         if (payload.Length < 9)
@@ -842,15 +1069,376 @@ public sealed class PacketDotNetParser : IPacketParser
             return false;
 
         var recordBody = payload.Slice(5, Math.Min(recordLength, payload.Length - 5));
-        if (recordBody.Length < 4 || recordBody[0] != 1)
+        if (recordBody.Length < 4)
             return false;
 
+        handshakeType = recordBody[0];
         int handshakeLength = (recordBody[1] << 16) | (recordBody[2] << 8) | recordBody[3];
-        if (handshakeLength <= 0)
+        if (handshakeLength <= 0 || 4 + handshakeLength > recordBody.Length)
             return false;
 
-        handshakeBody = recordBody.Slice(4, Math.Min(handshakeLength, recordBody.Length - 4));
-        return handshakeBody.Length > 0;
+        handshakeBody = recordBody.Slice(4, handshakeLength);
+        return true;
+    }
+
+    private static bool TryExtractTlsServerCertificateIntelligence(
+        ReadOnlySpan<byte> payload,
+        out string fingerprint,
+        out IReadOnlyList<string> certificateNames,
+        out string certificateSubject)
+    {
+        fingerprint = string.Empty;
+        certificateNames = Array.Empty<string>();
+        certificateSubject = string.Empty;
+
+        if (!TryGetTlsHandshakeBodyFromRecord(payload, desiredHandshakeType: 11, out var handshakeBody))
+            return false;
+
+        if (!TryReadTlsLeafCertificate(handshakeBody, out var certificateBytes))
+            return false;
+
+        try
+        {
+            using var certificate = X509CertificateLoader.LoadCertificate(certificateBytes.ToArray());
+            fingerprint = Convert.ToHexString(SHA256.HashData(certificate.RawData)).ToLowerInvariant();
+            certificateSubject = certificate.SubjectName.Name
+                ?? certificate.GetNameInfo(X509NameType.SimpleName, forIssuer: false)
+                ?? string.Empty;
+            certificateNames = ExtractCertificateNames(certificate);
+            return !string.IsNullOrWhiteSpace(fingerprint);
+        }
+        catch (CryptographicException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryReadTlsLeafCertificate(ReadOnlySpan<byte> handshakeBody, out ReadOnlySpan<byte> certificateBytes)
+    {
+        certificateBytes = ReadOnlySpan<byte>.Empty;
+        if (handshakeBody.Length < 6)
+            return false;
+
+        int tls13Offset = 1 + handshakeBody[0];
+        if (tls13Offset >= 4 && TryReadTlsCertificateEntry(handshakeBody, offset: tls13Offset, tls13: true, out certificateBytes))
+            return true;
+
+        return TryReadTlsCertificateEntry(handshakeBody, offset: 0, tls13: false, out certificateBytes);
+    }
+
+    private static bool TryReadTlsCertificateEntry(ReadOnlySpan<byte> handshakeBody, int offset, bool tls13, out ReadOnlySpan<byte> certificateBytes)
+    {
+        certificateBytes = ReadOnlySpan<byte>.Empty;
+        if (offset < 0 || offset + 3 > handshakeBody.Length)
+            return false;
+
+        int certificateListLength = (handshakeBody[offset] << 16) | (handshakeBody[offset + 1] << 8) | handshakeBody[offset + 2];
+        offset += 3;
+        if (certificateListLength <= 0 || offset + certificateListLength > handshakeBody.Length || offset + 3 > handshakeBody.Length)
+            return false;
+
+        int certificateLength = (handshakeBody[offset] << 16) | (handshakeBody[offset + 1] << 8) | handshakeBody[offset + 2];
+        offset += 3;
+        if (certificateLength <= 0 || offset + certificateLength > handshakeBody.Length)
+            return false;
+
+        certificateBytes = handshakeBody.Slice(offset, certificateLength);
+        if (!tls13)
+            return true;
+
+        int afterCertificate = offset + certificateLength;
+        if (afterCertificate + 2 > handshakeBody.Length)
+            return false;
+
+        int extensionsLength = ReadU16BE(handshakeBody, afterCertificate);
+        return afterCertificate + 2 + extensionsLength <= handshakeBody.Length;
+    }
+
+    private static IReadOnlyList<string> ExtractCertificateNames(X509Certificate2 certificate)
+    {
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var extension in certificate.Extensions)
+        {
+            if (!string.Equals(extension.Oid?.Value, "2.5.29.17", StringComparison.Ordinal))
+                continue;
+
+            TryExtractDnsNamesFromSubjectAlternativeName(extension.RawData, names);
+        }
+
+        string preferredDnsName = certificate.GetNameInfo(X509NameType.DnsName, forIssuer: false) ?? string.Empty;
+        string alternativeDnsName = certificate.GetNameInfo(X509NameType.DnsFromAlternativeName, forIssuer: false) ?? string.Empty;
+        string simpleName = certificate.GetNameInfo(X509NameType.SimpleName, forIssuer: false) ?? string.Empty;
+
+        TryAddCertificateName(names, preferredDnsName);
+        TryAddCertificateName(names, alternativeDnsName);
+        TryAddCertificateName(names, simpleName);
+
+        return names
+            .OrderBy(static value => value, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private static void TryExtractDnsNamesFromSubjectAlternativeName(ReadOnlySpan<byte> rawData, HashSet<string> names)
+    {
+        if (rawData.Length < 2 || rawData[0] != 0x30)
+            return;
+
+        int offset = 1;
+        if (!TryReadAsnLength(rawData, ref offset, out var sequenceLength))
+            return;
+
+        int end = Math.Min(rawData.Length, offset + sequenceLength);
+        while (offset < end)
+        {
+            byte tag = rawData[offset++];
+            if (!TryReadAsnLength(rawData, ref offset, out var valueLength))
+                return;
+
+            if (offset + valueLength > end)
+                return;
+
+            if (tag == 0x82)
+            {
+                string candidate = Encoding.ASCII.GetString(rawData.Slice(offset, valueLength));
+                TryAddCertificateName(names, candidate);
+            }
+
+            offset += valueLength;
+        }
+    }
+
+    private static void TryAddCertificateName(HashSet<string> names, string? candidate)
+    {
+        string normalized = NormalizeCertificateName(candidate);
+        if (!string.IsNullOrWhiteSpace(normalized))
+            names.Add(normalized);
+    }
+
+    private static bool TryReadAsnLength(ReadOnlySpan<byte> data, ref int offset, out int length)
+    {
+        length = 0;
+        if (offset >= data.Length)
+            return false;
+
+        byte first = data[offset++];
+        if ((first & 0x80) == 0)
+        {
+            length = first;
+            return true;
+        }
+
+        int byteCount = first & 0x7F;
+        if (byteCount <= 0 || byteCount > 4 || offset + byteCount > data.Length)
+            return false;
+
+        for (int i = 0; i < byteCount; i++)
+            length = (length << 8) | data[offset++];
+
+        return true;
+    }
+
+    private static bool TryBuildTlsJa3LiteFingerprint(ReadOnlySpan<byte> body, out string fingerprint)
+    {
+        fingerprint = string.Empty;
+        if (!TryReadTlsClientHelloShape(body, out var version, out var cipherSuites, out var extensionTypes, out var supportedGroups, out var pointFormats, out _, out _))
+            return false;
+
+        string raw = BuildJa3LiteRaw(version, cipherSuites, extensionTypes, supportedGroups, pointFormats);
+        if (string.IsNullOrWhiteSpace(raw))
+            return false;
+
+        fingerprint = Convert.ToHexString(MD5.HashData(Encoding.ASCII.GetBytes(raw))).ToLowerInvariant();
+        return true;
+    }
+
+    private static bool TryBuildQuicJa4LiteFingerprint(ReadOnlySpan<byte> body, out string fingerprint)
+    {
+        fingerprint = string.Empty;
+        if (!TryReadTlsClientHelloShape(body, out var version, out var cipherSuites, out var extensionTypes, out var supportedGroups, out _, out var hasServerName, out var alpn))
+            return false;
+
+        string versionToken = MapTlsVersionShort(version);
+        string alpnToken = NormalizeAlpnToken(alpn);
+        string digestSeed = BuildJa3LiteRaw(version, cipherSuites, extensionTypes, supportedGroups, Array.Empty<byte>());
+        string digest = Convert.ToHexString(SHA256.HashData(Encoding.ASCII.GetBytes(digestSeed))).ToLowerInvariant();
+        string digestShort = digest.Length > 10 ? digest[..10] : digest;
+        fingerprint = $"q{versionToken}{(hasServerName ? 'd' : 'i')}{cipherSuites.Length:x2}{extensionTypes.Length:x2}{supportedGroups.Length:x2}{alpnToken}-{digestShort}";
+        return true;
+    }
+
+    private static bool TryReadTlsClientHelloShape(
+        ReadOnlySpan<byte> body,
+        out ushort version,
+        out ushort[] cipherSuites,
+        out ushort[] extensionTypes,
+        out ushort[] supportedGroups,
+        out byte[] pointFormats,
+        out bool hasServerName,
+        out string alpn)
+    {
+        version = 0;
+        cipherSuites = Array.Empty<ushort>();
+        extensionTypes = Array.Empty<ushort>();
+        supportedGroups = Array.Empty<ushort>();
+        pointFormats = Array.Empty<byte>();
+        hasServerName = false;
+        alpn = string.Empty;
+
+        if (body.Length < 34)
+            return false;
+
+        version = ReadU16BE(body, 0);
+        if (TryGetTlsClientHelloVersion(body, out var negotiatedVersion) && negotiatedVersion != 0)
+            version = negotiatedVersion;
+
+        int offset = 34;
+        if (offset >= body.Length)
+            return false;
+
+        int sessionIdLength = body[offset];
+        offset += 1 + sessionIdLength;
+        if (offset + 2 > body.Length)
+            return false;
+
+        int cipherSuitesLength = ReadU16BE(body, offset);
+        offset += 2;
+        if (cipherSuitesLength <= 0 || offset + cipherSuitesLength > body.Length || (cipherSuitesLength & 1) != 0)
+            return false;
+
+        var cipherSuitesList = new List<ushort>(cipherSuitesLength / 2);
+        for (int i = 0; i < cipherSuitesLength; i += 2)
+        {
+            ushort candidate = ReadU16BE(body, offset + i);
+            if (!IsGreaseValue(candidate))
+                cipherSuitesList.Add(candidate);
+        }
+
+        offset += cipherSuitesLength;
+        if (offset >= body.Length)
+            return false;
+
+        int compressionMethodsLength = body[offset];
+        offset += 1 + compressionMethodsLength;
+        if (offset + 2 > body.Length)
+            return false;
+
+        int extensionsLength = ReadU16BE(body, offset);
+        offset += 2;
+        if (extensionsLength < 0 || offset + extensionsLength > body.Length)
+            return false;
+
+        var extensions = body.Slice(offset, extensionsLength);
+        var extensionTypeList = new List<ushort>();
+        var supportedGroupList = new List<ushort>();
+        var pointFormatList = new List<byte>();
+
+        int extensionsOffset = 0;
+        while (extensionsOffset + 4 <= extensions.Length)
+        {
+            ushort extensionType = ReadU16BE(extensions, extensionsOffset);
+            int extensionLength = ReadU16BE(extensions, extensionsOffset + 2);
+            extensionsOffset += 4;
+            if (extensionsOffset + extensionLength > extensions.Length)
+                return false;
+
+            if (!IsGreaseValue(extensionType))
+                extensionTypeList.Add(extensionType);
+
+            var extensionBody = extensions.Slice(extensionsOffset, extensionLength);
+            if (extensionType == 0x0000)
+            {
+                hasServerName = TryReadTlsServerNameExtension(extensionBody, out _);
+            }
+            else if (extensionType == 0x000A && extensionLength >= 2)
+            {
+                int groupsLength = ReadU16BE(extensionBody, 0);
+                int groupsOffset = 2;
+                int groupsEnd = Math.Min(extensionBody.Length, 2 + groupsLength);
+                while (groupsOffset + 2 <= groupsEnd)
+                {
+                    ushort group = ReadU16BE(extensionBody, groupsOffset);
+                    if (!IsGreaseValue(group))
+                        supportedGroupList.Add(group);
+
+                    groupsOffset += 2;
+                }
+            }
+            else if (extensionType == 0x000B && extensionLength >= 1)
+            {
+                int formatsLength = extensionBody[0];
+                int formatsEnd = Math.Min(extensionBody.Length, 1 + formatsLength);
+                for (int i = 1; i < formatsEnd; i++)
+                    pointFormatList.Add(extensionBody[i]);
+            }
+            else if (extensionType == 0x0010 && extensionLength >= 3)
+            {
+                int alpnListLength = ReadU16BE(extensionBody, 0);
+                int alpnOffset = 2;
+                int alpnEnd = Math.Min(extensionBody.Length, 2 + alpnListLength);
+                if (alpnOffset < alpnEnd)
+                {
+                    int protocolLength = extensionBody[alpnOffset];
+                    alpnOffset++;
+                    if (protocolLength > 0 && alpnOffset + protocolLength <= alpnEnd)
+                        alpn = Encoding.ASCII.GetString(extensionBody.Slice(alpnOffset, protocolLength));
+                }
+            }
+
+            extensionsOffset += extensionLength;
+        }
+
+        cipherSuites = cipherSuitesList.ToArray();
+        extensionTypes = extensionTypeList.ToArray();
+        supportedGroups = supportedGroupList.ToArray();
+        pointFormats = pointFormatList.ToArray();
+        return cipherSuites.Length > 0 || extensionTypes.Length > 0 || supportedGroups.Length > 0;
+    }
+
+    private static string BuildJa3LiteRaw(ushort version, ushort[] cipherSuites, ushort[] extensionTypes, ushort[] supportedGroups, byte[] pointFormats)
+        => $"{version},{string.Join('-', cipherSuites)},{string.Join('-', extensionTypes)},{string.Join('-', supportedGroups)},{string.Join('-', pointFormats)}";
+
+    private static bool IsGreaseValue(ushort value)
+    {
+        byte hi = (byte)(value >> 8);
+        byte lo = (byte)value;
+        return hi == lo && (lo & 0x0F) == 0x0A;
+    }
+
+    private static string NormalizeAlpnToken(string? alpn)
+    {
+        if (string.IsNullOrWhiteSpace(alpn))
+            return "na";
+
+        string normalized = alpn.Trim().ToLowerInvariant();
+        return normalized switch
+        {
+            "h2" => "h2",
+            "http/1.1" => "h1",
+            "h3" or "h3-29" or "h3-32" => "h3",
+            _ => normalized.Length <= 3 ? normalized : normalized[..3]
+        };
+    }
+
+    private static string MapTlsVersionShort(ushort version)
+        => version switch
+        {
+            0x0304 => "13",
+            0x0303 => "12",
+            0x0302 => "11",
+            0x0301 => "10",
+            _ => $"{version:X4}"
+        };
+
+    private static string NormalizeCertificateName(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return string.Empty;
+
+        string normalized = value.Trim().TrimEnd('.').ToLowerInvariant();
+        return normalized.StartsWith("dns name=", StringComparison.OrdinalIgnoreCase)
+            ? normalized["dns name=".Length..].Trim()
+            : normalized;
     }
 
     private static bool TryGetTlsClientHelloServerName(ReadOnlySpan<byte> body, out string serverName)

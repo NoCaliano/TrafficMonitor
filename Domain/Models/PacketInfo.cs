@@ -35,6 +35,12 @@ public sealed class PacketInfo
     public string DnsQueryName { get; init; } = "";
     public IReadOnlyList<string> DnsAnswerIps { get; init; } = Array.Empty<string>();
     public string ServerNameHint { get; init; } = "";
+    public string TlsClientFingerprintKind { get; init; } = "";
+    public string TlsClientFingerprint { get; init; } = "";
+    public string TlsHandshakeType { get; init; } = "";
+    public string TlsCertificateFingerprint { get; init; } = "";
+    public IReadOnlyList<string> TlsCertificateNames { get; init; } = Array.Empty<string>();
+    public string TlsCertificateSubject { get; init; } = "";
     // Відповідає за збереження сирих даних пакета: зберігаємо лише id у RawBytesStore
     public int? RawBytesId { get; init; }
 

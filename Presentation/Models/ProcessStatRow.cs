@@ -74,6 +74,32 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
         };
     }
 
+    public sealed record TlsDnsInsight(
+        string Key,
+        string Title,
+        string Summary,
+        int Score,
+        IReadOnlyList<DetectionEvidence> Evidence)
+    {
+        public string ScoreLabel => Score > 0 ? $"+{Score}" : "Context";
+
+        public string SeverityLabel => Score switch
+        {
+            >= 16 => "High signal",
+            >= 8 => "Medium signal",
+            > 0 => "Low signal",
+            _ => "Context"
+        };
+
+        public Brush SeverityBrush => Score switch
+        {
+            >= 16 => Brushes.IndianRed,
+            >= 8 => Brushes.DarkOrange,
+            > 0 => Brushes.OliveDrab,
+            _ => Brushes.SteelBlue
+        };
+    }
+
     private readonly List<string> _pendingPropertyNames = new();
     private int _deferNotificationsDepth;
     private bool _riskDirty = true;
@@ -180,6 +206,33 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
         0 => "",
         1 => _detectionScenarios[0].Title,
         _ => $"{_detectionScenarios[0].Title} +{_detectionScenarios.Count - 1}"
+    };
+
+    private IReadOnlyList<TlsDnsInsight> _tlsDnsInsights = Array.Empty<TlsDnsInsight>();
+    public IReadOnlyList<TlsDnsInsight> TlsDnsInsights
+    {
+        get => _tlsDnsInsights;
+        private set
+        {
+            if (AreEquivalentTlsDnsInsights(_tlsDnsInsights, value))
+                return;
+
+            _tlsDnsInsights = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(HasTlsDnsInsights));
+            OnPropertyChanged(nameof(TlsDnsInsightsEmptyState));
+            OnPropertyChanged(nameof(TlsDnsSummaryLabel));
+        }
+    }
+
+    public bool HasTlsDnsInsights => _tlsDnsInsights.Count > 0;
+    public string TlsDnsInsightsTitle => "TLS / DNS intelligence";
+    public string TlsDnsInsightsEmptyState => HasTlsDnsInsights ? "" : "No TLS or DNS intelligence findings were derived for this process yet.";
+    public string TlsDnsSummaryLabel => _tlsDnsInsights.Count switch
+    {
+        0 => "",
+        1 => _tlsDnsInsights[0].Title,
+        _ => $"{_tlsDnsInsights[0].Title} +{_tlsDnsInsights.Count - 1}"
     };
 
     public ObservableCollection<InvestigationTimelineEvent> TimelineEvents { get; } = new();
@@ -342,6 +395,33 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
     private string _dominantDnsRoot = "";
     private int _dominantDnsRootCount;
 
+    private const int MaxTrackedObservedDomains = 2048;
+    private const int MaxTrackedTlsEndpoints = 512;
+    private const int MaxTrackedFingerprints = 256;
+    private const int MaxTrackedCertificateReuseEntries = 256;
+    private readonly HashSet<string> _observedDomains = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, SecureEndpointState> _secureEndpoints = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, int> _ja3LiteCounts = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, int> _ja4LiteCounts = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, HashSet<string>> _certificateDomains = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _sniCertificateMismatchKeys = new(StringComparer.OrdinalIgnoreCase);
+    private string _latestNewDomain = "";
+    private int _rareTldScore;
+    private string _rareTldDomain = "";
+    private string _rareTld = "";
+    private int _dgaLikeDomainCount;
+    private string _topDgaLikeDomain = "";
+    private int _topDgaLikeScore;
+    private string _topJa3Lite = "";
+    private int _topJa3LiteCount;
+    private string _topJa4Lite = "";
+    private int _topJa4LiteCount;
+    private int _sniCertificateMismatchCount;
+    private string _lastSniCertificateMismatch = "";
+    private string _mostReusedCertificateFingerprint = "";
+    private int _mostReusedCertificateDomainCount;
+    private string _mostReusedCertificateDomainsSummary = "";
+
     public long OutboundBytes => _outboundBytes;
     public long InboundBytes => _inboundBytes;
     public long OutboundPacketsObserved => _outboundPacketsObserved;
@@ -354,6 +434,23 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
     public string DominantDnsRoot => _dominantDnsRoot;
     public int DominantDnsRootCount => _dominantDnsRootCount;
     public string BeaconEndpoint => _beaconEndpoint;
+    public int UniqueDomainCount => _observedDomains.Count;
+    public string LatestNewDomain => _latestNewDomain;
+    public int RareTldScore => _rareTldScore;
+    public string RareTldDomain => _rareTldDomain;
+    public string RareTld => _rareTld;
+    public int DgaLikeDomainCount => _dgaLikeDomainCount;
+    public string TopDgaLikeDomain => _topDgaLikeDomain;
+    public int TopDgaLikeScore => _topDgaLikeScore;
+    public string PrimaryJa3Lite => _topJa3Lite;
+    public int PrimaryJa3LiteCount => _topJa3LiteCount;
+    public string PrimaryJa4Lite => _topJa4Lite;
+    public int PrimaryJa4LiteCount => _topJa4LiteCount;
+    public int SniCertificateMismatchCount => _sniCertificateMismatchCount;
+    public string LastSniCertificateMismatch => _lastSniCertificateMismatch;
+    public string MostReusedCertificateFingerprint => _mostReusedCertificateFingerprint;
+    public int MostReusedCertificateDomainCount => _mostReusedCertificateDomainCount;
+    public string MostReusedCertificateDomainsSummary => _mostReusedCertificateDomainsSummary;
 
     // rolling samples of packets per update interval
     private readonly List<int> _samples = new(MaxSamples);
@@ -416,11 +513,13 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
         }
     }
 
-    public void ObserveDnsQuery(string domain, string? queryType)
+    public void ObserveDnsQuery(string domain, string? queryType, DateTime timestamp)
     {
         string normalized = NormalizeDomain(domain);
         if (string.IsNullOrWhiteSpace(normalized))
             return;
+
+        ObserveDomainActivity(normalized, timestamp, source: "DNS");
 
         _dnsQueryCount++;
         if (string.Equals(queryType, "TXT", StringComparison.OrdinalIgnoreCase))
@@ -461,6 +560,65 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
             _dominantDnsRoot = root;
             _dominantDnsRootCount = currentCount;
         }
+    }
+
+    public void ObserveSecureEndpointIntelligence(
+        DateTime timestamp,
+        string remoteEndpoint,
+        string? serverName,
+        string? tlsClientFingerprintKind,
+        string? tlsClientFingerprint,
+        string? tlsCertificateFingerprint,
+        IReadOnlyList<string>? tlsCertificateNames,
+        string? tlsCertificateSubject)
+    {
+        bool hasRelevantTelemetry =
+            !string.IsNullOrWhiteSpace(serverName)
+            || !string.IsNullOrWhiteSpace(tlsClientFingerprint)
+            || !string.IsNullOrWhiteSpace(tlsCertificateFingerprint)
+            || (tlsCertificateNames?.Count ?? 0) > 0;
+        if (!hasRelevantTelemetry)
+            return;
+
+        string endpointKey = string.IsNullOrWhiteSpace(remoteEndpoint) ? string.Empty : remoteEndpoint.Trim();
+        SecureEndpointState? endpointState = null;
+        if (!string.IsNullOrWhiteSpace(endpointKey))
+            endpointState = GetOrCreateSecureEndpointState(endpointKey);
+
+        string normalizedServerName = NormalizeDomain(serverName ?? string.Empty);
+        if (!string.IsNullOrWhiteSpace(normalizedServerName))
+        {
+            ObserveDomainActivity(normalizedServerName, timestamp, source: "SNI");
+
+            if (endpointState is not null)
+                endpointState.ServerName = normalizedServerName;
+        }
+
+        TrackFingerprint(tlsClientFingerprintKind, tlsClientFingerprint);
+
+        string normalizedCertificateFingerprint = string.IsNullOrWhiteSpace(tlsCertificateFingerprint)
+            ? string.Empty
+            : tlsCertificateFingerprint.Trim().ToLowerInvariant();
+
+        var normalizedCertificateNames = NormalizeCertificateNames(tlsCertificateNames);
+        if (endpointState is not null)
+        {
+            if (!string.IsNullOrWhiteSpace(normalizedCertificateFingerprint))
+                endpointState.CertificateFingerprint = normalizedCertificateFingerprint;
+
+            endpointState.CertificateNames = normalizedCertificateNames;
+            endpointState.CertificateSubject = tlsCertificateSubject?.Trim() ?? string.Empty;
+        }
+
+        string domainForCertificate = !string.IsNullOrWhiteSpace(normalizedServerName)
+            ? normalizedServerName
+            : endpointState?.ServerName ?? string.Empty;
+
+        if (!string.IsNullOrWhiteSpace(normalizedCertificateFingerprint) && !string.IsNullOrWhiteSpace(domainForCertificate))
+            TrackCertificateReuse(timestamp, normalizedCertificateFingerprint, domainForCertificate);
+
+        if (!string.IsNullOrWhiteSpace(domainForCertificate) && normalizedCertificateNames.Count > 0)
+            TrackSniCertificateMismatch(timestamp, domainForCertificate, normalizedCertificateNames, tlsCertificateSubject ?? string.Empty);
     }
 
     public void UpdateBeaconSignal(string endpoint, double intervalSec, double cv, int samples)
@@ -640,12 +798,14 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
         if (Pid <= 0)
         {
             DetectionScenarios = Array.Empty<DetectionScenario>();
+            TlsDnsInsights = Array.Empty<TlsDnsInsight>();
             RiskReasons = Array.Empty<RiskReason>();
             RiskScore = 0;
             return;
         }
 
         var scenarios = BuildDetectionScenarios();
+        var tlsDnsInsights = BuildTlsDnsInsights();
         bool hasFanOutScenario = scenarios.Any(static scenario => scenario.Key == "scan-like-fan-out");
         bool hasBurstExitScenario = scenarios.Any(static scenario => scenario.Key == "burst-and-exit");
 
@@ -701,6 +861,13 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
 
         DetectionScenarios = scenarios;
         SyncDetectionScenarioTimeline(scenarios);
+        TlsDnsInsights = tlsDnsInsights;
+
+        foreach (var insight in tlsDnsInsights)
+        {
+            if (insight.Score > 0)
+                signals.Add(new RiskSignal(insight.Title, insight.Score));
+        }
 
         RiskReasons = signals
             .OrderByDescending(signal => signal.Points)
@@ -945,6 +1112,38 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
         return true;
     }
 
+    private static bool AreEquivalentTlsDnsInsights(IReadOnlyList<TlsDnsInsight> left, IReadOnlyList<TlsDnsInsight> right)
+    {
+        if (ReferenceEquals(left, right))
+            return true;
+
+        if (left.Count != right.Count)
+            return false;
+
+        for (int i = 0; i < left.Count; i++)
+        {
+            var leftInsight = left[i];
+            var rightInsight = right[i];
+
+            if (leftInsight.Score != rightInsight.Score
+                || !string.Equals(leftInsight.Key, rightInsight.Key, StringComparison.Ordinal)
+                || !string.Equals(leftInsight.Title, rightInsight.Title, StringComparison.Ordinal)
+                || !string.Equals(leftInsight.Summary, rightInsight.Summary, StringComparison.Ordinal)
+                || leftInsight.Evidence.Count != rightInsight.Evidence.Count)
+            {
+                return false;
+            }
+
+            for (int evidenceIndex = 0; evidenceIndex < leftInsight.Evidence.Count; evidenceIndex++)
+            {
+                if (!string.Equals(leftInsight.Evidence[evidenceIndex].Summary, rightInsight.Evidence[evidenceIndex].Summary, StringComparison.Ordinal))
+                    return false;
+            }
+        }
+
+        return true;
+    }
+
     private static bool AreEquivalentConversations(ProcessConversationRow left, ProcessConversationRow right)
         => left.Pid == right.Pid
             && left.RemotePort == right.RemotePort
@@ -970,6 +1169,153 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
             && left.InboundPackets == right.InboundPackets
             && left.IsActive == right.IsActive
             && string.Equals(left.TopRemoteEndpoint, right.TopRemoteEndpoint, StringComparison.Ordinal);
+
+    private IReadOnlyList<TlsDnsInsight> BuildTlsDnsInsights()
+    {
+        var insights = new List<TlsDnsInsight>(capacity: 6);
+
+        if (!string.IsNullOrWhiteSpace(_topJa3Lite) || !string.IsNullOrWhiteSpace(_topJa4Lite))
+        {
+            var evidence = new List<DetectionEvidence>(2);
+            if (!string.IsNullOrWhiteSpace(_topJa3Lite))
+                evidence.Add(new($"Primary JA3-lite fingerprint {_topJa3Lite} appeared {_topJa3LiteCount:N0} time(s)."));
+            if (!string.IsNullOrWhiteSpace(_topJa4Lite))
+                evidence.Add(new($"Primary JA4-lite fingerprint {_topJa4Lite} appeared {_topJa4LiteCount:N0} time(s)."));
+
+            insights.Add(new TlsDnsInsight(
+                Key: "client-fingerprints",
+                Title: "Client TLS fingerprints",
+                Summary: "Stable client TLS/QUIC fingerprints were observed for this process.",
+                Score: 0,
+                Evidence: evidence));
+        }
+
+        if (_observedDomains.Count > 0)
+        {
+            int score = _observedDomains.Count >= 12 ? 8
+                : _observedDomains.Count >= 6 ? 4
+                : 0;
+
+            var evidence = new List<DetectionEvidence>
+            {
+                new($"{_observedDomains.Count:N0} unique domain(s) were first seen for this process in the current session.")
+            };
+
+            if (!string.IsNullOrWhiteSpace(_latestNewDomain))
+                evidence.Add(new($"Latest new domain: {_latestNewDomain}."));
+
+            if (!string.IsNullOrWhiteSpace(_dominantDnsRoot))
+                evidence.Add(new($"DNS activity concentrated on {_dominantDnsRoot} ({_dominantDnsRootCount:N0} query hits)."));
+
+            insights.Add(new TlsDnsInsight(
+                Key: "new-domains",
+                Title: score > 0 ? "High domain churn" : "New domains for this process",
+                Summary: score > 0
+                    ? "The process kept introducing new domains during the capture window."
+                    : "The process established a domain baseline for the current session.",
+                Score: score,
+                Evidence: evidence));
+        }
+
+        if (_rareTldScore > 0)
+        {
+            int score = _rareTldScore >= 24 ? 14
+                : _rareTldScore >= 12 ? 9
+                : 5;
+
+            var evidence = new List<DetectionEvidence>
+            {
+                new($"Rare-TLD score accumulated to {_rareTldScore:N0} for this process.")
+            };
+
+            if (!string.IsNullOrWhiteSpace(_rareTldDomain))
+                evidence.Add(new($"Representative domain: {_rareTldDomain} ({_rareTld})."));
+
+            insights.Add(new TlsDnsInsight(
+                Key: "rare-tld",
+                Title: "Rare-TLD activity",
+                Summary: "Observed domains used rare or frequently abused top-level domains.",
+                Score: score,
+                Evidence: evidence));
+        }
+
+        if (_dgaLikeDomainCount > 0)
+        {
+            int score = _topDgaLikeScore >= 80 ? 18
+                : _topDgaLikeScore >= 65 ? 12
+                : 6;
+
+            var evidence = new List<DetectionEvidence>
+            {
+                new($"{_dgaLikeDomainCount:N0} domain(s) crossed the DGA-like scoring threshold.")
+            };
+
+            if (!string.IsNullOrWhiteSpace(_topDgaLikeDomain))
+                evidence.Add(new($"Highest-scoring example: {_topDgaLikeDomain} (score {_topDgaLikeScore}/100)."));
+
+            insights.Add(new TlsDnsInsight(
+                Key: "dga-like-domains",
+                Title: "DGA-like domains",
+                Summary: "One or more observed domains looked algorithmically generated.",
+                Score: score,
+                Evidence: evidence));
+        }
+
+        if (_sniCertificateMismatchCount > 0)
+        {
+            int score = _sniCertificateMismatchCount >= 3 ? 20 : 14;
+            var evidence = new List<DetectionEvidence>
+            {
+                new($"{_sniCertificateMismatchCount:N0} SNI / certificate mismatch event(s) were recorded.")
+            };
+
+            if (!string.IsNullOrWhiteSpace(_lastSniCertificateMismatch))
+                evidence.Add(new($"Latest mismatch: {_lastSniCertificateMismatch}."));
+
+            insights.Add(new TlsDnsInsight(
+                Key: "sni-cert-mismatch",
+                Title: "SNI / certificate mismatch",
+                Summary: "The requested server name did not match the certificate names presented by the peer.",
+                Score: score,
+                Evidence: evidence));
+        }
+
+        if (_mostReusedCertificateDomainCount >= 2)
+        {
+            int score = _mostReusedCertificateDomainCount >= 5 ? 16
+                : _mostReusedCertificateDomainCount >= 3 ? 10
+                : 6;
+
+            var evidence = new List<DetectionEvidence>
+            {
+                new($"One certificate fingerprint was reused across {_mostReusedCertificateDomainCount:N0} distinct domains.")
+            };
+
+            if (!string.IsNullOrWhiteSpace(_mostReusedCertificateFingerprint))
+                evidence.Add(new($"Fingerprint: {ShortenFingerprint(_mostReusedCertificateFingerprint)}."));
+
+            if (!string.IsNullOrWhiteSpace(_mostReusedCertificateDomainsSummary))
+                evidence.Add(new($"Observed domains: {_mostReusedCertificateDomainsSummary}."));
+
+            insights.Add(new TlsDnsInsight(
+                Key: "certificate-reuse",
+                Title: "Certificate reused across domains",
+                Summary: "The same server certificate fingerprint backed multiple domains contacted by this process.",
+                Score: score,
+                Evidence: evidence));
+        }
+
+        insights.Sort(static (left, right) =>
+        {
+            int comparison = right.Score.CompareTo(left.Score);
+            if (comparison != 0)
+                return comparison;
+
+            return string.Compare(left.Title, right.Title, StringComparison.Ordinal);
+        });
+
+        return insights;
+    }
 
     private IReadOnlyList<DetectionScenario> BuildDetectionScenarios()
     {
@@ -1252,6 +1598,376 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
         }
     }
 
+    private void ObserveDomainActivity(string normalizedDomain, DateTime timestamp, string source)
+    {
+        if (string.IsNullOrWhiteSpace(normalizedDomain))
+            return;
+
+        if (_observedDomains.Count >= MaxTrackedObservedDomains && !_observedDomains.Contains(normalizedDomain))
+            return;
+
+        if (!_observedDomains.Add(normalizedDomain))
+            return;
+
+        _latestNewDomain = normalizedDomain;
+        if (_observedDomains.Count >= 2)
+        {
+            AddTimelineEventIfMissing(
+                "new-domain-observed",
+                timestamp,
+                "New domain observed",
+                $"{normalizedDomain} was first seen for this process via {source}.",
+                new InvestigationTimelineTarget("new-domain-observed", normalizedDomain));
+        }
+
+        TrackRareTld(timestamp, normalizedDomain);
+        TrackDgaLikeDomain(timestamp, normalizedDomain);
+        InvalidateRisk();
+    }
+
+    private void TrackRareTld(DateTime timestamp, string normalizedDomain)
+    {
+        string tld = GetTopLevelDomain(normalizedDomain);
+        if (!TryGetRareTldWeight(tld, out int weight))
+            return;
+
+        _rareTldScore += weight;
+        if (weight > 0 && (string.IsNullOrWhiteSpace(_rareTldDomain) || weight >= GetRareTldWeightForDisplay(_rareTld)))
+        {
+            _rareTldDomain = normalizedDomain;
+            _rareTld = tld;
+        }
+
+        AddTimelineEventIfMissing(
+            "rare-tld-activity",
+            timestamp,
+            "Rare-TLD activity",
+            $"{normalizedDomain} used rare or frequently abused TLD {tld}.",
+            new InvestigationTimelineTarget("rare-tld-activity", normalizedDomain));
+    }
+
+    private static bool TryGetRareTldWeight(string tld, out int weight)
+    {
+        weight = tld switch
+        {
+            ".zip" or ".mov" => 12,
+            ".top" or ".xyz" or ".click" or ".cfd" or ".stream" or ".download" => 8,
+            ".gq" or ".work" or ".rest" or ".country" or ".cam" or ".monster" or ".party" => 6,
+            ".account" or ".support" or ".ink" or ".fit" => 4,
+            _ => 0
+        };
+
+        return weight > 0;
+    }
+
+    private static int GetRareTldWeightForDisplay(string tld)
+        => TryGetRareTldWeight(tld, out int weight) ? weight : 0;
+
+    private void TrackDgaLikeDomain(DateTime timestamp, string normalizedDomain)
+    {
+        int score = ComputeDgaLikeScore(normalizedDomain);
+        if (score < 55)
+            return;
+
+        _dgaLikeDomainCount++;
+        if (score > _topDgaLikeScore
+            || (score == _topDgaLikeScore && string.Compare(normalizedDomain, _topDgaLikeDomain, StringComparison.OrdinalIgnoreCase) < 0))
+        {
+            _topDgaLikeScore = score;
+            _topDgaLikeDomain = normalizedDomain;
+        }
+
+        AddTimelineEventIfMissing(
+            "dga-like-domain",
+            timestamp,
+            "DGA-like domain",
+            $"{normalizedDomain} scored {_topDgaLikeScore}/100 on the DGA-like heuristic.",
+            new InvestigationTimelineTarget("dga-like-domain", normalizedDomain));
+    }
+
+    private static int ComputeDgaLikeScore(string normalizedDomain)
+    {
+        if (string.IsNullOrWhiteSpace(normalizedDomain))
+            return 0;
+
+        string label = GetPrimaryDomainLabel(normalizedDomain);
+        if (label.Length < 8)
+            return 0;
+
+        int score = 0;
+        int letters = 0;
+        int digits = 0;
+        int vowels = 0;
+        var uniqueChars = new HashSet<char>();
+
+        for (int i = 0; i < label.Length; i++)
+        {
+            char ch = label[i];
+            uniqueChars.Add(ch);
+
+            if (char.IsLetter(ch))
+            {
+                letters++;
+                if ("aeiou".IndexOf(char.ToLowerInvariant(ch)) >= 0)
+                    vowels++;
+            }
+            else if (char.IsDigit(ch))
+            {
+                digits++;
+            }
+        }
+
+        double entropy = ComputeShannonEntropy(label);
+        double uniqueRatio = uniqueChars.Count / (double)label.Length;
+        double digitRatio = digits / (double)label.Length;
+        double vowelRatio = letters <= 0 ? 0 : vowels / (double)letters;
+        int maxConsonantRun = GetMaxConsonantRun(label);
+
+        if (label.Length >= 16) score += 15;
+        else if (label.Length >= 12) score += 8;
+
+        if (entropy >= 3.9) score += 35;
+        else if (entropy >= 3.5) score += 22;
+        else if (entropy >= 3.2) score += 10;
+
+        if (digitRatio >= 0.25) score += 20;
+        else if (digitRatio >= 0.15) score += 10;
+
+        if (uniqueRatio >= 0.78) score += 10;
+        else if (uniqueRatio >= 0.68) score += 5;
+
+        if (letters >= 6 && vowelRatio <= 0.22) score += 12;
+        if (maxConsonantRun >= 5) score += 10;
+        else if (maxConsonantRun >= 4) score += 6;
+
+        return Math.Clamp(score, 0, 100);
+    }
+
+    private void TrackFingerprint(string? fingerprintKind, string? fingerprint)
+    {
+        string normalizedFingerprint = string.IsNullOrWhiteSpace(fingerprint)
+            ? string.Empty
+            : fingerprint.Trim().ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(normalizedFingerprint))
+            return;
+
+        if (string.Equals(fingerprintKind, "JA3-lite", StringComparison.OrdinalIgnoreCase))
+        {
+            if (_ja3LiteCounts.Count >= MaxTrackedFingerprints && !_ja3LiteCounts.ContainsKey(normalizedFingerprint))
+                return;
+
+            _ja3LiteCounts.TryGetValue(normalizedFingerprint, out int count);
+            count++;
+            _ja3LiteCounts[normalizedFingerprint] = count;
+            if (count > _topJa3LiteCount
+                || (count == _topJa3LiteCount && string.Compare(normalizedFingerprint, _topJa3Lite, StringComparison.OrdinalIgnoreCase) < 0))
+            {
+                _topJa3Lite = normalizedFingerprint;
+                _topJa3LiteCount = count;
+                InvalidateRisk();
+            }
+
+            return;
+        }
+
+        if (string.Equals(fingerprintKind, "JA4-lite", StringComparison.OrdinalIgnoreCase))
+        {
+            if (_ja4LiteCounts.Count >= MaxTrackedFingerprints && !_ja4LiteCounts.ContainsKey(normalizedFingerprint))
+                return;
+
+            _ja4LiteCounts.TryGetValue(normalizedFingerprint, out int count);
+            count++;
+            _ja4LiteCounts[normalizedFingerprint] = count;
+            if (count > _topJa4LiteCount
+                || (count == _topJa4LiteCount && string.Compare(normalizedFingerprint, _topJa4Lite, StringComparison.OrdinalIgnoreCase) < 0))
+            {
+                _topJa4Lite = normalizedFingerprint;
+                _topJa4LiteCount = count;
+                InvalidateRisk();
+            }
+        }
+    }
+
+    private void TrackCertificateReuse(DateTime timestamp, string certificateFingerprint, string domain)
+    {
+        if (_certificateDomains.Count >= MaxTrackedCertificateReuseEntries && !_certificateDomains.ContainsKey(certificateFingerprint))
+            return;
+
+        if (!_certificateDomains.TryGetValue(certificateFingerprint, out var domains))
+        {
+            domains = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            _certificateDomains[certificateFingerprint] = domains;
+        }
+
+        if (!domains.Add(domain))
+            return;
+
+        if (domains.Count > _mostReusedCertificateDomainCount)
+        {
+            _mostReusedCertificateFingerprint = certificateFingerprint;
+            _mostReusedCertificateDomainCount = domains.Count;
+            _mostReusedCertificateDomainsSummary = string.Join(", ", domains.OrderBy(static value => value, StringComparer.OrdinalIgnoreCase).Take(4));
+            InvalidateRisk();
+        }
+
+        if (domains.Count >= 2)
+        {
+            string domainsSummary = string.Join(", ", domains.OrderBy(static value => value, StringComparer.OrdinalIgnoreCase).Take(4));
+            AddTimelineEventIfMissing(
+                "certificate-reuse",
+                timestamp,
+                "Certificate reused across domains",
+                $"{ShortenFingerprint(certificateFingerprint)} backed {domains.Count:N0} domain(s): {domainsSummary}.",
+                new InvestigationTimelineTarget("certificate-reuse", domain));
+        }
+    }
+
+    private void TrackSniCertificateMismatch(DateTime timestamp, string domain, IReadOnlyList<string> certificateNames, string certificateSubject)
+    {
+        if (CertificateMatchesDomain(domain, certificateNames))
+            return;
+
+        string mismatchKey = $"{domain}|{string.Join("|", certificateNames)}";
+        if (!_sniCertificateMismatchKeys.Add(mismatchKey))
+            return;
+
+        _sniCertificateMismatchCount++;
+        string namesPreview = string.Join(", ", certificateNames.Take(3));
+        _lastSniCertificateMismatch = string.IsNullOrWhiteSpace(certificateSubject)
+            ? $"{domain} vs {namesPreview}"
+            : $"{domain} vs {namesPreview} ({certificateSubject})";
+
+        AddTimelineEventIfMissing(
+            "sni-cert-mismatch",
+            timestamp,
+            "SNI / certificate mismatch",
+            $"{domain} did not match certificate names {namesPreview}.",
+            new InvestigationTimelineTarget("sni-cert-mismatch", domain));
+
+        InvalidateRisk();
+    }
+
+    private SecureEndpointState GetOrCreateSecureEndpointState(string endpointKey)
+    {
+        if (_secureEndpoints.TryGetValue(endpointKey, out var state))
+            return state;
+
+        if (_secureEndpoints.Count >= MaxTrackedTlsEndpoints)
+            return new SecureEndpointState();
+
+        state = new SecureEndpointState();
+        _secureEndpoints[endpointKey] = state;
+        return state;
+    }
+
+    private static IReadOnlyList<string> NormalizeCertificateNames(IReadOnlyList<string>? certificateNames)
+    {
+        if (certificateNames is null || certificateNames.Count == 0)
+            return Array.Empty<string>();
+
+        var unique = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (int i = 0; i < certificateNames.Count; i++)
+        {
+            string normalized = NormalizeCertificatePattern(certificateNames[i]);
+            if (!string.IsNullOrWhiteSpace(normalized))
+                unique.Add(normalized);
+        }
+
+        return unique
+            .OrderBy(static value => value, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private static bool CertificateMatchesDomain(string domain, IReadOnlyList<string> certificateNames)
+    {
+        for (int i = 0; i < certificateNames.Count; i++)
+        {
+            if (HostMatchesCertificatePattern(domain, certificateNames[i]))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool HostMatchesCertificatePattern(string domain, string pattern)
+    {
+        string normalizedDomain = NormalizeDomain(domain);
+        string normalizedPattern = NormalizeCertificatePattern(pattern);
+        if (string.IsNullOrWhiteSpace(normalizedDomain) || string.IsNullOrWhiteSpace(normalizedPattern))
+            return false;
+
+        if (string.Equals(normalizedDomain, normalizedPattern, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        if (!normalizedPattern.StartsWith("*.", StringComparison.Ordinal))
+            return false;
+
+        string suffix = normalizedPattern[1..];
+        if (!normalizedDomain.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        return normalizedDomain.Count(static ch => ch == '.') == normalizedPattern.Count(static ch => ch == '.');
+    }
+
+    private static string NormalizeCertificatePattern(string pattern)
+        => string.IsNullOrWhiteSpace(pattern)
+            ? string.Empty
+            : pattern.Trim().TrimEnd('.').ToLowerInvariant();
+
+    private static string GetTopLevelDomain(string normalizedDomain)
+    {
+        if (string.IsNullOrWhiteSpace(normalizedDomain))
+            return string.Empty;
+
+        int lastDot = normalizedDomain.LastIndexOf('.');
+        return lastDot >= 0 && lastDot < normalizedDomain.Length - 1
+            ? normalizedDomain[lastDot..]
+            : string.Empty;
+    }
+
+    private static string GetPrimaryDomainLabel(string normalizedDomain)
+    {
+        if (string.IsNullOrWhiteSpace(normalizedDomain))
+            return string.Empty;
+
+        var labels = normalizedDomain.Split('.', StringSplitOptions.RemoveEmptyEntries);
+        if (labels.Length == 0)
+            return string.Empty;
+
+        return labels[0];
+    }
+
+    private static int GetMaxConsonantRun(string value)
+    {
+        int current = 0;
+        int best = 0;
+
+        for (int i = 0; i < value.Length; i++)
+        {
+            char ch = char.ToLowerInvariant(value[i]);
+            bool consonant = ch is >= 'a' and <= 'z' && "aeiou".IndexOf(ch) < 0;
+            if (consonant)
+            {
+                current++;
+                if (current > best)
+                    best = current;
+            }
+            else
+            {
+                current = 0;
+            }
+        }
+
+        return best;
+    }
+
+    private static string ShortenFingerprint(string fingerprint)
+        => string.IsNullOrWhiteSpace(fingerprint)
+            ? string.Empty
+            : fingerprint.Length <= 16
+                ? fingerprint
+                : $"{fingerprint[..8]}...{fingerprint[^8..]}";
+
     private static string NormalizeDomain(string domain)
         => string.IsNullOrWhiteSpace(domain)
             ? string.Empty
@@ -1365,5 +2081,13 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
             return "Runs from Desktop (user-writable path)";
 
         return null;
+    }
+
+    private sealed class SecureEndpointState
+    {
+        public string ServerName = "";
+        public string CertificateFingerprint = "";
+        public IReadOnlyList<string> CertificateNames = Array.Empty<string>();
+        public string CertificateSubject = "";
     }
 }

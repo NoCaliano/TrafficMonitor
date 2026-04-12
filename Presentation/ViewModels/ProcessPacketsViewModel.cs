@@ -320,7 +320,7 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
             row.RecordFirstDomain(packet.Timestamp, dnsDomain);
 
             if (!isDnsResponse)
-                row.ObserveDnsQuery(dnsDomain, dnsQueryType);
+                row.ObserveDnsQuery(dnsDomain, dnsQueryType, packet.Timestamp);
 
             if (TryGetSuspiciousDomainReason(dnsDomain, out var suspiciousDomainReason))
                 row.RecordFirstSuspiciousDomain(packet.Timestamp, dnsDomain, suspiciousDomainReason);
@@ -624,7 +624,9 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
             or nameof(ProcessStatRow.TopRemoteEndpoint)
             or nameof(ProcessStatRow.FirstSuspiciousDomain)
             or nameof(ProcessStatRow.DetectionScenarios)
-            or nameof(ProcessStatRow.DetectionSummaryLabel))
+            or nameof(ProcessStatRow.DetectionSummaryLabel)
+            or nameof(ProcessStatRow.TlsDnsInsights)
+            or nameof(ProcessStatRow.TlsDnsSummaryLabel))
         {
             ScheduleProcessStatsViewRefresh();
         }
@@ -657,12 +659,17 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
             || ContainsIgnoreCase(row.TopRemoteEndpoint, search)
             || ContainsIgnoreCase(row.FirstSuspiciousDomain, search)
             || ContainsIgnoreCase(row.DetectionSummaryLabel, search)
+            || ContainsIgnoreCase(row.TlsDnsSummaryLabel, search)
             || row.DetectionScenarios.Any(scenario =>
                 ContainsIgnoreCase(scenario.Title, search)
                 || ContainsIgnoreCase(scenario.Summary, search)
                 || ContainsIgnoreCase(scenario.MitreTechnique, search)
                 || ContainsIgnoreCase(scenario.MitreTactic, search)
-                || scenario.Evidence.Any(evidence => ContainsIgnoreCase(evidence.Summary, search)));
+                || scenario.Evidence.Any(evidence => ContainsIgnoreCase(evidence.Summary, search)))
+            || row.TlsDnsInsights.Any(insight =>
+                ContainsIgnoreCase(insight.Title, search)
+                || ContainsIgnoreCase(insight.Summary, search)
+                || insight.Evidence.Any(evidence => ContainsIgnoreCase(evidence.Summary, search)));
     }
 
     private void ScheduleProcessStatsViewRefresh()
@@ -851,7 +858,14 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
         string eventInfo = string.IsNullOrWhiteSpace(packet.Info) ? "handshake" : packet.Info.Trim();
         string destination = FormatEndpoint(packet.DstIp, packet.DstPort);
         string hostSuffix = string.IsNullOrWhiteSpace(packet.ServerNameHint) ? "" : $" ({packet.ServerNameHint})";
-        detail = $"{protocol} {eventInfo} with {destination}{hostSuffix}";
+        string fingerprintSuffix = string.IsNullOrWhiteSpace(packet.TlsClientFingerprint)
+            || string.IsNullOrWhiteSpace(packet.TlsClientFingerprintKind)
+            ? ""
+            : $" [{packet.TlsClientFingerprintKind} {ShortenFingerprint(packet.TlsClientFingerprint)}]";
+        string certificateSuffix = string.IsNullOrWhiteSpace(packet.TlsCertificateSubject)
+            ? ""
+            : $" cert {packet.TlsCertificateSubject}";
+        detail = $"{protocol} {eventInfo} with {destination}{hostSuffix}{fingerprintSuffix}{certificateSuffix}";
         return true;
     }
 
@@ -925,6 +939,13 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
 
         return false;
     }
+
+    private static string ShortenFingerprint(string fingerprint)
+        => string.IsNullOrWhiteSpace(fingerprint)
+            ? ""
+            : fingerprint.Length <= 12
+                ? fingerprint
+                : $"{fingerprint[..6]}...{fingerprint[^6..]}";
 
     private static void TryPopulateProcessStart(ProcessStatRow row)
     {
