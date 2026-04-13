@@ -24,6 +24,7 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
     private readonly ProcessLivenessTracker _livenessTracker;
     private readonly ProcessRemediationCoordinator _remediationCoordinator;
     private readonly ProcessBehaviorBaselineService _behaviorBaselineService;
+    private readonly ProcessIncidentGraphBuilder _incidentGraphBuilder;
     private readonly IFileDialogService _fileDialogService;
     private readonly ProcessIncidentReportExportService _incidentReportExportService;
 
@@ -42,6 +43,28 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
     public ObservableCollection<ProcessStatRow> ProcessStats { get; } = new();
     public ObservableCollection<ProcessStatCardRow> VisibleProcessRows { get; } = new();
     public ICollectionView ProcessStatsView { get; }
+
+    private ProcessIncidentGraph _selectedIncidentGraph = ProcessIncidentGraph.Empty;
+    public ProcessIncidentGraph SelectedIncidentGraph
+    {
+        get => _selectedIncidentGraph;
+        private set => Set(ref _selectedIncidentGraph, value);
+    }
+
+    private bool _isProcessDetailsOpen;
+    public bool IsProcessDetailsOpen
+    {
+        get => _isProcessDetailsOpen;
+        private set
+        {
+            if (!Set(ref _isProcessDetailsOpen, value))
+                return;
+
+            OnPropertyChanged(nameof(IsOverviewMode));
+        }
+    }
+
+    public bool IsOverviewMode => !IsProcessDetailsOpen;
 
     private ProcessStatRow? _selectedProcessStat;
     public ProcessStatRow? SelectedProcessStat
@@ -76,6 +99,7 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
     public ICommand BlockProcessFirewallCommand { get; }
     public ICommand UnblockProcessFirewallCommand { get; }
     public ICommand ExportIncidentReportCommand { get; }
+    public ICommand BackToProcessGridCommand { get; }
 
     private string _searchText = "";
     public string SearchText
@@ -203,6 +227,7 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
         ProcessLivenessTracker livenessTracker,
         ProcessRemediationCoordinator remediationCoordinator,
         ProcessBehaviorBaselineService behaviorBaselineService,
+        ProcessIncidentGraphBuilder incidentGraphBuilder,
         IFileDialogService fileDialogService,
         ProcessIncidentReportExportService incidentReportExportService)
     {
@@ -211,10 +236,11 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
         _livenessTracker = livenessTracker;
         _remediationCoordinator = remediationCoordinator;
         _behaviorBaselineService = behaviorBaselineService;
+        _incidentGraphBuilder = incidentGraphBuilder;
         _fileDialogService = fileDialogService;
         _incidentReportExportService = incidentReportExportService;
 
-        SelectProcessStatCommand = new RelayCommand(p => SelectProcessStat(p), p => p is ProcessStatRow);
+        SelectProcessStatCommand = new RelayCommand(p => OpenProcessDetails(p), p => p is ProcessStatRow);
         ShowPacketsForPidCommand = new RelayCommand(p => ShowPacketsForPid(p));
         FocusTimelineEventCommand = new RelayCommand(p => FocusTimelineEvent(p), p => p is ProcessStatRow.InvestigationTimelineEvent timelineEvent && timelineEvent.CanFocusPacket);
         ShowPacketsForConversationCommand = new RelayCommand(p => ShowPacketsForConversation(p), p => p is ProcessConversationRow conversation && conversation.Pid > 0);
@@ -224,6 +250,7 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
         BlockProcessFirewallCommand = new RelayCommand(p => BlockProcessInFirewall(p));
         UnblockProcessFirewallCommand = new RelayCommand(p => UnblockProcessInFirewall(p));
         ExportIncidentReportCommand = new RelayCommand(p => ExportIncidentReport(p));
+        BackToProcessGridCommand = new RelayCommand(_ => BackToProcessGrid());
 
         ProcessStatsView = CollectionViewSource.GetDefaultView(ProcessStats);
         ProcessStatsView.Filter = MatchesCurrentFilters;
@@ -261,6 +288,8 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
         ProcessStats.Clear();
         VisibleProcessRows.Clear();
         SelectedProcessStat = null;
+        SelectedIncidentGraph = ProcessIncidentGraph.Empty;
+        IsProcessDetailsOpen = false;
         SearchText = "";
         ShowHighRiskOnly = false;
         ShowBeaconOnly = false;
@@ -410,10 +439,16 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
     private void RefreshSelectedProcessDetails()
     {
         if (SelectedProcessStat is null)
+        {
+            SelectedIncidentGraph = ProcessIncidentGraph.Empty;
             return;
+        }
 
         SelectedProcessStat.UpdateConversations(_forensicsTracker.GetConversationSnapshot(SelectedProcessStat.Pid));
         SelectedProcessStat.UpdateSessionClusters(_forensicsTracker.GetSessionClusterSnapshot(SelectedProcessStat.Pid));
+        SelectedIncidentGraph = _incidentGraphBuilder.Build(
+            SelectedProcessStat,
+            _forensicsTracker.GetIncidentGraphSnapshot(SelectedProcessStat.Pid));
     }
 
     private ProcessStatRow GetOrCreateProcessRow(int pid, string processName)
@@ -441,10 +476,18 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
         _showPacketsForPid?.Invoke(pid);
     }
 
-    private void SelectProcessStat(object? parameter)
+    private void OpenProcessDetails(object? parameter)
     {
         if (parameter is ProcessStatRow row)
+        {
             SelectedProcessStat = row;
+            IsProcessDetailsOpen = true;
+        }
+    }
+
+    private void BackToProcessGrid()
+    {
+        IsProcessDetailsOpen = false;
     }
 
     private void FocusTimelineEvent(object? parameter)
@@ -779,9 +822,9 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
         var visibleRows = ProcessStatsView.Cast<ProcessStatRow>().ToArray();
         VisibleProcessRows.Clear();
 
-        for (int i = 0; i < visibleRows.Length; i += 3)
+        for (int i = 0; i < visibleRows.Length; i += 4)
         {
-            int count = Math.Min(3, visibleRows.Length - i);
+            int count = Math.Min(4, visibleRows.Length - i);
             var chunk = new ProcessStatRow[count];
             Array.Copy(visibleRows, i, chunk, 0, count);
             VisibleProcessRows.Add(new ProcessStatCardRow(chunk));

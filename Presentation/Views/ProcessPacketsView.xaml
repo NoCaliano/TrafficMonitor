@@ -3,7 +3,8 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:helpers="clr-namespace:Presentation.Helpers"
              xmlns:local="clr-namespace:Presentation.Helpers"
-             xmlns:models="clr-namespace:Presentation.Models">
+             xmlns:models="clr-namespace:Presentation.Models"
+             PreviewMouseUp="OnPreviewMouseUp">
     <UserControl.Resources>
         <local:ProcessIconConverter x:Key="ProcessIconConverter"/>
         <helpers:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter"/>
@@ -71,26 +72,7 @@
 
         <DataTemplate x:Key="ProcessTimelineDetailsTemplate" DataType="{x:Type models:ProcessStatRow}">
             <StackPanel>
-                <TextBlock Text="{Binding DisplayName}"
-                           FontWeight="SemiBold"
-                           FontSize="14"
-                           Foreground="{StaticResource TextPrimaryBrush}"
-                           TextWrapping="Wrap"/>
-
                 <TextBlock Margin="0,4,0,0"
-                           Text="{Binding RiskLabel}"
-                           FontSize="11"
-                           FontWeight="SemiBold"
-                           Foreground="{Binding RiskBrush}"/>
-
-                <WrapPanel Margin="0,12,0,0">
-                    <TextBlock Margin="0,0,14,6" Foreground="{StaticResource TextMutedBrush}" FontSize="11" Text="{Binding PacketCount, StringFormat=Packets: {0:N0}}"/>
-                    <TextBlock Margin="0,0,14,6" Foreground="{StaticResource TextMutedBrush}" FontSize="11" Text="{Binding TotalBytesHuman, StringFormat=Traffic: {0}}"/>
-                    <TextBlock Margin="0,0,14,6" Foreground="{StaticResource TextMutedBrush}" FontSize="11" Text="{Binding DistinctRemoteEndpoints, StringFormat=Remotes: {0}}"/>
-                    <TextBlock Margin="0,0,14,6" Foreground="{StaticResource TextMutedBrush}" FontSize="11" Text="{Binding LastSeenLabel}"/>
-                </WrapPanel>
-
-                <TextBlock Margin="0,14,0,0"
                            Text="{Binding DetectionScenariosTitle}"
                            FontWeight="SemiBold"
                            Foreground="{StaticResource TextPrimaryBrush}"/>
@@ -352,6 +334,159 @@
                            TextWrapping="Wrap"/>
 
                 <TextBlock Margin="0,14,0,0"
+                           Text="Incident graph"
+                           FontWeight="SemiBold"
+                           Foreground="{StaticResource TextPrimaryBrush}"/>
+
+                <TextBlock Margin="0,4,0,0"
+                           Text="{Binding DataContext.SelectedIncidentGraph.SummaryLabel, ElementName=ProcessPacketsLayout}"
+                           FontSize="11"
+                           Foreground="{StaticResource TextMutedBrush}"
+                           TextWrapping="Wrap"/>
+
+                <Border Margin="0,10,0,0"
+                        Padding="12"
+                        Background="{StaticResource SurfaceBrush}"
+                        BorderBrush="{StaticResource BorderBrushSoft}"
+                        BorderThickness="1"
+                        CornerRadius="10"
+                        Visibility="{Binding DataContext.SelectedIncidentGraph.HasGraph, ElementName=ProcessPacketsLayout, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <Viewbox Stretch="Uniform"
+                             StretchDirection="DownOnly"
+                             HorizontalAlignment="Center">
+                        <StackPanel>
+                            <ItemsControl ItemsSource="{Binding DataContext.SelectedIncidentGraph.Lanes, ElementName=ProcessPacketsLayout}">
+                                <ItemsControl.Width>
+                                    <Binding Path="DataContext.SelectedIncidentGraph.CanvasWidth" ElementName="ProcessPacketsLayout"/>
+                                </ItemsControl.Width>
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <StackPanel Orientation="Horizontal"/>
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type models:ProcessIncidentGraphLane}">
+                                        <Border Width="{Binding Width}"
+                                                Margin="4,0"
+                                                Padding="8,4"
+                                                Background="{StaticResource CardAltBrush}"
+                                                CornerRadius="8">
+                                            <TextBlock Text="{Binding Label}"
+                                                       FontSize="10"
+                                                       FontWeight="SemiBold"
+                                                       Foreground="{StaticResource TextPrimaryBrush}"
+                                                       HorizontalAlignment="Center"/>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+
+                            <Border Margin="0,10,0,0"
+                                    Background="{StaticResource CardAltBrush}"
+                                    BorderBrush="{StaticResource BorderBrushSoft}"
+                                    BorderThickness="1"
+                                    CornerRadius="10"
+                                    Padding="10">
+                                <Grid Width="{Binding DataContext.SelectedIncidentGraph.CanvasWidth, ElementName=ProcessPacketsLayout}"
+                                      Height="{Binding DataContext.SelectedIncidentGraph.CanvasHeight, ElementName=ProcessPacketsLayout}">
+                                    <ItemsControl ItemsSource="{Binding DataContext.SelectedIncidentGraph.Edges, ElementName=ProcessPacketsLayout}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <Canvas/>
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Path Data="{Binding Geometry}"
+                                                      Stroke="{Binding Stroke}"
+                                                      StrokeThickness="{Binding Thickness}"
+                                                      Opacity="{Binding Opacity}"
+                                                      StrokeStartLineCap="Round"
+                                                      StrokeEndLineCap="Round"
+                                                      ToolTip="{Binding Tooltip}"/>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+
+                                    <ItemsControl ItemsSource="{Binding DataContext.SelectedIncidentGraph.Nodes, ElementName=ProcessPacketsLayout}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <Canvas/>
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemContainerStyle>
+                                            <Style TargetType="ContentPresenter">
+                                                <Setter Property="Canvas.Left" Value="{Binding Left}"/>
+                                                <Setter Property="Canvas.Top" Value="{Binding Top}"/>
+                                                <Setter Property="Panel.ZIndex" Value="1"/>
+                                            </Style>
+                                        </ItemsControl.ItemContainerStyle>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border Width="{Binding Width}"
+                                                        Height="{Binding Height}"
+                                                        Padding="12,10"
+                                                        Background="{Binding BackgroundBrush}"
+                                                        BorderBrush="{Binding BorderBrush}"
+                                                        BorderThickness="1.4"
+                                                        CornerRadius="10"
+                                                        ToolTip="{Binding Tooltip}">
+                                                    <StackPanel>
+                                                        <TextBlock Text="{Binding KindLabel}"
+                                                                   FontSize="10"
+                                                                   FontWeight="SemiBold"
+                                                                   Foreground="{Binding AccentBrush}"/>
+                                                        <TextBlock Margin="0,4,0,0"
+                                                                   Text="{Binding Title}"
+                                                                   FontWeight="SemiBold"
+                                                                   Foreground="{StaticResource TextPrimaryBrush}"
+                                                                   TextWrapping="Wrap"
+                                                                   TextTrimming="CharacterEllipsis"
+                                                                   MaxHeight="34"/>
+                                                        <TextBlock Margin="0,3,0,0"
+                                                                   Text="{Binding Subtitle}"
+                                                                   FontSize="10"
+                                                                   Foreground="{Binding SecondaryBrush}"
+                                                                   TextWrapping="Wrap"
+                                                                   TextTrimming="CharacterEllipsis"
+                                                                   MaxHeight="24"
+                                                                   Visibility="{Binding HasSubtitle, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                                        <TextBlock Margin="0,5,0,0"
+                                                                   Text="{Binding MetricLabel}"
+                                                                   FontSize="10"
+                                                                   FontWeight="SemiBold"
+                                                                   Foreground="{Binding AccentBrush}"
+                                                                   TextWrapping="Wrap"
+                                                                   TextTrimming="CharacterEllipsis"/>
+                                                    </StackPanel>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </Grid>
+                            </Border>
+                        </StackPanel>
+                    </Viewbox>
+                </Border>
+
+                <TextBlock Margin="0,2,0,0"
+                           Text="{Binding DataContext.SelectedIncidentGraph.EmptyState, ElementName=ProcessPacketsLayout}"
+                           FontSize="11"
+                           Foreground="{StaticResource TextMutedBrush}"
+                           TextWrapping="Wrap">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Visibility" Value="Visible"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding DataContext.SelectedIncidentGraph.HasGraph, ElementName=ProcessPacketsLayout}" Value="True">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+
+                <TextBlock Margin="0,14,0,0"
                            Text="{Binding TimelineTitle}"
                            FontWeight="SemiBold"
                            Foreground="{StaticResource TextPrimaryBrush}"/>
@@ -453,8 +588,10 @@
                                                 Style="{StaticResource ChipButtonStyle}"
                                                 HorizontalAlignment="Right"
                                                 Margin="0,0,0,6"/>
-                                        <TextBlock Text="{Binding LastSeenLabel}" FontSize="11" Foreground="{StaticResource TextMutedBrush}" HorizontalAlignment="Right"/>
-                                        <TextBlock Text="{Binding FirstSeenLabel}" FontSize="11" Foreground="{StaticResource TextMutedBrush}" HorizontalAlignment="Right"/>
+                                        <TextBlock Text="{Binding SeenRangeLabel}"
+                                                   FontSize="11"
+                                                   Foreground="{StaticResource TextMutedBrush}"
+                                                   HorizontalAlignment="Right"/>
                                     </StackPanel>
                                 </Grid>
                             </Border>
@@ -723,16 +860,10 @@
     </UserControl.Resources>
 
     <Grid x:Name="ProcessPacketsLayout" Background="{StaticResource AppBackgroundBrush}" DataContext="{Binding ProcessPackets}">
-        <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="*"/>
-            <ColumnDefinition Width="6"/>
-            <ColumnDefinition Width="420"/>
-        </Grid.ColumnDefinitions>
-
-        <Border Grid.Column="0"
-                Style="{StaticResource SectionCardStyle}"
+        <Border Style="{StaticResource SectionCardStyle}"
                 Background="{StaticResource CardAltBrush}"
-                BorderBrush="{StaticResource BorderBrushStrong}">
+                BorderBrush="{StaticResource BorderBrushStrong}"
+                Visibility="{Binding IsOverviewMode, Converter={StaticResource BoolToVisibilityConverter}}">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
@@ -843,76 +974,156 @@
                 </StackPanel>
 
                 <ListBox Grid.Row="1"
-                          Margin="0,14,0,0"
-                          ItemsSource="{Binding VisibleProcessRows}"
-                          Background="{StaticResource CardAltBrush}"
-                          BorderThickness="0"
-                          ScrollViewer.CanContentScroll="True"
-                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                          ScrollViewer.VerticalScrollBarVisibility="Hidden"
-                          VirtualizingPanel.IsVirtualizing="True"
-                          VirtualizingPanel.VirtualizationMode="Recycling"
-                          VirtualizingPanel.ScrollUnit="Pixel"
-                          VirtualizingPanel.CacheLength="1"
-                          VirtualizingPanel.CacheLengthUnit="Page">
-                 <ListBox.ItemContainerStyle>
-                     <Style TargetType="ListBoxItem">
-                         <Setter Property="OverridesDefaultStyle" Value="True"/>
-                         <Setter Property="Margin" Value="0"/>
-                         <Setter Property="Padding" Value="0"/>
-                         <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                         <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
-                         <Setter Property="Background" Value="Transparent"/>
-                         <Setter Property="BorderThickness" Value="0"/>
-                         <Setter Property="Template">
-                            <Setter.Value>
-                                <ControlTemplate TargetType="ListBoxItem">
-                                    <ContentPresenter/>
-                                </ControlTemplate>
-                            </Setter.Value>
-                         </Setter>
-                     </Style>
-                 </ListBox.ItemContainerStyle>
+                         Margin="0,14,0,0"
+                         ItemsSource="{Binding VisibleProcessRows}"
+                         Background="{StaticResource CardAltBrush}"
+                         BorderThickness="0"
+                         ScrollViewer.CanContentScroll="True"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         ScrollViewer.VerticalScrollBarVisibility="Hidden"
+                         VirtualizingPanel.IsVirtualizing="True"
+                         VirtualizingPanel.VirtualizationMode="Recycling"
+                         VirtualizingPanel.ScrollUnit="Pixel"
+                         VirtualizingPanel.CacheLength="1"
+                         VirtualizingPanel.CacheLengthUnit="Page">
+                    <ListBox.ItemContainerStyle>
+                        <Style TargetType="ListBoxItem">
+                            <Setter Property="OverridesDefaultStyle" Value="True"/>
+                            <Setter Property="Margin" Value="0"/>
+                            <Setter Property="Padding" Value="0"/>
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+                            <Setter Property="Background" Value="Transparent"/>
+                            <Setter Property="BorderThickness" Value="0"/>
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="ListBoxItem">
+                                        <ContentPresenter/>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </ListBox.ItemContainerStyle>
 
-                 <ListBox.ItemsPanel>
-                     <ItemsPanelTemplate>
-                         <VirtualizingStackPanel/>
-                     </ItemsPanelTemplate>
-                 </ListBox.ItemsPanel>
+                    <ListBox.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <VirtualizingStackPanel/>
+                        </ItemsPanelTemplate>
+                    </ListBox.ItemsPanel>
 
-                 <ListBox.ItemTemplate>
-                     <DataTemplate DataType="{x:Type models:ProcessStatCardRow}">
-                        <ItemsControl Margin="0,0,-10,0"
-                                      ItemsSource="{Binding Items}"
-                                      ItemTemplate="{StaticResource ProcessStatCardTemplate}">
-                            <ItemsControl.ItemsPanel>
-                                <ItemsPanelTemplate>
-                                    <UniformGrid Columns="3"/>
-                                </ItemsPanelTemplate>
-                            </ItemsControl.ItemsPanel>
-                        </ItemsControl>
-                     </DataTemplate>
-                 </ListBox.ItemTemplate>
+                    <ListBox.ItemTemplate>
+                        <DataTemplate DataType="{x:Type models:ProcessStatCardRow}">
+                            <ItemsControl Margin="0,0,-10,0"
+                                          ItemsSource="{Binding Items}"
+                                          ItemTemplate="{StaticResource ProcessStatCardTemplate}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <UniformGrid Columns="4"/>
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                            </ItemsControl>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
                 </ListBox>
             </Grid>
         </Border>
 
-        <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
-
-        <Border Grid.Column="2" Margin="12,0,0,0" Style="{StaticResource SectionCardStyle}">
-            <Grid Margin="14">
+        <Border Style="{StaticResource SectionCardStyle}"
+                Background="{StaticResource CardAltBrush}"
+                BorderBrush="{StaticResource BorderBrushStrong}"
+                Visibility="{Binding IsProcessDetailsOpen, Converter={StaticResource BoolToVisibilityConverter}}">
+            <Grid Margin="18">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
                 </Grid.RowDefinitions>
 
-                <TextBlock Grid.Row="0" Text="Investigation details" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}"/>
+                <Grid Grid.Row="0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
 
-                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Hidden" Margin="0,10,0,0">
+                    <Border Grid.Column="0"
+                            Width="44"
+                            Height="44"
+                            CornerRadius="10"
+                            Margin="0,0,14,0"
+                            Background="{StaticResource CardAltBrush}"
+                            BorderBrush="{StaticResource BorderBrushSoft}"
+                            BorderThickness="1"
+                            VerticalAlignment="Top">
+                        <Image Width="24" Height="24" VerticalAlignment="Center" HorizontalAlignment="Center">
+                            <Image.Source>
+                                <Binding Path="DataContext.SelectedProcessStat.Pid" ElementName="ProcessPacketsLayout" Converter="{StaticResource ProcessIconConverter}"/>
+                            </Image.Source>
+                        </Image>
+                    </Border>
+
+                    <StackPanel Grid.Column="1">
+                        <TextBlock Text="Investigation details"
+                                   FontWeight="SemiBold"
+                                   Foreground="{StaticResource TextPrimaryBrush}"/>
+                        <TextBlock Margin="0,4,0,0"
+                                   Text="{Binding DataContext.SelectedProcessStat.DisplayName, ElementName=ProcessPacketsLayout}"
+                                   FontSize="16"
+                                   FontWeight="SemiBold"
+                                   Foreground="{StaticResource TextPrimaryBrush}"
+                                   TextWrapping="Wrap"/>
+                        <WrapPanel Margin="0,6,0,0">
+                            <TextBlock Margin="0,0,12,4"
+                                       Text="{Binding DataContext.SelectedProcessStat.RiskLabel, ElementName=ProcessPacketsLayout}"
+                                       Foreground="{Binding DataContext.SelectedProcessStat.RiskBrush, ElementName=ProcessPacketsLayout}"
+                                       FontSize="11"
+                                       FontWeight="SemiBold"/>
+                            <TextBlock Margin="0,0,12,4"
+                                       Text="{Binding DataContext.SelectedProcessStat.LivenessLabel, ElementName=ProcessPacketsLayout}"
+                                       Foreground="{Binding DataContext.SelectedProcessStat.LivenessBrush, ElementName=ProcessPacketsLayout}"
+                                       FontSize="11"
+                                       FontWeight="SemiBold"/>
+                            <TextBlock Margin="0,0,12,4"
+                                       Text="{Binding DataContext.SelectedProcessStat.BaselineStateLabel, ElementName=ProcessPacketsLayout}"
+                                       Foreground="{StaticResource TextMutedBrush}"
+                                       FontSize="11"
+                                       Visibility="{Binding DataContext.SelectedProcessStat.HasBaselineState, ElementName=ProcessPacketsLayout, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                            <TextBlock Margin="0,0,12,4"
+                                       Text="{Binding DataContext.SelectedProcessStat.PacketCount, ElementName=ProcessPacketsLayout, StringFormat=Packets: {0:N0}}"
+                                       Foreground="{StaticResource TextMutedBrush}"
+                                       FontSize="11"/>
+                            <TextBlock Margin="0,0,12,4"
+                                       Text="{Binding DataContext.SelectedProcessStat.TotalBytesHuman, ElementName=ProcessPacketsLayout, StringFormat=Traffic: {0}}"
+                                       Foreground="{StaticResource TextMutedBrush}"
+                                       FontSize="11"/>
+                            <TextBlock Margin="0,0,12,4"
+                                       Text="{Binding DataContext.SelectedProcessStat.DistinctRemoteEndpoints, ElementName=ProcessPacketsLayout, StringFormat=Remotes: {0}}"
+                                       Foreground="{StaticResource TextMutedBrush}"
+                                       FontSize="11"/>
+                            <TextBlock Margin="0,0,12,4"
+                                       Text="{Binding DataContext.SelectedProcessStat.LastSeenLabel, ElementName=ProcessPacketsLayout}"
+                                       Foreground="{StaticResource TextMutedBrush}"
+                                       FontSize="11"/>
+                        </WrapPanel>
+                    </StackPanel>
+
+                    <Button Grid.Column="2"
+                            Content="Back to process list"
+                            Command="{Binding BackToProcessGridCommand}"
+                            Style="{StaticResource ChipButtonStyle}"
+                            Margin="12,0,0,0"
+                            VerticalAlignment="Top"
+                            HorizontalAlignment="Right"/>
+                </Grid>
+
+                <ScrollViewer Grid.Row="1"
+                              VerticalScrollBarVisibility="Hidden"
+                              HorizontalScrollBarVisibility="Disabled"
+                              CanContentScroll="False"
+                              Margin="0,14,0,0">
                     <Grid>
                         <StackPanel Visibility="{Binding DataContext.SelectedProcessStat, ElementName=ProcessPacketsLayout, Converter={StaticResource NullToVisibilityConverter}}">
                             <TextBlock Foreground="{StaticResource TextMutedBrush}" Text="No process selected."/>
-                            <TextBlock Foreground="{StaticResource TextMutedBrush}" Margin="0,4,0,0" Text="Select a process card to inspect detections, TLS/DNS intelligence, adaptive baseline deviations, and timeline details."/>
+                            <TextBlock Foreground="{StaticResource TextMutedBrush}" Margin="0,4,0,0" Text="Return to the process list and open a card to inspect its investigation details."/>
                         </StackPanel>
 
                         <ContentPresenter Content="{Binding DataContext.SelectedProcessStat, ElementName=ProcessPacketsLayout}"

@@ -33,6 +33,19 @@ public sealed class ProcessConversationRow
 
     public string FirstSeenLabel => FirstSeen == default ? "" : $"First {FirstSeen:HH:mm:ss}";
     public string LastSeenLabel => LastSeen == default ? "" : $"Last {LastSeen:HH:mm:ss}";
+    public string SeenRangeLabel
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(LastSeenLabel))
+                return FirstSeenLabel;
+
+            if (string.IsNullOrWhiteSpace(FirstSeenLabel))
+                return LastSeenLabel;
+
+            return $"{LastSeenLabel} | {FirstSeenLabel}";
+        }
+    }
 
     private static string FormatBytes(long bytes)
     {

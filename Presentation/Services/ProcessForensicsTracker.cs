@@ -4,6 +4,7 @@ using Presentation.Models;
 using System;
 using System.Collections.Generic;
 using Application.Networking;
+using System.Linq;
 
 namespace Presentation.Services;
 
@@ -28,6 +29,11 @@ public sealed class ProcessForensicsTracker
     private readonly Dictionary<int, Dictionary<RemoteEndpointKey, ConversationState>> _conversationsByPid = new();
     private readonly Dictionary<int, List<ConversationState>> _topConversationSnapshotsByPid = new();
     private readonly Dictionary<int, List<SessionClusterState>> _sessionClusters = new();
+    private readonly Dictionary<int, Dictionary<string, IncidentDomainState>> _incidentDomainsByPid = new();
+    private readonly Dictionary<int, Dictionary<string, IncidentIpState>> _incidentIpsByPid = new();
+    private readonly Dictionary<int, Dictionary<string, IncidentCertificateState>> _incidentCertificatesByPid = new();
+    private readonly Dictionary<int, Dictionary<(string Domain, string Ip), int>> _incidentDomainIpLinksByPid = new();
+    private readonly Dictionary<int, Dictionary<(string Ip, string CertificateFingerprint), int>> _incidentIpCertificateLinksByPid = new();
 
     private readonly Dictionary<(int Pid, RemoteEndpointKey Endpoint), BeaconState> _beaconStates = new();
     private readonly Dictionary<int, BeaconSummary> _bestBeaconByPid = new();
@@ -87,6 +93,7 @@ public sealed class ProcessForensicsTracker
             p.TlsCertificateFingerprint,
             p.TlsCertificateNames,
             p.TlsCertificateSubject);
+        ObserveIncidentGraphTelemetry(row.Pid, p, remoteIp);
 
         if (!_distinctRemotes.TryGetValue(row.Pid, out var set))
         {
@@ -192,6 +199,11 @@ public sealed class ProcessForensicsTracker
         _conversationsByPid.Clear();
         _topConversationSnapshotsByPid.Clear();
         _sessionClusters.Clear();
+        _incidentDomainsByPid.Clear();
+        _incidentIpsByPid.Clear();
+        _incidentCertificatesByPid.Clear();
+        _incidentDomainIpLinksByPid.Clear();
+        _incidentIpCertificateLinksByPid.Clear();
         _beaconStates.Clear();
         _bestBeaconByPid.Clear();
         _pidsWithFirstOutboundConnection.Clear();
@@ -283,6 +295,110 @@ public sealed class ProcessForensicsTracker
         }
 
         return rows;
+    }
+
+    public ProcessIncidentGraphSnapshot GetIncidentGraphSnapshot(int pid, int takeDomains = 16, int takeIps = 20, int takeCertificates = 12)
+    {
+        if (pid <= 0)
+            return ProcessIncidentGraphSnapshot.Empty;
+
+        var domains = _incidentDomainsByPid.TryGetValue(pid, out var domainsByPid)
+            ? domainsByPid.Values
+                .OrderByDescending(static state => state.TotalBytes)
+                .ThenByDescending(static state => state.ObservationCount)
+                .ThenBy(static state => state.Domain, StringComparer.OrdinalIgnoreCase)
+                .Take(takeDomains)
+                .Select(static state => new ProcessIncidentGraphDomainObservation(
+                    state.Domain,
+                    state.ObservationCount,
+                    state.DnsHits,
+                    state.SniHits,
+                    state.TotalBytes,
+                    state.FirstSeen,
+                    state.LastSeen,
+                    state.LinkedIps
+                        .OrderBy(static value => value, StringComparer.OrdinalIgnoreCase)
+                        .ToArray()))
+                .ToArray()
+            : Array.Empty<ProcessIncidentGraphDomainObservation>();
+
+        var ips = _incidentIpsByPid.TryGetValue(pid, out var ipsByPid)
+            ? ipsByPid.Values
+                .OrderByDescending(static state => state.TotalBytes)
+                .ThenByDescending(static state => state.PacketCount)
+                .ThenBy(static state => state.Ip, StringComparer.OrdinalIgnoreCase)
+                .Take(takeIps)
+                .Select(static state => new ProcessIncidentGraphIpObservation(
+                    state.Ip,
+                    state.ResolvedHost,
+                    state.PacketCount,
+                    state.TotalBytes,
+                    state.FirstSeen,
+                    state.LastSeen,
+                    state.LinkedDomains
+                        .OrderBy(static value => value, StringComparer.OrdinalIgnoreCase)
+                        .ToArray(),
+                    state.CertificateFingerprints
+                        .OrderBy(static value => value, StringComparer.OrdinalIgnoreCase)
+                        .ToArray()))
+                .ToArray()
+            : Array.Empty<ProcessIncidentGraphIpObservation>();
+
+        var certificates = _incidentCertificatesByPid.TryGetValue(pid, out var certificatesByPid)
+            ? certificatesByPid.Values
+                .OrderByDescending(static state => state.ObservationCount)
+                .ThenByDescending(static state => state.LinkedDomains.Count)
+                .ThenBy(static state => state.Fingerprint, StringComparer.OrdinalIgnoreCase)
+                .Take(takeCertificates)
+                .Select(static state => new ProcessIncidentGraphCertificateObservation(
+                    state.Fingerprint,
+                    state.Subject,
+                    state.Names
+                        .OrderBy(static value => value, StringComparer.OrdinalIgnoreCase)
+                        .ToArray(),
+                    state.ObservationCount,
+                    state.FirstSeen,
+                    state.LastSeen,
+                    state.LinkedIps
+                        .OrderBy(static value => value, StringComparer.OrdinalIgnoreCase)
+                        .ToArray(),
+                    state.LinkedDomains
+                        .OrderBy(static value => value, StringComparer.OrdinalIgnoreCase)
+                        .ToArray()))
+                .ToArray()
+            : Array.Empty<ProcessIncidentGraphCertificateObservation>();
+
+        var domainSet = new HashSet<string>(domains.Select(static domain => domain.Domain), StringComparer.OrdinalIgnoreCase);
+        var ipSet = new HashSet<string>(ips.Select(static ip => ip.Ip), StringComparer.OrdinalIgnoreCase);
+        var certificateSet = new HashSet<string>(certificates.Select(static certificate => certificate.Fingerprint), StringComparer.OrdinalIgnoreCase);
+
+        var domainIpLinks = _incidentDomainIpLinksByPid.TryGetValue(pid, out var domainIpLinksByPid)
+            ? domainIpLinksByPid
+                .Where(kvp => domainSet.Contains(kvp.Key.Domain) && ipSet.Contains(kvp.Key.Ip))
+                .OrderByDescending(static kvp => kvp.Value)
+                .ThenBy(static kvp => kvp.Key.Domain, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(static kvp => kvp.Key.Ip, StringComparer.OrdinalIgnoreCase)
+                .Select(static kvp => new ProcessIncidentGraphDomainIpLink(
+                    kvp.Key.Domain,
+                    kvp.Key.Ip,
+                    kvp.Value))
+                .ToArray()
+            : Array.Empty<ProcessIncidentGraphDomainIpLink>();
+
+        var ipCertificateLinks = _incidentIpCertificateLinksByPid.TryGetValue(pid, out var ipCertificateLinksByPid)
+            ? ipCertificateLinksByPid
+                .Where(kvp => ipSet.Contains(kvp.Key.Ip) && certificateSet.Contains(kvp.Key.CertificateFingerprint))
+                .OrderByDescending(static kvp => kvp.Value)
+                .ThenBy(static kvp => kvp.Key.Ip, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(static kvp => kvp.Key.CertificateFingerprint, StringComparer.OrdinalIgnoreCase)
+                .Select(static kvp => new ProcessIncidentGraphIpCertificateLink(
+                    kvp.Key.Ip,
+                    kvp.Key.CertificateFingerprint,
+                    kvp.Value))
+                .ToArray()
+            : Array.Empty<ProcessIncidentGraphIpCertificateLink>();
+
+        return new ProcessIncidentGraphSnapshot(domains, ips, certificates, domainIpLinks, ipCertificateLinks);
     }
 
     private void RefreshLocalIpsIfNeeded(bool force)
@@ -510,6 +626,221 @@ public sealed class ProcessForensicsTracker
         return port is int value && value > 0 ? $"{ip}:{value}" : ip;
     }
 
+    private void ObserveIncidentGraphTelemetry(int pid, PacketInfo packet, string remoteIp)
+    {
+        if (pid <= 0)
+            return;
+
+        if (!string.IsNullOrWhiteSpace(remoteIp))
+            ObserveIncidentGraphIp(pid, remoteIp, packet);
+
+        string dnsDomain = NormalizeDomain(packet.DnsQueryName);
+        if (!string.IsNullOrWhiteSpace(dnsDomain))
+        {
+            ObserveIncidentGraphDomain(pid, dnsDomain, packet.Timestamp, packet.Length, fromDns: true, fromSni: false);
+
+            for (int i = 0; i < packet.DnsAnswerIps.Count; i++)
+            {
+                string answerIp = packet.DnsAnswerIps[i]?.Trim() ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(answerIp))
+                    continue;
+
+                LinkIncidentGraphDomainToIp(pid, dnsDomain, answerIp, packet.Timestamp);
+            }
+        }
+
+        string serverName = NormalizeDomain(packet.ServerNameHint);
+        if (!string.IsNullOrWhiteSpace(serverName))
+        {
+            ObserveIncidentGraphDomain(pid, serverName, packet.Timestamp, packet.Length, fromDns: false, fromSni: true);
+
+            if (!string.IsNullOrWhiteSpace(remoteIp))
+                LinkIncidentGraphDomainToIp(pid, serverName, remoteIp, packet.Timestamp);
+        }
+
+        string certificateFingerprint = string.IsNullOrWhiteSpace(packet.TlsCertificateFingerprint)
+            ? string.Empty
+            : packet.TlsCertificateFingerprint.Trim().ToLowerInvariant();
+        if (!string.IsNullOrWhiteSpace(certificateFingerprint) && !string.IsNullOrWhiteSpace(remoteIp))
+        {
+            ObserveIncidentGraphCertificate(pid, certificateFingerprint, packet, remoteIp, serverName);
+            LinkIncidentGraphIpToCertificate(pid, remoteIp, certificateFingerprint);
+        }
+    }
+
+    private void ObserveIncidentGraphDomain(int pid, string domain, DateTime timestamp, int packetLength, bool fromDns, bool fromSni)
+    {
+        if (string.IsNullOrWhiteSpace(domain))
+            return;
+
+        var state = GetOrCreateIncidentDomainState(pid, domain);
+        state.ObservationCount++;
+        state.TotalBytes += Math.Max(0, packetLength);
+
+        if (fromDns)
+            state.DnsHits++;
+
+        if (fromSni)
+            state.SniHits++;
+
+        if (state.FirstSeen == default || timestamp < state.FirstSeen)
+            state.FirstSeen = timestamp;
+
+        if (timestamp > state.LastSeen)
+            state.LastSeen = timestamp;
+    }
+
+    private void ObserveIncidentGraphIp(int pid, string ip, PacketInfo packet)
+    {
+        if (string.IsNullOrWhiteSpace(ip))
+            return;
+
+        var state = GetOrCreateIncidentIpState(pid, ip);
+        state.PacketCount++;
+        state.TotalBytes += packet.Length;
+
+        if (state.FirstSeen == default || packet.Timestamp < state.FirstSeen)
+            state.FirstSeen = packet.Timestamp;
+
+        if (packet.Timestamp > state.LastSeen)
+            state.LastSeen = packet.Timestamp;
+
+        if (string.IsNullOrWhiteSpace(state.ResolvedHost)
+            && _hostResolutionService.TryResolve(ip, out var resolvedHost)
+            && !string.IsNullOrWhiteSpace(resolvedHost)
+            && !string.Equals(resolvedHost, ip, StringComparison.OrdinalIgnoreCase))
+        {
+            state.ResolvedHost = resolvedHost;
+        }
+    }
+
+    private void LinkIncidentGraphDomainToIp(int pid, string domain, string ip, DateTime timestamp)
+    {
+        if (string.IsNullOrWhiteSpace(domain) || string.IsNullOrWhiteSpace(ip))
+            return;
+
+        var domainState = GetOrCreateIncidentDomainState(pid, domain);
+        var ipState = GetOrCreateIncidentIpState(pid, ip);
+
+        domainState.LinkedIps.Add(ip);
+        ipState.LinkedDomains.Add(domain);
+
+        if (ipState.FirstSeen == default || timestamp < ipState.FirstSeen)
+            ipState.FirstSeen = timestamp;
+
+        if (timestamp > ipState.LastSeen)
+            ipState.LastSeen = timestamp;
+
+        if (!_incidentDomainIpLinksByPid.TryGetValue(pid, out var linksByPid))
+        {
+            linksByPid = new Dictionary<(string Domain, string Ip), int>();
+            _incidentDomainIpLinksByPid[pid] = linksByPid;
+        }
+
+        var key = (domain, ip);
+        linksByPid.TryGetValue(key, out int hitCount);
+        linksByPid[key] = hitCount + 1;
+    }
+
+    private void ObserveIncidentGraphCertificate(int pid, string fingerprint, PacketInfo packet, string remoteIp, string primaryDomain)
+    {
+        var state = GetOrCreateIncidentCertificateState(pid, fingerprint);
+        state.ObservationCount++;
+
+        if (state.FirstSeen == default || packet.Timestamp < state.FirstSeen)
+            state.FirstSeen = packet.Timestamp;
+
+        if (packet.Timestamp > state.LastSeen)
+            state.LastSeen = packet.Timestamp;
+
+        if (!string.IsNullOrWhiteSpace(packet.TlsCertificateSubject))
+            state.Subject = packet.TlsCertificateSubject.Trim();
+
+        for (int i = 0; i < packet.TlsCertificateNames.Count; i++)
+        {
+            string name = NormalizeDomain(packet.TlsCertificateNames[i]);
+            if (!string.IsNullOrWhiteSpace(name))
+                state.Names.Add(name);
+        }
+
+        state.LinkedIps.Add(remoteIp);
+
+        if (!string.IsNullOrWhiteSpace(primaryDomain))
+            state.LinkedDomains.Add(primaryDomain);
+
+        var ipState = GetOrCreateIncidentIpState(pid, remoteIp);
+        ipState.CertificateFingerprints.Add(fingerprint);
+    }
+
+    private void LinkIncidentGraphIpToCertificate(int pid, string ip, string fingerprint)
+    {
+        if (string.IsNullOrWhiteSpace(ip) || string.IsNullOrWhiteSpace(fingerprint))
+            return;
+
+        if (!_incidentIpCertificateLinksByPid.TryGetValue(pid, out var linksByPid))
+        {
+            linksByPid = new Dictionary<(string Ip, string CertificateFingerprint), int>();
+            _incidentIpCertificateLinksByPid[pid] = linksByPid;
+        }
+
+        var key = (ip, fingerprint);
+        linksByPid.TryGetValue(key, out int hitCount);
+        linksByPid[key] = hitCount + 1;
+    }
+
+    private IncidentDomainState GetOrCreateIncidentDomainState(int pid, string domain)
+    {
+        if (!_incidentDomainsByPid.TryGetValue(pid, out var domainsByPid))
+        {
+            domainsByPid = new Dictionary<string, IncidentDomainState>(StringComparer.OrdinalIgnoreCase);
+            _incidentDomainsByPid[pid] = domainsByPid;
+        }
+
+        if (domainsByPid.TryGetValue(domain, out var state))
+            return state;
+
+        state = new IncidentDomainState { Domain = domain };
+        domainsByPid[domain] = state;
+        return state;
+    }
+
+    private IncidentIpState GetOrCreateIncidentIpState(int pid, string ip)
+    {
+        if (!_incidentIpsByPid.TryGetValue(pid, out var ipsByPid))
+        {
+            ipsByPid = new Dictionary<string, IncidentIpState>(StringComparer.OrdinalIgnoreCase);
+            _incidentIpsByPid[pid] = ipsByPid;
+        }
+
+        if (ipsByPid.TryGetValue(ip, out var state))
+            return state;
+
+        state = new IncidentIpState { Ip = ip };
+        ipsByPid[ip] = state;
+        return state;
+    }
+
+    private IncidentCertificateState GetOrCreateIncidentCertificateState(int pid, string fingerprint)
+    {
+        if (!_incidentCertificatesByPid.TryGetValue(pid, out var certificatesByPid))
+        {
+            certificatesByPid = new Dictionary<string, IncidentCertificateState>(StringComparer.OrdinalIgnoreCase);
+            _incidentCertificatesByPid[pid] = certificatesByPid;
+        }
+
+        if (certificatesByPid.TryGetValue(fingerprint, out var state))
+            return state;
+
+        state = new IncidentCertificateState { Fingerprint = fingerprint };
+        certificatesByPid[fingerprint] = state;
+        return state;
+    }
+
+    private static string NormalizeDomain(string? value)
+        => string.IsNullOrWhiteSpace(value)
+            ? string.Empty
+            : value.Trim().TrimEnd('.').ToLowerInvariant();
+
     private void TryUpdateBeaconSummary(ProcessStatRow row, RemoteEndpointKey endpoint, BeaconState st)
     {
         if (st.Samples < 6)
@@ -605,6 +936,42 @@ public sealed class ProcessForensicsTracker
             cv = std / Mean;
             return true;
         }
+    }
+
+    private sealed class IncidentDomainState
+    {
+        public string Domain = "";
+        public int ObservationCount;
+        public int DnsHits;
+        public int SniHits;
+        public long TotalBytes;
+        public DateTime FirstSeen;
+        public DateTime LastSeen;
+        public HashSet<string> LinkedIps { get; } = new(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private sealed class IncidentIpState
+    {
+        public string Ip = "";
+        public string ResolvedHost = "";
+        public long PacketCount;
+        public long TotalBytes;
+        public DateTime FirstSeen;
+        public DateTime LastSeen;
+        public HashSet<string> LinkedDomains { get; } = new(StringComparer.OrdinalIgnoreCase);
+        public HashSet<string> CertificateFingerprints { get; } = new(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private sealed class IncidentCertificateState
+    {
+        public string Fingerprint = "";
+        public string Subject = "";
+        public long ObservationCount;
+        public DateTime FirstSeen;
+        public DateTime LastSeen;
+        public HashSet<string> Names { get; } = new(StringComparer.OrdinalIgnoreCase);
+        public HashSet<string> LinkedIps { get; } = new(StringComparer.OrdinalIgnoreCase);
+        public HashSet<string> LinkedDomains { get; } = new(StringComparer.OrdinalIgnoreCase);
     }
 
     private readonly record struct UdpFlowKey(string LocalIp, int LocalPort, string RemoteIp, int RemotePort);

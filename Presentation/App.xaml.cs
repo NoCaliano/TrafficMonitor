@@ -53,6 +53,7 @@ public partial class App : System.Windows.Application
                 services.AddSingleton<ProcessIncidentReportExportService>();
                 services.AddSingleton<IProcessBaselineStore, JsonProcessBaselineStore>();
                 services.AddSingleton<ProcessBehaviorBaselineService>();
+                services.AddSingleton<ProcessIncidentGraphBuilder>();
 
                 // ViewModels
                 services.AddSingleton<MainViewModel>();
