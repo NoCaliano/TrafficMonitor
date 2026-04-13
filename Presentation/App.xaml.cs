@@ -51,6 +51,8 @@ public partial class App : System.Windows.Application
                 services.AddSingleton<ProcessLivenessTracker>();
                 services.AddSingleton<ProcessRemediationCoordinator>();
                 services.AddSingleton<ProcessIncidentReportExportService>();
+                services.AddSingleton<IProcessBaselineStore, JsonProcessBaselineStore>();
+                services.AddSingleton<ProcessBehaviorBaselineService>();
 
                 // ViewModels
                 services.AddSingleton<MainViewModel>();

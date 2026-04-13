@@ -648,6 +648,8 @@ public sealed class MainViewModel : ViewModelBase
 
             StatusText = "Opening...";
 
+            ProcessPackets.FinalizeCurrentSession();
+
             // Reset UI/state (similar to StartAsync, but without starting capture)
             _packetNo = 0;
             _captureController.ResetSessionState();
@@ -767,6 +769,8 @@ public sealed class MainViewModel : ViewModelBase
 
         StatusText = "Starting...";
 
+        ProcessPackets.FinalizeCurrentSession();
+
         // Відповідає за повний reset перед новим захопленням
         _packetNo = 0;
         _captureController.ResetSessionState();
@@ -821,6 +825,7 @@ public sealed class MainViewModel : ViewModelBase
         // stop flush timer and flush remaining
         _flushTimer.Change(System.Threading.Timeout.Infinite, System.Threading.Timeout.Infinite);
         FlushPending(drainAll: true);
+        ProcessPackets.FinalizeCurrentSession();
 
         StatusText = "Idle";
     }
@@ -865,7 +870,7 @@ public sealed class MainViewModel : ViewModelBase
             pendingAfterDequeue = _pendingPackets.Count;
         }
 
-        System.Windows.Application.Current.Dispatcher.BeginInvoke(new Action(() =>
+        void flushAction()
         {
             ProcessPackets.PrepareForFlush();
 
@@ -898,7 +903,19 @@ public sealed class MainViewModel : ViewModelBase
                 StatusText = pendingAfterDequeue > 0
                     ? $"Capturing (render queue {pendingAfterDequeue:N0})"
                     : "Capturing";
-        }));
+        }
+
+        var dispatcher = System.Windows.Application.Current.Dispatcher;
+        if (drainAll)
+        {
+            if (dispatcher.CheckAccess())
+                flushAction();
+            else
+                dispatcher.Invoke(flushAction);
+            return;
+        }
+
+        dispatcher.BeginInvoke(new Action(flushAction));
     }
 
 

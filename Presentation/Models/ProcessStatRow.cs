@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
@@ -95,6 +96,32 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
         {
             >= 16 => Brushes.IndianRed,
             >= 8 => Brushes.DarkOrange,
+            > 0 => Brushes.OliveDrab,
+            _ => Brushes.SteelBlue
+        };
+    }
+
+    public sealed record BehaviorDeviation(
+        string Key,
+        string Title,
+        string Summary,
+        int Score,
+        IReadOnlyList<DetectionEvidence> Evidence)
+    {
+        public string ScoreLabel => Score > 0 ? $"+{Score}" : "Info";
+
+        public string SeverityLabel => Score switch
+        {
+            >= 12 => "High deviation",
+            >= 7 => "Medium deviation",
+            > 0 => "Low deviation",
+            _ => "Context"
+        };
+
+        public Brush SeverityBrush => Score switch
+        {
+            >= 12 => Brushes.IndianRed,
+            >= 7 => Brushes.DarkOrange,
             > 0 => Brushes.OliveDrab,
             _ => Brushes.SteelBlue
         };
@@ -234,6 +261,81 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
         1 => _tlsDnsInsights[0].Title,
         _ => $"{_tlsDnsInsights[0].Title} +{_tlsDnsInsights.Count - 1}"
     };
+
+    private IReadOnlyList<BehaviorDeviation> _behaviorDeviations = Array.Empty<BehaviorDeviation>();
+    public IReadOnlyList<BehaviorDeviation> BehaviorDeviations
+    {
+        get => _behaviorDeviations;
+        private set
+        {
+            if (AreEquivalentBehaviorDeviations(_behaviorDeviations, value))
+                return;
+
+            _behaviorDeviations = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(HasBehaviorDeviations));
+            OnPropertyChanged(nameof(HasBaselineState));
+            OnPropertyChanged(nameof(BehaviorDeviationsEmptyState));
+            OnPropertyChanged(nameof(BehaviorDeviationSummaryLabel));
+        }
+    }
+
+    public bool HasBehaviorDeviations => _behaviorDeviations.Count > 0;
+    public string BehaviorDeviationsTitle => "Adaptive baseline";
+    public string BehaviorDeviationsEmptyState => HasBehaviorDeviations ? "" : "No behavioral deviations from the local baseline were derived for this process yet.";
+    public string BehaviorDeviationSummaryLabel => _behaviorDeviations.Count switch
+    {
+        0 => "",
+        1 => _behaviorDeviations[0].Title,
+        _ => $"{_behaviorDeviations[0].Title} +{_behaviorDeviations.Count - 1}"
+    };
+
+    private string _baselineStateLabel = "Baseline: none";
+    public string BaselineStateLabel
+    {
+        get => _baselineStateLabel;
+        private set
+        {
+            if (_baselineStateLabel == value)
+                return;
+
+            _baselineStateLabel = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(HasBaselineState));
+        }
+    }
+
+    public bool HasBaselineState =>
+        !string.IsNullOrWhiteSpace(BaselineStateLabel)
+        && (!string.Equals(BaselineStateLabel, "Baseline: none", StringComparison.Ordinal) || HasBehaviorDeviations);
+
+    private string _baselineSummary = "No trusted baseline exists for this process identity yet.";
+    public string BaselineSummary
+    {
+        get => _baselineSummary;
+        private set
+        {
+            if (_baselineSummary == value)
+                return;
+
+            _baselineSummary = value;
+            OnPropertyChanged();
+        }
+    }
+
+    private string _baselineLearningNote = "If this session stays low-risk, it can initialize a future baseline.";
+    public string BaselineLearningNote
+    {
+        get => _baselineLearningNote;
+        private set
+        {
+            if (_baselineLearningNote == value)
+                return;
+
+            _baselineLearningNote = value;
+            OnPropertyChanged();
+        }
+    }
 
     public ObservableCollection<InvestigationTimelineEvent> TimelineEvents { get; } = new();
     public bool HasTimelineEvents => TimelineEvents.Count > 0;
@@ -405,6 +507,8 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
     private readonly Dictionary<string, int> _ja4LiteCounts = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, HashSet<string>> _certificateDomains = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _sniCertificateMismatchKeys = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<int> _observedActiveHours = new();
+    private DateTime _firstObservedAt;
     private string _latestNewDomain = "";
     private int _rareTldScore;
     private string _rareTldDomain = "";
@@ -451,6 +555,7 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
     public string MostReusedCertificateFingerprint => _mostReusedCertificateFingerprint;
     public int MostReusedCertificateDomainCount => _mostReusedCertificateDomainCount;
     public string MostReusedCertificateDomainsSummary => _mostReusedCertificateDomainsSummary;
+    public DateTime FirstObservedAt => _firstObservedAt;
 
     // rolling samples of packets per update interval
     private readonly List<int> _samples = new(MaxSamples);
@@ -511,6 +616,17 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
             _inboundBytes += bytes;
             _inboundPacketsObserved++;
         }
+    }
+
+    public void ObserveActivityAt(DateTime timestamp)
+    {
+        if (timestamp == default)
+            return;
+
+        if (_firstObservedAt == default || timestamp < _firstObservedAt)
+            _firstObservedAt = timestamp;
+
+        _observedActiveHours.Add(timestamp.Hour);
     }
 
     public void ObserveDnsQuery(string domain, string? queryType, DateTime timestamp)
@@ -630,6 +746,50 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
             BeaconSamples = samples;
             _beaconEndpoint = endpoint ?? "";
         });
+
+    public IReadOnlyList<string> GetDominantRootDomainsSnapshot()
+        => _dnsRootQueryCounts.Count == 0
+            ? Array.Empty<string>()
+            : _dnsRootQueryCounts
+                .OrderByDescending(static pair => pair.Value)
+                .ThenBy(static pair => pair.Key, StringComparer.OrdinalIgnoreCase)
+                .Take(12)
+                .Select(static pair => pair.Key)
+                .ToArray();
+
+    public IReadOnlyList<string> GetObservedActiveHoursSnapshot()
+        => _observedActiveHours.Count == 0
+            ? Array.Empty<string>()
+            : _observedActiveHours
+                .OrderBy(static hour => hour)
+                .Select(static hour => hour.ToString("00", CultureInfo.InvariantCulture))
+                .ToArray();
+
+    public IReadOnlyList<string> GetObservedClientFingerprintsSnapshot()
+    {
+        string[] ja3 = _ja3LiteCounts
+            .OrderByDescending(static pair => pair.Value)
+            .ThenBy(static pair => pair.Key, StringComparer.OrdinalIgnoreCase)
+            .Take(2)
+            .Select(static pair => "ja3:" + pair.Key)
+            .ToArray();
+        string[] ja4 = _ja4LiteCounts
+            .OrderByDescending(static pair => pair.Value)
+            .ThenBy(static pair => pair.Key, StringComparer.OrdinalIgnoreCase)
+            .Take(2)
+            .Select(static pair => "ja4:" + pair.Key)
+            .ToArray();
+
+        return ja3.Concat(ja4).ToArray();
+    }
+
+    public IReadOnlyList<string> GetObservedCertificateFingerprintsSnapshot()
+        => _certificateDomains.Count == 0
+            ? Array.Empty<string>()
+            : _certificateDomains.Keys
+                .OrderBy(static value => value, StringComparer.OrdinalIgnoreCase)
+                .Take(6)
+                .ToArray();
 
     public void AddSample(int value)
     {
@@ -799,6 +959,7 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
         {
             DetectionScenarios = Array.Empty<DetectionScenario>();
             TlsDnsInsights = Array.Empty<TlsDnsInsight>();
+            BehaviorDeviations = Array.Empty<BehaviorDeviation>();
             RiskReasons = Array.Empty<RiskReason>();
             RiskScore = 0;
             return;
@@ -867,6 +1028,12 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
         {
             if (insight.Score > 0)
                 signals.Add(new RiskSignal(insight.Title, insight.Score));
+        }
+
+        foreach (var deviation in BehaviorDeviations)
+        {
+            if (deviation.Score > 0)
+                signals.Add(new RiskSignal(deviation.Title, deviation.Score));
         }
 
         RiskReasons = signals
@@ -969,6 +1136,24 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
         OnPropertyChanged(nameof(HasSessionClusters));
         OnPropertyChanged(nameof(SessionClustersEmptyState));
     }
+
+    public void ApplyBehaviorBaseline(
+        string baselineStateLabel,
+        string baselineSummary,
+        string baselineLearningNote,
+        IReadOnlyList<BehaviorDeviation> deviations)
+        => DeferNotifications(() =>
+        {
+            BaselineStateLabel = string.IsNullOrWhiteSpace(baselineStateLabel) ? "Baseline: none" : baselineStateLabel;
+            BaselineSummary = string.IsNullOrWhiteSpace(baselineSummary)
+                ? "No trusted baseline exists for this process identity yet."
+                : baselineSummary;
+            BaselineLearningNote = string.IsNullOrWhiteSpace(baselineLearningNote)
+                ? "No learning recommendation is currently available."
+                : baselineLearningNote;
+            BehaviorDeviations = deviations ?? Array.Empty<BehaviorDeviation>();
+            SyncBehaviorDeviationTimeline(BehaviorDeviations);
+        });
 
     private void AddTimelineEventIfMissing(string key, DateTime timestamp, string title, string detail, InvestigationTimelineTarget? target = null)
     {
@@ -1137,6 +1322,38 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
             for (int evidenceIndex = 0; evidenceIndex < leftInsight.Evidence.Count; evidenceIndex++)
             {
                 if (!string.Equals(leftInsight.Evidence[evidenceIndex].Summary, rightInsight.Evidence[evidenceIndex].Summary, StringComparison.Ordinal))
+                    return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool AreEquivalentBehaviorDeviations(IReadOnlyList<BehaviorDeviation> left, IReadOnlyList<BehaviorDeviation> right)
+    {
+        if (ReferenceEquals(left, right))
+            return true;
+
+        if (left.Count != right.Count)
+            return false;
+
+        for (int i = 0; i < left.Count; i++)
+        {
+            var leftDeviation = left[i];
+            var rightDeviation = right[i];
+
+            if (leftDeviation.Score != rightDeviation.Score
+                || !string.Equals(leftDeviation.Key, rightDeviation.Key, StringComparison.Ordinal)
+                || !string.Equals(leftDeviation.Title, rightDeviation.Title, StringComparison.Ordinal)
+                || !string.Equals(leftDeviation.Summary, rightDeviation.Summary, StringComparison.Ordinal)
+                || leftDeviation.Evidence.Count != rightDeviation.Evidence.Count)
+            {
+                return false;
+            }
+
+            for (int evidenceIndex = 0; evidenceIndex < leftDeviation.Evidence.Count; evidenceIndex++)
+            {
+                if (!string.Equals(leftDeviation.Evidence[evidenceIndex].Summary, rightDeviation.Evidence[evidenceIndex].Summary, StringComparison.Ordinal))
                     return false;
             }
         }
@@ -1595,6 +1812,23 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
                 timestamp,
                 $"Scenario: {scenario.Title}",
                 $"{scenario.Summary} {scenario.MitreLabel}. {scenario.ConfidenceLabel}.");
+        }
+    }
+
+    private void SyncBehaviorDeviationTimeline(IReadOnlyList<BehaviorDeviation> deviations)
+    {
+        if (deviations.Count == 0)
+            return;
+
+        DateTime timestamp = LastSeen != default ? LastSeen : DateTime.Now;
+        for (int i = 0; i < deviations.Count; i++)
+        {
+            var deviation = deviations[i];
+            AddTimelineEventIfMissing(
+                $"baseline-{deviation.Key}",
+                timestamp,
+                $"Baseline deviation: {deviation.Title}",
+                $"{deviation.Summary} {deviation.SeverityLabel}.");
         }
     }
 

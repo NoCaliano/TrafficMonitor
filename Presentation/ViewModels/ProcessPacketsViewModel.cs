@@ -23,12 +23,14 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
     private readonly ProcessForensicsTracker _forensicsTracker;
     private readonly ProcessLivenessTracker _livenessTracker;
     private readonly ProcessRemediationCoordinator _remediationCoordinator;
+    private readonly ProcessBehaviorBaselineService _behaviorBaselineService;
     private readonly IFileDialogService _fileDialogService;
     private readonly ProcessIncidentReportExportService _incidentReportExportService;
 
     private readonly Dictionary<int, ProcessStatRow> _processStatsMap = new();
     private readonly Dictionary<int, int> _processPacketsSinceLastSample = new();
     private readonly HashSet<int> _burstingPids = new();
+    private readonly HashSet<ProcessStatRow> _baselineFinalizedRows = new();
     private bool _processStatsViewRefreshPending;
 
     private Action<int>? _showPacketsForPid;
@@ -200,6 +202,7 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
         ProcessForensicsTracker forensicsTracker,
         ProcessLivenessTracker livenessTracker,
         ProcessRemediationCoordinator remediationCoordinator,
+        ProcessBehaviorBaselineService behaviorBaselineService,
         IFileDialogService fileDialogService,
         ProcessIncidentReportExportService incidentReportExportService)
     {
@@ -207,6 +210,7 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
         _forensicsTracker = forensicsTracker;
         _livenessTracker = livenessTracker;
         _remediationCoordinator = remediationCoordinator;
+        _behaviorBaselineService = behaviorBaselineService;
         _fileDialogService = fileDialogService;
         _incidentReportExportService = incidentReportExportService;
 
@@ -247,6 +251,7 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
         _processStatsMap.Clear();
         _processPacketsSinceLastSample.Clear();
         _burstingPids.Clear();
+        _baselineFinalizedRows.Clear();
         _forensicsTracker.Reset();
         _livenessTracker.Reset();
 
@@ -306,6 +311,7 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
         row.PacketCount++;
         row.TotalBytes += packet.Length;
         row.LastSeen = packet.Timestamp;
+        row.ObserveActivityAt(packet.Timestamp);
 
         var forensicsUpdate = _forensicsTracker.Update(packet, row);
 
@@ -360,9 +366,20 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
                 string detail = $"Traffic cooled down to {kvp.Value:N0} packets per interval after peaking at {previousPeak:N0}.";
                 row.RecordBurstEnded(row.LastSeen == default ? DateTime.Now : row.LastSeen, detail);
             }
+
+            RefreshAdaptiveBaseline(row);
         }
 
+        foreach (var row in ProcessStats)
+            FinalizeAdaptiveBaseline(row);
+
         RefreshSelectedProcessDetails();
+    }
+
+    public void FinalizeCurrentSession()
+    {
+        foreach (var row in ProcessStats)
+            FinalizeAdaptiveBaseline(row, force: true);
     }
 
     public IReadOnlyList<(ProcessStatRow Process, ProcessConversationRow Conversation)> GetTopConversations(int take = 200, int perProcessTake = 24)
@@ -560,6 +577,7 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
         _processStatsMap[row.Pid] = row;
         row.PropertyChanged += OnProcessStatPropertyChanged;
         ProcessStats.Add(row);
+        RefreshAdaptiveBaseline(row);
         SelectedProcessStat ??= row;
         RefreshProcessStatsView();
     }
@@ -626,7 +644,12 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
             or nameof(ProcessStatRow.DetectionScenarios)
             or nameof(ProcessStatRow.DetectionSummaryLabel)
             or nameof(ProcessStatRow.TlsDnsInsights)
-            or nameof(ProcessStatRow.TlsDnsSummaryLabel))
+            or nameof(ProcessStatRow.TlsDnsSummaryLabel)
+            or nameof(ProcessStatRow.BehaviorDeviations)
+            or nameof(ProcessStatRow.BehaviorDeviationSummaryLabel)
+            or nameof(ProcessStatRow.BaselineStateLabel)
+            or nameof(ProcessStatRow.BaselineSummary)
+            or nameof(ProcessStatRow.BaselineLearningNote))
         {
             ScheduleProcessStatsViewRefresh();
         }
@@ -660,6 +683,10 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
             || ContainsIgnoreCase(row.FirstSuspiciousDomain, search)
             || ContainsIgnoreCase(row.DetectionSummaryLabel, search)
             || ContainsIgnoreCase(row.TlsDnsSummaryLabel, search)
+            || ContainsIgnoreCase(row.BehaviorDeviationSummaryLabel, search)
+            || ContainsIgnoreCase(row.BaselineStateLabel, search)
+            || ContainsIgnoreCase(row.BaselineSummary, search)
+            || ContainsIgnoreCase(row.BaselineLearningNote, search)
             || row.DetectionScenarios.Any(scenario =>
                 ContainsIgnoreCase(scenario.Title, search)
                 || ContainsIgnoreCase(scenario.Summary, search)
@@ -669,7 +696,56 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
             || row.TlsDnsInsights.Any(insight =>
                 ContainsIgnoreCase(insight.Title, search)
                 || ContainsIgnoreCase(insight.Summary, search)
-                || insight.Evidence.Any(evidence => ContainsIgnoreCase(evidence.Summary, search)));
+                || insight.Evidence.Any(evidence => ContainsIgnoreCase(evidence.Summary, search)))
+            || row.BehaviorDeviations.Any(deviation =>
+                ContainsIgnoreCase(deviation.Title, search)
+                || ContainsIgnoreCase(deviation.Summary, search)
+                || deviation.Evidence.Any(evidence => ContainsIgnoreCase(evidence.Summary, search)));
+    }
+
+    private void RefreshAdaptiveBaseline(ProcessStatRow row)
+    {
+        if (!CanUseAdaptiveBaseline(row) || _baselineFinalizedRows.Contains(row))
+            return;
+
+        ApplyAdaptiveBaselineAssessment(row, _behaviorBaselineService.Evaluate(row));
+    }
+
+    private void FinalizeAdaptiveBaseline(ProcessStatRow row, bool force = false)
+    {
+        if (!CanUseAdaptiveBaseline(row) || _baselineFinalizedRows.Contains(row))
+            return;
+
+        if (!force && row.IsAlive)
+            return;
+
+        ApplyAdaptiveBaselineAssessment(row, _behaviorBaselineService.FinalizeSession(row));
+        _baselineFinalizedRows.Add(row);
+    }
+
+    private static bool CanUseAdaptiveBaseline(ProcessStatRow row)
+        => row.Pid > 0
+            && (row.FirstObservedAt != default || row.LastSeen != default)
+            && row.PacketCount > 0;
+
+    private static void ApplyAdaptiveBaselineAssessment(ProcessStatRow row, ProcessBehaviorAssessment assessment)
+    {
+        var deviations = assessment.Deviations
+            .Select(static deviation => new ProcessStatRow.BehaviorDeviation(
+                deviation.Key,
+                deviation.Title,
+                deviation.Summary,
+                deviation.Score,
+                deviation.Evidence
+                    .Select(static evidence => new ProcessStatRow.DetectionEvidence(evidence))
+                    .ToArray()))
+            .ToArray();
+
+        row.ApplyBehaviorBaseline(
+            assessment.BaselineStateLabel,
+            assessment.BaselineSummary,
+            assessment.LearningNote,
+            deviations);
     }
 
     private void ScheduleProcessStatsViewRefresh()

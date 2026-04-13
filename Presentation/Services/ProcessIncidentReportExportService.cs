@@ -86,6 +86,10 @@ public sealed class ProcessIncidentReportExportService
             FirstSuspiciousDomain: process.FirstSuspiciousDomain,
             SuspiciousDomainReason: process.SuspiciousDomainReason,
             DetectionSummary: process.DetectionSummaryLabel,
+            BaselineState: process.BaselineStateLabel,
+            BaselineSummary: process.BaselineSummary,
+            BaselineLearningNote: process.BaselineLearningNote,
+            BehaviorDeviationSummary: process.BehaviorDeviationSummaryLabel,
             LastSamplePackets: process.LastSamplePackets,
             PeakSamplePackets: process.PeakSamplePackets,
             AvgSamplePackets: process.AvgSamplePackets,
@@ -142,6 +146,15 @@ public sealed class ProcessIncidentReportExportService
                     ScoreLabel: insight.ScoreLabel,
                     SeverityLabel: insight.SeverityLabel,
                     Evidence: insight.Evidence.Select(evidence => evidence.Summary).ToArray()))
+                .ToArray(),
+            BehaviorDeviations: process.BehaviorDeviations
+                .Select(deviation => new BehaviorDeviationDocument(
+                    Title: deviation.Title,
+                    Summary: deviation.Summary,
+                    Score: deviation.Score,
+                    ScoreLabel: deviation.ScoreLabel,
+                    SeverityLabel: deviation.SeverityLabel,
+                    Evidence: deviation.Evidence.Select(evidence => evidence.Summary).ToArray()))
                 .ToArray(),
             RiskReasons: process.RiskReasons
                 .Select(reason => new RiskReasonDocument(reason.Summary, reason.Points))
@@ -221,6 +234,7 @@ public sealed class ProcessIncidentReportExportService
         AppendMetricCard(sb, "Traffic", document.Summary.TotalBytesHuman, $"{document.Summary.PacketCount:N0} packets observed");
         AppendMetricCard(sb, "Liveness", document.Summary.LivenessLabel, document.Summary.LastSeen is null ? "No last-seen timestamp" : $"Last seen {FormatDateTime(document.Summary.LastSeen.Value)}");
         AppendMetricCard(sb, "Detections", string.IsNullOrWhiteSpace(document.Summary.DetectionSummary) ? "None" : document.Summary.DetectionSummary, $"{document.DetectionScenarios.Length} scenario(s)");
+        AppendMetricCard(sb, "Baseline", document.Summary.BaselineState, string.IsNullOrWhiteSpace(document.Summary.BehaviorDeviationSummary) ? "No active deviations" : document.Summary.BehaviorDeviationSummary);
         sb.AppendLine("  </div>");
 
         sb.AppendLine("  <h2>Process profile</h2>");
@@ -229,6 +243,7 @@ public sealed class ProcessIncidentReportExportService
         AppendDefinitionLine(sb, "Publisher", document.Summary.Publisher);
         AppendDefinitionLine(sb, "Signature", document.Summary.SignedLabel);
         AppendDefinitionLine(sb, "Parent", FormatParent(document.Summary.ParentName, document.Summary.ParentPid));
+        AppendDefinitionLine(sb, "Adaptive baseline", document.Summary.BaselineState);
         AppendDefinitionLine(sb, "Top remote", document.Summary.TopRemoteEndpoint);
         AppendDefinitionLine(sb, "Outbound / inbound bytes", $"{FormatBytes(document.Summary.OutboundBytes)} / {FormatBytes(document.Summary.InboundBytes)}");
         AppendDefinitionLine(sb, "Outbound / inbound packets", $"{document.Summary.OutboundPackets:N0} / {document.Summary.InboundPackets:N0}");
@@ -254,6 +269,10 @@ public sealed class ProcessIncidentReportExportService
             AppendDefinitionLine(sb, "SNI / certificate mismatch", $"{document.Summary.SniCertificateMismatchCount:N0} event(s); latest {document.Summary.LastSniCertificateMismatch}");
         if (document.Summary.MostReusedCertificateDomainCount > 0)
             AppendDefinitionLine(sb, "Certificate reuse", $"{document.Summary.MostReusedCertificateDomainCount:N0} domains on {document.Summary.MostReusedCertificateFingerprint}");
+        if (!string.IsNullOrWhiteSpace(document.Summary.BaselineSummary))
+            AppendDefinitionLine(sb, "Baseline summary", document.Summary.BaselineSummary);
+        if (!string.IsNullOrWhiteSpace(document.Summary.BaselineLearningNote))
+            AppendDefinitionLine(sb, "Learning note", document.Summary.BaselineLearningNote);
         sb.AppendLine("  </div>");
 
         sb.AppendLine("  <h2>Detection scenarios</h2>");
@@ -307,6 +326,38 @@ public sealed class ProcessIncidentReportExportService
             }
             sb.AppendLine("  </div>");
         }
+
+        sb.AppendLine("  <h2>Adaptive baseline</h2>");
+        sb.AppendLine("  <div class=\"card\">");
+        sb.AppendLine($"    <p><strong>State:</strong> {Html(document.Summary.BaselineState)}</p>");
+        if (!string.IsNullOrWhiteSpace(document.Summary.BaselineSummary))
+            sb.AppendLine($"    <p>{Html(document.Summary.BaselineSummary)}</p>");
+        if (!string.IsNullOrWhiteSpace(document.Summary.BaselineLearningNote))
+            sb.AppendLine($"    <p class=\"subtle\">{Html(document.Summary.BaselineLearningNote)}</p>");
+
+        if (document.BehaviorDeviations.Length == 0)
+        {
+            sb.AppendLine("    <p class=\"subtle\">No behavioral deviations from the local baseline were derived.</p>");
+        }
+        else
+        {
+            foreach (var deviation in document.BehaviorDeviations)
+            {
+                sb.AppendLine("    <div class=\"scenario\">");
+                sb.AppendLine($"      <h3>{Html(deviation.Title)}</h3>");
+                sb.AppendLine($"      <p><span class=\"tag\">{Html(deviation.SeverityLabel)}</span><span class=\"tag\">{Html(deviation.ScoreLabel)}</span></p>");
+                sb.AppendLine($"      <p>{Html(deviation.Summary)}</p>");
+                if (deviation.Evidence.Length > 0)
+                {
+                    sb.AppendLine("      <ul>");
+                    for (int i = 0; i < deviation.Evidence.Length; i++)
+                        sb.AppendLine($"        <li>{Html(deviation.Evidence[i])}</li>");
+                    sb.AppendLine("      </ul>");
+                }
+                sb.AppendLine("    </div>");
+            }
+        }
+        sb.AppendLine("  </div>");
 
         sb.AppendLine("  <h2>Risk signals</h2>");
         sb.AppendLine("  <div class=\"card\">");
@@ -446,6 +497,7 @@ public sealed class ProcessIncidentReportExportService
         IncidentSummaryDocument Summary,
         DetectionScenarioDocument[] DetectionScenarios,
         TlsDnsInsightDocument[] TlsDnsInsights,
+        BehaviorDeviationDocument[] BehaviorDeviations,
         RiskReasonDocument[] RiskReasons,
         TimelineEventDocument[] Timeline,
         ConversationDocument[] Conversations,
@@ -480,6 +532,10 @@ public sealed class ProcessIncidentReportExportService
         string FirstSuspiciousDomain,
         string SuspiciousDomainReason,
         string DetectionSummary,
+        string BaselineState,
+        string BaselineSummary,
+        string BaselineLearningNote,
+        string BehaviorDeviationSummary,
         int LastSamplePackets,
         int PeakSamplePackets,
         double AvgSamplePackets,
@@ -523,6 +579,14 @@ public sealed class ProcessIncidentReportExportService
         string[] Evidence);
 
     private sealed record TlsDnsInsightDocument(
+        string Title,
+        string Summary,
+        int Score,
+        string ScoreLabel,
+        string SeverityLabel,
+        string[] Evidence);
+
+    private sealed record BehaviorDeviationDocument(
         string Title,
         string Summary,
         int Score,
