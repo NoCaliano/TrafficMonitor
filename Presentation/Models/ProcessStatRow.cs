@@ -13,6 +13,8 @@ namespace Presentation.Models;
 public sealed class ProcessStatRow : INotifyPropertyChanged
 {
     private const int MaxSamples = 30;
+    private const int DefaultConversationPreviewCount = 4;
+    private const int DefaultSessionClusterPreviewCount = 3;
 
     public sealed record RiskReason(string Summary, int Points)
     {
@@ -341,14 +343,22 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
     public bool HasTimelineEvents => TimelineEvents.Count > 0;
     public string TimelineEmptyState => HasTimelineEvents ? "" : "No investigation events recorded yet.";
     public string TimelineTitle => "Investigation timeline";
-    public ObservableCollection<ProcessConversationRow> Conversations { get; } = new();
-    public bool HasConversations => Conversations.Count > 0;
+    private IReadOnlyList<ProcessConversationRow> _allConversations = Array.Empty<ProcessConversationRow>();
+    private bool _showAllConversations;
+    public ObservableCollection<ProcessConversationRow> VisibleConversations { get; } = new();
+    public bool HasConversations => _allConversations.Count > 0;
+    public bool CanToggleConversations => _allConversations.Count > DefaultConversationPreviewCount;
     public string ConversationTitle => "Conversation view";
     public string ConversationEmptyState => HasConversations ? "" : "No conversation partners recorded yet.";
-    public ObservableCollection<ProcessSessionClusterRow> SessionClusters { get; } = new();
-    public bool HasSessionClusters => SessionClusters.Count > 0;
+    public string ConversationToggleLabel => _showAllConversations ? "Show less" : $"Show all ({_allConversations.Count})";
+    private IReadOnlyList<ProcessSessionClusterRow> _allSessionClusters = Array.Empty<ProcessSessionClusterRow>();
+    private bool _showAllSessionClusters;
+    public ObservableCollection<ProcessSessionClusterRow> VisibleSessionClusters { get; } = new();
+    public bool HasSessionClusters => _allSessionClusters.Count > 0;
+    public bool CanToggleSessionClusters => _allSessionClusters.Count > DefaultSessionClusterPreviewCount;
     public string SessionClustersTitle => "Session clusters";
     public string SessionClustersEmptyState => HasSessionClusters ? "" : "No activity sessions recorded yet.";
+    public string SessionClustersToggleLabel => _showAllSessionClusters ? "Show less" : $"Show all ({_allSessionClusters.Count})";
 
     public string RiskLabel
     {
@@ -1125,16 +1135,48 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
 
     public void UpdateConversations(IEnumerable<ProcessConversationRow> conversations)
     {
-        ReplaceCollection(Conversations, conversations, AreEquivalentConversations);
+        _allConversations = conversations as IReadOnlyList<ProcessConversationRow> ?? conversations.ToArray();
+        if (_allConversations.Count <= DefaultConversationPreviewCount)
+            _showAllConversations = false;
+
+        RefreshVisibleConversations();
         OnPropertyChanged(nameof(HasConversations));
+        OnPropertyChanged(nameof(CanToggleConversations));
+        OnPropertyChanged(nameof(ConversationToggleLabel));
         OnPropertyChanged(nameof(ConversationEmptyState));
     }
 
     public void UpdateSessionClusters(IEnumerable<ProcessSessionClusterRow> sessionClusters)
     {
-        ReplaceCollection(SessionClusters, sessionClusters, AreEquivalentSessionClusters);
+        _allSessionClusters = sessionClusters as IReadOnlyList<ProcessSessionClusterRow> ?? sessionClusters.ToArray();
+        if (_allSessionClusters.Count <= DefaultSessionClusterPreviewCount)
+            _showAllSessionClusters = false;
+
+        RefreshVisibleSessionClusters();
         OnPropertyChanged(nameof(HasSessionClusters));
+        OnPropertyChanged(nameof(CanToggleSessionClusters));
+        OnPropertyChanged(nameof(SessionClustersToggleLabel));
         OnPropertyChanged(nameof(SessionClustersEmptyState));
+    }
+
+    public void ToggleConversationsExpansion()
+    {
+        if (!CanToggleConversations)
+            return;
+
+        _showAllConversations = !_showAllConversations;
+        RefreshVisibleConversations();
+        OnPropertyChanged(nameof(ConversationToggleLabel));
+    }
+
+    public void ToggleSessionClustersExpansion()
+    {
+        if (!CanToggleSessionClusters)
+            return;
+
+        _showAllSessionClusters = !_showAllSessionClusters;
+        RefreshVisibleSessionClusters();
+        OnPropertyChanged(nameof(SessionClustersToggleLabel));
     }
 
     public void ApplyBehaviorBaseline(
@@ -1226,6 +1268,24 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
 
         for (int i = target.Count; i < desired.Count; i++)
             target.Add(desired[i]);
+    }
+
+    private void RefreshVisibleConversations()
+    {
+        var preview = _showAllConversations || _allConversations.Count <= DefaultConversationPreviewCount
+            ? _allConversations
+            : _allConversations.Take(DefaultConversationPreviewCount).ToArray();
+
+        ReplaceCollection(VisibleConversations, preview, AreEquivalentConversations);
+    }
+
+    private void RefreshVisibleSessionClusters()
+    {
+        var preview = _showAllSessionClusters || _allSessionClusters.Count <= DefaultSessionClusterPreviewCount
+            ? _allSessionClusters
+            : _allSessionClusters.Take(DefaultSessionClusterPreviewCount).ToArray();
+
+        ReplaceCollection(VisibleSessionClusters, preview, AreEquivalentSessionClusters);
     }
 
     private static bool HasSameContent<T>(ObservableCollection<T> current, IReadOnlyList<T> desired, Func<T, T, bool> areEquivalent)

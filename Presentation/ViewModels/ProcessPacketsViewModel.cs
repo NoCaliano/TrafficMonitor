@@ -108,6 +108,8 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
     public ICommand BlockProcessFirewallCommand { get; }
     public ICommand UnblockProcessFirewallCommand { get; }
     public ICommand ExportIncidentReportCommand { get; }
+    public ICommand ToggleConversationsExpansionCommand { get; }
+    public ICommand ToggleSessionClustersExpansionCommand { get; }
     public ICommand SaveIncidentGraphImageCommand => _saveIncidentGraphImageCommand;
     public ICommand BackToProcessGridCommand { get; }
 
@@ -260,6 +262,8 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
         BlockProcessFirewallCommand = new RelayCommand(p => BlockProcessInFirewall(p));
         UnblockProcessFirewallCommand = new RelayCommand(p => UnblockProcessInFirewall(p));
         ExportIncidentReportCommand = new RelayCommand(p => ExportIncidentReport(p));
+        ToggleConversationsExpansionCommand = new RelayCommand(p => ToggleConversationsExpansion(p));
+        ToggleSessionClustersExpansionCommand = new RelayCommand(p => ToggleSessionClustersExpansion(p));
         _saveIncidentGraphImageCommand = new RelayCommand(
             p => SaveIncidentGraphImage(p),
             p => CanSaveIncidentGraphImage(p));
@@ -627,6 +631,22 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
             ReportStatus("Incident report export failed.");
             MessageBox.Show(ex.Message, "Export incident report failed", MessageBoxButton.OK, MessageBoxImage.Error);
         }
+    }
+
+    private void ToggleConversationsExpansion(object? parameter)
+    {
+        if (parameter is not ProcessStatRow row)
+            return;
+
+        row.ToggleConversationsExpansion();
+    }
+
+    private void ToggleSessionClustersExpansion(object? parameter)
+    {
+        if (parameter is not ProcessStatRow row)
+            return;
+
+        row.ToggleSessionClustersExpansion();
     }
 
     private bool CanSaveIncidentGraphImage(object? parameter)

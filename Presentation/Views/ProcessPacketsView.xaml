@@ -591,12 +591,28 @@
                            Foreground="{StaticResource TextMutedBrush}"
                            TextWrapping="Wrap"/>
 
-                <TextBlock Margin="0,18,0,0"
-                           Text="{Binding ConversationTitle}"
-                           FontWeight="SemiBold"
-                           Foreground="{StaticResource TextPrimaryBrush}"/>
+                <Grid Margin="0,18,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
 
-                <ItemsControl ItemsSource="{Binding Conversations}" Margin="0,10,0,0">
+                    <TextBlock Text="{Binding ConversationTitle}"
+                               FontWeight="SemiBold"
+                               Foreground="{StaticResource TextPrimaryBrush}"
+                               VerticalAlignment="Center"/>
+
+                    <Button Grid.Column="1"
+                            Content="{Binding ConversationToggleLabel}"
+                            Command="{Binding DataContext.ToggleConversationsExpansionCommand, ElementName=ProcessPacketsLayout}"
+                            CommandParameter="{Binding}"
+                            Style="{StaticResource ChipButtonStyle}"
+                            Margin="12,0,0,0"
+                            VerticalAlignment="Center"
+                            Visibility="{Binding CanToggleConversations, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                </Grid>
+
+                <ItemsControl ItemsSource="{Binding VisibleConversations}" Margin="0,10,0,0">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
                             <Border Margin="0,0,0,10"
@@ -647,12 +663,28 @@
                            Foreground="{StaticResource TextMutedBrush}"
                            TextWrapping="Wrap"/>
 
-                <TextBlock Margin="0,18,0,0"
-                           Text="{Binding SessionClustersTitle}"
-                           FontWeight="SemiBold"
-                           Foreground="{StaticResource TextPrimaryBrush}"/>
+                <Grid Margin="0,18,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
 
-                <ItemsControl ItemsSource="{Binding SessionClusters}" Margin="0,10,0,0">
+                    <TextBlock Text="{Binding SessionClustersTitle}"
+                               FontWeight="SemiBold"
+                               Foreground="{StaticResource TextPrimaryBrush}"
+                               VerticalAlignment="Center"/>
+
+                    <Button Grid.Column="1"
+                            Content="{Binding SessionClustersToggleLabel}"
+                            Command="{Binding DataContext.ToggleSessionClustersExpansionCommand, ElementName=ProcessPacketsLayout}"
+                            CommandParameter="{Binding}"
+                            Style="{StaticResource ChipButtonStyle}"
+                            Margin="12,0,0,0"
+                            VerticalAlignment="Center"
+                            Visibility="{Binding CanToggleSessionClusters, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                </Grid>
+
+                <ItemsControl ItemsSource="{Binding VisibleSessionClusters}" Margin="0,10,0,0">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
                             <Border Margin="0,0,0,10"

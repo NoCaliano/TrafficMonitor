@@ -39,6 +39,40 @@
                 </DataTrigger>
             </Style.Triggers>
         </Style>
+        <Style x:Key="DisplayFilterExampleListBoxStyle" TargetType="ListBox">
+            <Setter Property="Background" Value="{StaticResource CardBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrushSoft}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+            <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Auto"/>
+            <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled"/>
+        </Style>
+        <Style x:Key="DisplayFilterExampleItemStyle" TargetType="ListBoxItem">
+            <Setter Property="Padding" Value="10,8"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="ItemBorder"
+                                Background="{TemplateBinding Background}"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ItemBorder" Property="Background" Value="{StaticResource AccentBrushSoft}"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="ItemBorder" Property="Background" Value="{StaticResource SelectionBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </UserControl.Resources>
     
     <Grid Background="{StaticResource AppBackgroundBrush}">
@@ -81,26 +115,62 @@
                         Command="{Binding OpenFiltersCommand}"
                         Style="{StaticResource PacketsFilterButtonStyle}"/>
 
-                <TextBox Grid.Row="0" Grid.Column="4"
-                         Style="{StaticResource DisplayFilterTextBoxStyle}"
-                         Text="{Binding DisplayFilterText, UpdateSourceTrigger=PropertyChanged, Delay=350}"
-                         ToolTip="{Binding DisplayFilterHint}"/>
+                <Grid x:Name="DisplayFilterInputHost"
+                      Grid.Row="0"
+                      Grid.Column="4"
+                      Grid.ColumnSpan="3">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="8"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
 
-                <Button Grid.Row="0" Grid.Column="6"
-                        Content="🔽"
-                        Command="{Binding ToggleDisplayFilterExamplesCommand}"
-                        Style="{StaticResource DisplayFilterToggleButtonStyle}"/>
+                    <TextBox x:Name="DisplayFilterInput"
+                             Grid.Column="0"
+                             Style="{StaticResource DisplayFilterTextBoxStyle}"
+                             Text="{Binding DisplayFilterText, UpdateSourceTrigger=PropertyChanged, Delay=350}"
+                             ToolTip="{Binding DisplayFilterHint}"/>
 
-                <ComboBox Grid.Row="1"
-                          Grid.Column="4"
-                          Grid.ColumnSpan="3"
-                          Margin="0,6,0,0"
-                          MinHeight="28"
-                          ItemsSource="{Binding DisplayFilterExamples}"
-                          SelectedItem="{Binding SelectedDisplayFilterExample, Mode=TwoWay}"
-                          IsDropDownOpen="{Binding IsDisplayFilterExamplesOpen, Mode=TwoWay}"
-                          MaxDropDownHeight="220"
-                          Visibility="{Binding IsDisplayFilterExamplesOpen, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                    <Button Grid.Column="2"
+                            Content="🔽"
+                            Command="{Binding ToggleDisplayFilterExamplesCommand}"
+                            Style="{StaticResource DisplayFilterToggleButtonStyle}"/>
+                </Grid>
+
+                <Popup Grid.Row="1"
+                       Grid.Column="4"
+                       Grid.ColumnSpan="3"
+                       PlacementTarget="{Binding ElementName=DisplayFilterInputHost}"
+                       Placement="Bottom"
+                       HorizontalOffset="0"
+                       VerticalOffset="6"
+                       AllowsTransparency="True"
+                       PopupAnimation="Fade"
+                       StaysOpen="False"
+                       IsOpen="{Binding IsDisplayFilterExamplesOpen, Mode=TwoWay}">
+                    <Border Width="{Binding ActualWidth, ElementName=DisplayFilterInputHost}"
+                            MaxWidth="520"
+                            Background="{StaticResource CardBrush}"
+                            BorderBrush="{StaticResource BorderBrushSoft}"
+                            BorderThickness="1"
+                            CornerRadius="10"
+                            SnapsToDevicePixels="True">
+                        <ListBox MaxHeight="220"
+                                 Style="{StaticResource DisplayFilterExampleListBoxStyle}"
+                                 BorderThickness="0"
+                                 ItemContainerStyle="{StaticResource DisplayFilterExampleItemStyle}"
+                                 ItemsSource="{Binding DisplayFilterExamples}"
+                                 SelectedItem="{Binding SelectedDisplayFilterExample, Mode=TwoWay}">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding}"
+                                               TextWrapping="Wrap"
+                                               Foreground="{StaticResource TextPrimaryBrush}"/>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Border>
+                </Popup>
             </Grid>
         </Border>
 
