@@ -399,11 +399,12 @@
                                             <DataTemplate>
                                                 <Path Data="{Binding Geometry}"
                                                       Stroke="{Binding Stroke}"
+                                                      StrokeDashArray="{Binding StrokeDashArray}"
                                                       StrokeThickness="{Binding Thickness}"
                                                       Opacity="{Binding Opacity}"
+                                                      IsHitTestVisible="False"
                                                       StrokeStartLineCap="Round"
-                                                      StrokeEndLineCap="Round"
-                                                      ToolTip="{Binding Tooltip}"/>
+                                                      StrokeEndLineCap="Round"/>
                                             </DataTemplate>
                                         </ItemsControl.ItemTemplate>
                                     </ItemsControl>
@@ -430,12 +431,35 @@
                                                         BorderBrush="{Binding BorderBrush}"
                                                         BorderThickness="1.4"
                                                         CornerRadius="10"
+                                                        ToolTipService.InitialShowDelay="180"
+                                                        ToolTipService.ShowDuration="30000"
                                                         ToolTip="{Binding Tooltip}">
                                                     <StackPanel>
-                                                        <TextBlock Text="{Binding KindLabel}"
-                                                                   FontSize="10"
-                                                                   FontWeight="SemiBold"
-                                                                   Foreground="{Binding AccentBrush}"/>
+                                                        <Grid>
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="*"/>
+                                                                <ColumnDefinition Width="Auto"/>
+                                                            </Grid.ColumnDefinitions>
+                                                            <TextBlock Text="{Binding KindLabel}"
+                                                                       FontSize="10"
+                                                                       FontWeight="SemiBold"
+                                                                       Foreground="{Binding AccentBrush}"
+                                                                       VerticalAlignment="Center"/>
+                                                            <Border Grid.Column="1"
+                                                                    Padding="6,1"
+                                                                    Margin="8,0,0,0"
+                                                                    CornerRadius="7"
+                                                                    Background="{Binding BadgeBackgroundBrush}"
+                                                                    BorderBrush="{Binding BadgeBorderBrush}"
+                                                                    BorderThickness="1"
+                                                                    VerticalAlignment="Center"
+                                                                    Visibility="{Binding HasBadge, Converter={StaticResource BoolToVisibilityConverter}}">
+                                                                <TextBlock Text="{Binding BadgeText}"
+                                                                           FontSize="9"
+                                                                           FontWeight="SemiBold"
+                                                                           Foreground="{Binding BadgeForegroundBrush}"/>
+                                                            </Border>
+                                                        </Grid>
                                                         <TextBlock Margin="0,4,0,0"
                                                                    Text="{Binding Title}"
                                                                    FontWeight="SemiBold"

@@ -328,19 +328,28 @@ public sealed class ProcessForensicsTracker
                 .ThenByDescending(static state => state.PacketCount)
                 .ThenBy(static state => state.Ip, StringComparer.OrdinalIgnoreCase)
                 .Take(takeIps)
-                .Select(static state => new ProcessIncidentGraphIpObservation(
-                    state.Ip,
-                    state.ResolvedHost,
-                    state.PacketCount,
-                    state.TotalBytes,
-                    state.FirstSeen,
-                    state.LastSeen,
-                    state.LinkedDomains
-                        .OrderBy(static value => value, StringComparer.OrdinalIgnoreCase)
-                        .ToArray(),
-                    state.CertificateFingerprints
-                        .OrderBy(static value => value, StringComparer.OrdinalIgnoreCase)
-                        .ToArray()))
+                .Select(state =>
+                {
+                    var resolutionHints = BuildIncidentGraphResolutionHints(state.Ip);
+                    string resolvedHost = resolutionHints.Length > 0
+                        ? resolutionHints[0].Host
+                        : state.ResolvedHost;
+
+                    return new ProcessIncidentGraphIpObservation(
+                        state.Ip,
+                        resolvedHost,
+                        state.PacketCount,
+                        state.TotalBytes,
+                        state.FirstSeen,
+                        state.LastSeen,
+                        state.LinkedDomains
+                            .OrderBy(static value => value, StringComparer.OrdinalIgnoreCase)
+                            .ToArray(),
+                        state.CertificateFingerprints
+                            .OrderBy(static value => value, StringComparer.OrdinalIgnoreCase)
+                            .ToArray(),
+                        resolutionHints);
+                })
                 .ToArray()
             : Array.Empty<ProcessIncidentGraphIpObservation>();
 
@@ -835,6 +844,16 @@ public sealed class ProcessForensicsTracker
         certificatesByPid[fingerprint] = state;
         return state;
     }
+
+    private ProcessIncidentGraphResolutionHint[] BuildIncidentGraphResolutionHints(string ip, int take = 3)
+        => _hostResolutionService.GetHints(ip, take)
+            .Select(static hint => new ProcessIncidentGraphResolutionHint(
+                hint.Host,
+                hint.SourceLabel,
+                hint.ConfidenceScore,
+                hint.ConfidenceLabel,
+                hint.SummaryLabel))
+            .ToArray();
 
     private static string NormalizeDomain(string? value)
         => string.IsNullOrWhiteSpace(value)

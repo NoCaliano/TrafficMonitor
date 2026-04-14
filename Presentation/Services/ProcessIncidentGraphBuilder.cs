@@ -16,6 +16,7 @@ public sealed class ProcessIncidentGraphBuilder
     private const double VerticalGap = 18;
     private const double TopMargin = 16;
     private const int MaxDomainNodes = 6;
+    private const int MaxHintNodes = 6;
     private const int MaxIpNodes = 6;
     private const int MaxCertificateNodes = 5;
     private const int MaxFindingNodes = 5;
@@ -28,6 +29,7 @@ public sealed class ProcessIncidentGraphBuilder
         var processSeed = CreateProcessSeed(row);
         var domainObservations = SelectDomainObservations(snapshot);
         var ipObservations = SelectIpObservations(snapshot, domainObservations);
+        var hintDescriptors = BuildHintDescriptors(ipObservations, domainObservations);
         var certificateObservations = SelectCertificateObservations(snapshot, ipObservations);
         var findingDescriptors = BuildFindingDescriptors(row).Take(MaxFindingNodes).ToArray();
 
@@ -41,13 +43,16 @@ public sealed class ProcessIncidentGraphBuilder
             };
         }
 
-        var lanes = new List<(string Label, NodeSeed[] Seeds)>(capacity: 5)
+        var lanes = new List<(string Label, NodeSeed[] Seeds)>(capacity: 6)
         {
             ("Process", new[] { processSeed })
         };
 
         if (domainObservations.Length > 0)
             lanes.Add(("Domains", domainObservations.Select(CreateDomainSeed).ToArray()));
+
+        if (hintDescriptors.Length > 0)
+            lanes.Add(("Hints", hintDescriptors.Select(CreateHintSeed).ToArray()));
 
         if (ipObservations.Length > 0)
             lanes.Add(("IPs", ipObservations.Select(CreateIpSeed).ToArray()));
@@ -69,9 +74,9 @@ public sealed class ProcessIncidentGraphBuilder
             nodes.AddRange(LayoutLaneNodes(columns[laneIndex], laneIndex, maxRows));
 
         var nodeById = nodes.ToDictionary(static node => node.Id, StringComparer.Ordinal);
-        var edges = BuildEdges(row, snapshot, domainObservations, ipObservations, certificateObservations, findingDescriptors, nodeById);
+        var edges = BuildEdges(row, snapshot, domainObservations, hintDescriptors, ipObservations, certificateObservations, findingDescriptors, nodeById);
 
-        string summary = BuildSummary(domainObservations.Length, ipObservations.Length, certificateObservations.Length, findingDescriptors.Length, edges.Count);
+        string summary = BuildSummary(domainObservations.Length, hintDescriptors.Length, ipObservations.Length, certificateObservations.Length, findingDescriptors.Length, edges.Count);
         return new ProcessIncidentGraph
         {
             Lanes = lanes
@@ -123,6 +128,44 @@ public sealed class ProcessIncidentGraphBuilder
             .OrderByDescending(static observation => observation.TotalBytes)
             .ThenByDescending(static observation => observation.PacketCount)
             .ThenBy(static observation => observation.Ip, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private static HintDescriptor[] BuildHintDescriptors(
+        IReadOnlyList<ProcessIncidentGraphIpObservation> selectedIps,
+        IReadOnlyList<ProcessIncidentGraphDomainObservation> selectedDomains)
+    {
+        if (selectedIps.Count == 0)
+            return Array.Empty<HintDescriptor>();
+
+        var evidenceDomains = new HashSet<string>(selectedDomains.Select(static domain => domain.Domain), StringComparer.OrdinalIgnoreCase);
+        var aggregates = new Dictionary<string, HintAggregate>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var ip in selectedIps)
+        {
+            for (int i = 0; i < ip.ResolutionHints.Count; i++)
+            {
+                var hint = ip.ResolutionHints[i];
+                if (string.IsNullOrWhiteSpace(hint.Host) || evidenceDomains.Contains(hint.Host))
+                    continue;
+
+                if (!aggregates.TryGetValue(hint.Host, out var aggregate))
+                {
+                    aggregate = new HintAggregate(hint.Host);
+                    aggregates[hint.Host] = aggregate;
+                }
+
+                aggregate.Observe(ip.Ip, hint);
+            }
+        }
+
+        return aggregates.Values
+            .OrderByDescending(static aggregate => aggregate.ConfidenceScore)
+            .ThenByDescending(static aggregate => aggregate.RelatedIps.Count)
+            .ThenByDescending(static aggregate => aggregate.ObservationCount)
+            .ThenBy(static aggregate => aggregate.Host, StringComparer.OrdinalIgnoreCase)
+            .Take(MaxHintNodes)
+            .Select(static aggregate => aggregate.ToDescriptor())
             .ToArray();
     }
 
@@ -179,6 +222,7 @@ public sealed class ProcessIncidentGraphBuilder
                 Subtitle = seed.Subtitle,
                 MetricLabel = seed.MetricLabel,
                 Tooltip = seed.Tooltip,
+                BadgeText = seed.BadgeText,
                 LaneIndex = laneIndex,
                 Left = left,
                 Top = topOffset + (index * laneHeight),
@@ -187,7 +231,10 @@ public sealed class ProcessIncidentGraphBuilder
                 BackgroundBrush = seed.BackgroundBrush,
                 BorderBrush = seed.BorderBrush,
                 AccentBrush = seed.AccentBrush,
-                SecondaryBrush = seed.SecondaryBrush
+                SecondaryBrush = seed.SecondaryBrush,
+                BadgeBackgroundBrush = seed.BadgeBackgroundBrush ?? Brushes.Transparent,
+                BadgeBorderBrush = seed.BadgeBorderBrush ?? Brushes.Transparent,
+                BadgeForegroundBrush = seed.BadgeForegroundBrush ?? Brushes.DimGray
             };
         }
 
@@ -198,6 +245,7 @@ public sealed class ProcessIncidentGraphBuilder
         ProcessStatRow row,
         ProcessIncidentGraphSnapshot snapshot,
         IReadOnlyList<ProcessIncidentGraphDomainObservation> domains,
+        IReadOnlyList<HintDescriptor> hints,
         IReadOnlyList<ProcessIncidentGraphIpObservation> ips,
         IReadOnlyList<ProcessIncidentGraphCertificateObservation> certificates,
         IReadOnlyList<FindingDescriptor> findings,
@@ -232,6 +280,7 @@ public sealed class ProcessIncidentGraphBuilder
 
         var domainNodeSet = new HashSet<string>(domains.Select(static domain => domain.Domain), StringComparer.OrdinalIgnoreCase);
         var ipNodeSet = new HashSet<string>(ips.Select(static ip => ip.Ip), StringComparer.OrdinalIgnoreCase);
+        var hintNodeSet = new HashSet<string>(hints.Select(static hint => hint.Host), StringComparer.OrdinalIgnoreCase);
         foreach (var link in snapshot.DomainIpLinks)
         {
             if (!domainNodeSet.Contains(link.Domain) || !ipNodeSet.Contains(link.Ip))
@@ -245,6 +294,24 @@ public sealed class ProcessIncidentGraphBuilder
 
             string tooltip = $"{link.Domain} resolved or connected to {link.Ip} ({link.HitCount:N0} observed link(s)).";
             edges.Add(CreateEdge(domainNode, ipNode, tooltip, link.HitCount, ipNode.BorderBrush));
+        }
+
+        foreach (var hint in hints)
+        {
+            if (!hintNodeSet.Contains(hint.Host))
+                continue;
+
+            if (!nodeById.TryGetValue(GetHintNodeId(hint.Host), out var hintNode))
+                continue;
+
+            foreach (var ip in ips.Where(ip => ip.ResolutionHints.Any(resolutionHint => string.Equals(resolutionHint.Host, hint.Host, StringComparison.OrdinalIgnoreCase))))
+            {
+                if (!nodeById.TryGetValue(GetIpNodeId(ip.Ip), out var ipNode))
+                    continue;
+
+                string tooltip = $"{hint.Host} is a resolver hint for {ip.Ip} ({hint.SourceLabel}, {hint.ConfidenceLabel.ToLowerInvariant()} confidence).";
+                edges.Add(CreateHintEdge(hintNode, ipNode, tooltip, hint.ConfidenceScore, hintNode.BorderBrush));
+            }
         }
 
         var certificateNodeSet = new HashSet<string>(certificates.Select(static certificate => certificate.Fingerprint), StringComparer.OrdinalIgnoreCase);
@@ -391,22 +458,32 @@ public sealed class ProcessIncidentGraphBuilder
             SecondaryBrush: Brushes.DarkSlateGray);
     }
 
+    private static NodeSeed CreateHintSeed(HintDescriptor descriptor)
+    {
+        var (badgeBackground, badgeBorder, badgeForeground) = CreateConfidenceBadgeBrushes(descriptor.ConfidenceLabel);
+        return new NodeSeed(
+            Id: GetHintNodeId(descriptor.Host),
+            KindLabel: "Resolver hint",
+            Title: descriptor.Host,
+            Subtitle: $"{descriptor.SourceLabel} | enrichment only",
+            MetricLabel: $"{descriptor.RelatedIpCount:N0} IP(s) | not direct evidence",
+            Tooltip: descriptor.Tooltip,
+            BackgroundBrush: CreateBrush(244, 247, 251),
+            BorderBrush: Brushes.SlateGray,
+            AccentBrush: Brushes.SlateGray,
+            SecondaryBrush: Brushes.DimGray,
+            BadgeText: descriptor.ConfidenceLabel,
+            BadgeBackgroundBrush: badgeBackground,
+            BadgeBorderBrush: badgeBorder,
+            BadgeForegroundBrush: badgeForeground);
+    }
+
     private static NodeSeed CreateIpSeed(ProcessIncidentGraphIpObservation observation)
     {
-        string title = string.IsNullOrWhiteSpace(observation.ResolvedHost) || string.Equals(observation.ResolvedHost, observation.Ip, StringComparison.OrdinalIgnoreCase)
-            ? observation.Ip
-            : observation.ResolvedHost;
-        string subtitle = string.Equals(title, observation.Ip, StringComparison.OrdinalIgnoreCase)
-            ? $"{observation.LinkedDomains.Count:N0} domain(s)"
-            : observation.Ip;
+        string title = observation.Ip;
+        string subtitle = BuildIpSubtitle(observation);
         string metric = $"{observation.PacketCount:N0} pkt • {FormatBytes(observation.TotalBytes)}";
-        string tooltip = string.Join(Environment.NewLine, new[]
-        {
-            observation.Ip,
-            string.IsNullOrWhiteSpace(observation.ResolvedHost) ? string.Empty : $"Resolved host: {observation.ResolvedHost}",
-            observation.LinkedDomains.Count == 0 ? string.Empty : $"Domains: {string.Join(", ", observation.LinkedDomains.Take(4))}",
-            observation.CertificateFingerprints.Count == 0 ? string.Empty : $"Certificates: {string.Join(", ", observation.CertificateFingerprints.Select(ShortenFingerprint).Take(3))}"
-        }.Where(static value => !string.IsNullOrWhiteSpace(value)));
+        string tooltip = BuildIpTooltip(observation);
 
         return new NodeSeed(
             Id: GetIpNodeId(observation.Ip),
@@ -419,6 +496,49 @@ public sealed class ProcessIncidentGraphBuilder
             BorderBrush: Brushes.CadetBlue,
             AccentBrush: Brushes.CadetBlue,
             SecondaryBrush: Brushes.DarkSlateGray);
+    }
+
+    private static string BuildIpSubtitle(ProcessIncidentGraphIpObservation observation)
+    {
+        if (observation.LinkedDomains.Count > 0)
+            return $"{observation.LinkedDomains.Count:N0} observed domain(s)";
+
+        if (observation.ResolutionHints.Count > 0)
+            return observation.ResolutionHints.Count == 1 ? "1 resolver hint" : $"{observation.ResolutionHints.Count:N0} resolver hints";
+
+        if (!string.IsNullOrWhiteSpace(observation.ResolvedHost)
+            && !string.Equals(observation.ResolvedHost, observation.Ip, StringComparison.OrdinalIgnoreCase))
+        {
+            return $"Hint: {ShortenHost(observation.ResolvedHost)}";
+        }
+
+        return "No DNS / TLS host hints";
+    }
+
+    private static string BuildIpTooltip(ProcessIncidentGraphIpObservation observation)
+    {
+        var parts = new List<string>(capacity: 6)
+        {
+            observation.Ip
+        };
+
+        if (observation.LinkedDomains.Count > 0)
+            parts.Add($"Observed domains: {string.Join(", ", observation.LinkedDomains.Take(4))}");
+
+        if (observation.ResolutionHints.Count > 0)
+        {
+            parts.Add($"Resolver hints: {string.Join("; ", observation.ResolutionHints.Take(3).Select(static hint => $"{hint.Host} [{hint.SummaryLabel}]"))}");
+        }
+        else if (!string.IsNullOrWhiteSpace(observation.ResolvedHost)
+            && !string.Equals(observation.ResolvedHost, observation.Ip, StringComparison.OrdinalIgnoreCase))
+        {
+            parts.Add($"Best hint: {observation.ResolvedHost}");
+        }
+
+        if (observation.CertificateFingerprints.Count > 0)
+            parts.Add($"Certificates: {string.Join(", ", observation.CertificateFingerprints.Select(ShortenFingerprint).Take(3))}");
+
+        return string.Join(Environment.NewLine, parts.Where(static value => !string.IsNullOrWhiteSpace(value)));
     }
 
     private static NodeSeed CreateCertificateSeed(ProcessIncidentGraphCertificateObservation observation)
@@ -525,11 +645,13 @@ public sealed class ProcessIncidentGraphBuilder
             .ToArray();
     }
 
-    private static string BuildSummary(int domains, int ips, int certificates, int findings, int edges)
+    private static string BuildSummary(int domains, int hints, int ips, int certificates, int findings, int edges)
     {
-        var parts = new List<string>(capacity: 5);
+        var parts = new List<string>(capacity: 6);
         if (domains > 0)
             parts.Add($"{domains} domain{(domains == 1 ? "" : "s")}");
+        if (hints > 0)
+            parts.Add($"{hints} hint{(hints == 1 ? "" : "s")}");
         if (ips > 0)
             parts.Add($"{ips} IP{(ips == 1 ? "" : "s")}");
         if (certificates > 0)
@@ -637,6 +759,22 @@ public sealed class ProcessIncidentGraphBuilder
         };
     }
 
+    private static ProcessIncidentGraphEdge CreateHintEdge(ProcessIncidentGraphNode source, ProcessIncidentGraphNode target, string tooltip, int confidenceScore, Brush stroke)
+    {
+        var edge = CreateEdge(source, target, tooltip, confidenceScore, stroke);
+        return new ProcessIncidentGraphEdge
+        {
+            SourceId = edge.SourceId,
+            TargetId = edge.TargetId,
+            Tooltip = edge.Tooltip,
+            Geometry = edge.Geometry,
+            Stroke = edge.Stroke,
+            StrokeDashArray = CreateDashArray(5, 4),
+            Thickness = confidenceScore >= 85 ? 1.8 : confidenceScore >= 60 ? 1.5 : 1.2,
+            Opacity = confidenceScore >= 85 ? 0.8 : confidenceScore >= 60 ? 0.65 : 0.5
+        };
+    }
+
     private static SolidColorBrush CreateBrush(byte r, byte g, byte b)
     {
         var brush = new SolidColorBrush(Color.FromRgb(r, g, b));
@@ -644,12 +782,34 @@ public sealed class ProcessIncidentGraphBuilder
         return brush;
     }
 
+    private static DoubleCollection CreateDashArray(params double[] values)
+    {
+        var dashArray = new DoubleCollection(values);
+        dashArray.Freeze();
+        return dashArray;
+    }
+
+    private static (Brush Background, Brush Border, Brush Foreground) CreateConfidenceBadgeBrushes(string confidenceLabel)
+        => confidenceLabel switch
+        {
+            "High" => (CreateBrush(235, 247, 233), Brushes.OliveDrab, Brushes.OliveDrab),
+            "Medium" => (CreateBrush(255, 246, 235), Brushes.DarkOrange, Brushes.DarkOrange),
+            _ => (CreateBrush(240, 243, 247), Brushes.SlateGray, Brushes.SlateGray)
+        };
+
     private static string ShortenFingerprint(string fingerprint)
         => string.IsNullOrWhiteSpace(fingerprint)
             ? string.Empty
             : fingerprint.Length <= 12
                 ? fingerprint
                 : $"{fingerprint[..6]}...{fingerprint[^6..]}";
+
+    private static string ShortenHost(string host)
+        => string.IsNullOrWhiteSpace(host)
+            ? string.Empty
+            : host.Length <= 34
+                ? host
+                : $"{host[..16]}...{host[^14..]}";
 
     private static string FormatBytes(long bytes)
     {
@@ -664,6 +824,7 @@ public sealed class ProcessIncidentGraphBuilder
     }
 
     private static string GetDomainNodeId(string domain) => $"domain:{domain}";
+    private static string GetHintNodeId(string host) => $"hint:{host}";
     private static string GetIpNodeId(string ip) => $"ip:{ip}";
     private static string GetCertificateNodeId(string fingerprint) => $"cert:{fingerprint}";
     private static string GetFindingNodeId(string id) => $"finding:{id}";
@@ -689,7 +850,19 @@ public sealed class ProcessIncidentGraphBuilder
         Brush BackgroundBrush,
         Brush BorderBrush,
         Brush AccentBrush,
-        Brush SecondaryBrush);
+        Brush SecondaryBrush,
+        string BadgeText = "",
+        Brush? BadgeBackgroundBrush = null,
+        Brush? BadgeBorderBrush = null,
+        Brush? BadgeForegroundBrush = null);
+
+    private sealed record HintDescriptor(
+        string Host,
+        string SourceLabel,
+        string ConfidenceLabel,
+        int ConfidenceScore,
+        int RelatedIpCount,
+        string Tooltip);
 
     private sealed record FindingDescriptor(
         string Id,
@@ -708,5 +881,53 @@ public sealed class ProcessIncidentGraphBuilder
         Domains,
         Ips,
         Certificates
+    }
+
+    private sealed class HintAggregate
+    {
+        public HintAggregate(string host)
+        {
+            Host = host;
+        }
+
+        public string Host { get; }
+        public string SourceLabel { get; private set; } = "Observed hint";
+        public string ConfidenceLabel { get; private set; } = "Low";
+        public int ConfidenceScore { get; private set; }
+        public int ObservationCount { get; private set; }
+        public HashSet<string> RelatedIps { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        public void Observe(string ip, ProcessIncidentGraphResolutionHint hint)
+        {
+            ObservationCount++;
+            RelatedIps.Add(ip);
+
+            if (hint.ConfidenceScore < ConfidenceScore)
+                return;
+
+            ConfidenceScore = hint.ConfidenceScore;
+            ConfidenceLabel = hint.ConfidenceLabel;
+            SourceLabel = hint.SourceLabel;
+        }
+
+        public HintDescriptor ToDescriptor()
+        {
+            string tooltip = string.Join(Environment.NewLine, new[]
+            {
+                Host,
+                $"Resolver source: {SourceLabel}",
+                $"Confidence: {ConfidenceLabel} ({ConfidenceScore}%)",
+                $"Related IPs: {string.Join(", ", RelatedIps.Take(4))}",
+                "This node is enrichment only and does not create direct DNS/SNI evidence."
+            });
+
+            return new HintDescriptor(
+                Host,
+                SourceLabel,
+                ConfidenceLabel,
+                ConfidenceScore,
+                RelatedIps.Count,
+                tooltip);
+        }
     }
 }

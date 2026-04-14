@@ -22,7 +22,15 @@ public sealed record ProcessIncidentGraphIpObservation(
     DateTime FirstSeen,
     DateTime LastSeen,
     IReadOnlyList<string> LinkedDomains,
-    IReadOnlyList<string> CertificateFingerprints);
+    IReadOnlyList<string> CertificateFingerprints,
+    IReadOnlyList<ProcessIncidentGraphResolutionHint> ResolutionHints);
+
+public sealed record ProcessIncidentGraphResolutionHint(
+    string Host,
+    string SourceLabel,
+    int ConfidenceScore,
+    string ConfidenceLabel,
+    string SummaryLabel);
 
 public sealed record ProcessIncidentGraphCertificateObservation(
     string Fingerprint,
@@ -86,6 +94,7 @@ public sealed class ProcessIncidentGraphNode
     public string Subtitle { get; init; } = "";
     public string MetricLabel { get; init; } = "";
     public string Tooltip { get; init; } = "";
+    public string BadgeText { get; init; } = "";
     public double Left { get; init; }
     public double Top { get; init; }
     public double Width { get; init; } = 176;
@@ -94,8 +103,12 @@ public sealed class ProcessIncidentGraphNode
     public Brush BorderBrush { get; init; } = Brushes.SteelBlue;
     public Brush AccentBrush { get; init; } = Brushes.SteelBlue;
     public Brush SecondaryBrush { get; init; } = Brushes.DimGray;
+    public Brush BadgeBackgroundBrush { get; init; } = Brushes.Transparent;
+    public Brush BadgeBorderBrush { get; init; } = Brushes.Transparent;
+    public Brush BadgeForegroundBrush { get; init; } = Brushes.DimGray;
     public int LaneIndex { get; init; }
     public bool HasSubtitle => !string.IsNullOrWhiteSpace(Subtitle);
+    public bool HasBadge => !string.IsNullOrWhiteSpace(BadgeText);
 
     public double CenterX => Left + (Width / 2.0);
     public double CenterY => Top + (Height / 2.0);
@@ -110,6 +123,7 @@ public sealed class ProcessIncidentGraphEdge
     public string Tooltip { get; init; } = "";
     public Geometry Geometry { get; init; } = Geometry.Empty;
     public Brush Stroke { get; init; } = Brushes.LightSlateGray;
+    public DoubleCollection? StrokeDashArray { get; init; }
     public double Thickness { get; init; } = 1.8;
     public double Opacity { get; init; } = 0.9;
 }
