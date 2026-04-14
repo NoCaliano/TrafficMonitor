@@ -13,6 +13,8 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Data;
 using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 
 namespace Presentation.ViewModels;
@@ -27,6 +29,7 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
     private readonly ProcessIncidentGraphBuilder _incidentGraphBuilder;
     private readonly IFileDialogService _fileDialogService;
     private readonly ProcessIncidentReportExportService _incidentReportExportService;
+    private readonly RelayCommand _saveIncidentGraphImageCommand;
 
     private readonly Dictionary<int, ProcessStatRow> _processStatsMap = new();
     private readonly Dictionary<int, int> _processPacketsSinceLastSample = new();
@@ -48,7 +51,13 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
     public ProcessIncidentGraph SelectedIncidentGraph
     {
         get => _selectedIncidentGraph;
-        private set => Set(ref _selectedIncidentGraph, value);
+        private set
+        {
+            if (!Set(ref _selectedIncidentGraph, value))
+                return;
+
+            _saveIncidentGraphImageCommand?.RaiseCanExecuteChanged();
+        }
     }
 
     private bool _isProcessDetailsOpen;
@@ -99,6 +108,7 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
     public ICommand BlockProcessFirewallCommand { get; }
     public ICommand UnblockProcessFirewallCommand { get; }
     public ICommand ExportIncidentReportCommand { get; }
+    public ICommand SaveIncidentGraphImageCommand => _saveIncidentGraphImageCommand;
     public ICommand BackToProcessGridCommand { get; }
 
     private string _searchText = "";
@@ -250,6 +260,9 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
         BlockProcessFirewallCommand = new RelayCommand(p => BlockProcessInFirewall(p));
         UnblockProcessFirewallCommand = new RelayCommand(p => UnblockProcessInFirewall(p));
         ExportIncidentReportCommand = new RelayCommand(p => ExportIncidentReport(p));
+        _saveIncidentGraphImageCommand = new RelayCommand(
+            p => SaveIncidentGraphImage(p),
+            p => CanSaveIncidentGraphImage(p));
         BackToProcessGridCommand = new RelayCommand(_ => BackToProcessGrid());
 
         ProcessStatsView = CollectionViewSource.GetDefaultView(ProcessStats);
@@ -602,6 +615,7 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
                 MachineName: Environment.MachineName,
                 ProcessDetails: _processMapperService.GetProcessDetailsCached(row.Pid),
                 Process: row,
+                IncidentGraph: _incidentGraphBuilder.Build(row, _forensicsTracker.GetIncidentGraphSnapshot(row.Pid)),
                 Conversations: _forensicsTracker.GetConversationSnapshot(row.Pid),
                 SessionClusters: _forensicsTracker.GetSessionClusterSnapshot(row.Pid));
 
@@ -612,6 +626,46 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
         {
             ReportStatus("Incident report export failed.");
             MessageBox.Show(ex.Message, "Export incident report failed", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private bool CanSaveIncidentGraphImage(object? parameter)
+        => parameter is FrameworkElement && SelectedProcessStat is not null && SelectedIncidentGraph.HasGraph;
+
+    private void SaveIncidentGraphImage(object? parameter)
+    {
+        if (parameter is not FrameworkElement graphElement)
+        {
+            ReportStatus("Incident graph is not ready to export yet.");
+            return;
+        }
+
+        var row = SelectedProcessStat;
+        if (row is null || row.Pid <= 0 || !SelectedIncidentGraph.HasGraph)
+        {
+            ReportStatus("No incident graph is available for export.");
+            return;
+        }
+
+        SelectProcess(row.Pid);
+
+        string suggestedFileName = BuildIncidentGraphImageFileName(row);
+        string? path = _fileDialogService.ShowSaveImageDialog(System.Windows.Application.Current?.MainWindow, suggestedFileName);
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            ReportStatus("Incident graph export canceled.");
+            return;
+        }
+
+        try
+        {
+            SaveFrameworkElementAsPng(graphElement, path);
+            ReportStatus($"Incident graph exported: {Path.GetFileName(path)}");
+        }
+        catch (Exception ex)
+        {
+            ReportStatus("Incident graph export failed.");
+            MessageBox.Show(ex.Message, "Export incident graph failed", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 
@@ -846,6 +900,12 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
     }
 
     private static string BuildIncidentReportFileName(ProcessStatRow row)
+        => BuildProcessArtifactFileName(row, "incident", "html");
+
+    private static string BuildIncidentGraphImageFileName(ProcessStatRow row)
+        => BuildProcessArtifactFileName(row, "incident_graph", "png");
+
+    private static string BuildProcessArtifactFileName(ProcessStatRow row, string prefix, string extension)
     {
         string processName = string.IsNullOrWhiteSpace(row.ProcessName) ? "process" : row.ProcessName.Trim();
         var invalidChars = Path.GetInvalidFileNameChars();
@@ -854,7 +914,77 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
         if (string.IsNullOrWhiteSpace(sanitizedName))
             sanitizedName = "process";
 
-        return $"incident_{sanitizedName}_{row.Pid}_{DateTime.Now:yyyyMMdd_HHmmss}.html";
+        return $"{prefix}_{sanitizedName}_{row.Pid}_{DateTime.Now:yyyyMMdd_HHmmss}.{extension}";
+    }
+
+    private static void SaveFrameworkElementAsPng(FrameworkElement element, string path)
+    {
+        element.UpdateLayout();
+
+        var bounds = VisualTreeHelper.GetDescendantBounds(element);
+        double width = Math.Max(element.ActualWidth, bounds.Width);
+        double height = Math.Max(element.ActualHeight, bounds.Height);
+        if (width <= 0 || height <= 0)
+            throw new InvalidOperationException("Incident graph visual is not ready for export yet.");
+
+        const double exportScale = 2.0;
+        const double exportPadding = 12.0;
+        double dpi = 96d * exportScale;
+
+        int contentPixelWidth = Math.Max(1, (int)Math.Ceiling(width * exportScale));
+        int contentPixelHeight = Math.Max(1, (int)Math.Ceiling(height * exportScale));
+
+        var contentBitmap = new RenderTargetBitmap(
+            contentPixelWidth,
+            contentPixelHeight,
+            dpi,
+            dpi,
+            PixelFormats.Pbgra32);
+        contentBitmap.Render(element);
+
+        double finalWidth = width + (exportPadding * 2);
+        double finalHeight = height + (exportPadding * 2);
+        int finalPixelWidth = Math.Max(1, (int)Math.Ceiling(finalWidth * exportScale));
+        int finalPixelHeight = Math.Max(1, (int)Math.Ceiling(finalHeight * exportScale));
+
+        var renderTarget = new RenderTargetBitmap(
+            finalPixelWidth,
+            finalPixelHeight,
+            dpi,
+            dpi,
+            PixelFormats.Pbgra32);
+
+        var drawingVisual = new DrawingVisual();
+        using (var context = drawingVisual.RenderOpen())
+        {
+            Brush background = ResolveIncidentGraphExportBackground();
+            context.DrawRectangle(background, null, new Rect(0, 0, finalWidth, finalHeight));
+            context.DrawImage(contentBitmap, new Rect(exportPadding, exportPadding, width, height));
+        }
+
+        renderTarget.Render(drawingVisual);
+
+        var encoder = new PngBitmapEncoder();
+        encoder.Frames.Add(BitmapFrame.Create(renderTarget));
+
+        using var stream = File.Create(path);
+        encoder.Save(stream);
+    }
+
+    private static Brush ResolveIncidentGraphExportBackground()
+    {
+        var resourceBrush = System.Windows.Application.Current?.TryFindResource("SurfaceBrush") as Brush;
+        if (resourceBrush is null)
+            return Brushes.White;
+
+        if (resourceBrush is not Freezable freezable)
+            return resourceBrush;
+
+        var clone = (Brush)freezable.CloneCurrentValue();
+        if (clone.CanFreeze)
+            clone.Freeze();
+
+        return clone;
     }
 
     private static string BuildPacketTimelineDetail(PacketInfo packet)

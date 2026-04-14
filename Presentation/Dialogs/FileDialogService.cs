@@ -46,4 +46,18 @@ public sealed class FileDialogService : IFileDialogService
 
         return dlg.ShowDialog(owner) == true ? dlg.FileName : null;
     }
+
+    public string? ShowSaveImageDialog(Window? owner, string suggestedFileName)
+    {
+        var dlg = new SaveFileDialog
+        {
+            Title = "Save image",
+            Filter = "PNG image (*.png)|*.png|All files (*.*)|*.*",
+            DefaultExt = ".png",
+            AddExtension = true,
+            FileName = suggestedFileName
+        };
+
+        return dlg.ShowDialog(owner) == true ? dlg.FileName : null;
+    }
 }

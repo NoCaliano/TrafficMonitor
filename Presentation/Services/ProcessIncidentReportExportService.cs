@@ -1,9 +1,11 @@
 using Infrastructure.Networking;
 using Presentation.Models;
+using System.Globalization;
 using System.IO;
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using System.Windows.Media;
 
 namespace Presentation.Services;
 
@@ -20,6 +22,7 @@ public sealed class ProcessIncidentReportExportService
         string MachineName,
         ProcessMapperService.ProcessDetails ProcessDetails,
         ProcessStatRow Process,
+        ProcessIncidentGraph IncidentGraph,
         IReadOnlyList<ProcessConversationRow> Conversations,
         IReadOnlyList<ProcessSessionClusterRow> SessionClusters);
 
@@ -127,6 +130,7 @@ public sealed class ProcessIncidentReportExportService
             GeneratedBy: report.GeneratedBy,
             MachineName: report.MachineName,
             Summary: summary,
+            IncidentGraph: BuildIncidentGraphDocument(report.IncidentGraph),
             DetectionScenarios: process.DetectionScenarios
                 .Select(scenario => new DetectionScenarioDocument(
                     Title: scenario.Title,
@@ -208,7 +212,7 @@ public sealed class ProcessIncidentReportExportService
         sb.AppendLine("    p { margin:0 0 10px; }");
         sb.AppendLine("    .meta { color:var(--muted); margin-bottom:18px; }");
         sb.AppendLine("    .grid { display:grid; gap:16px; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); }");
-        sb.AppendLine("    .card { background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:16px; box-shadow:0 8px 24px rgba(15, 23, 42, 0.04); }");
+        sb.AppendLine("    .card { background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:16px; }");
         sb.AppendLine("    .metric { font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:0.04em; }");
         sb.AppendLine("    .value { font-size:19px; font-weight:700; margin-top:4px; }");
         sb.AppendLine("    .subtle { color:var(--muted); }");
@@ -223,6 +227,19 @@ public sealed class ProcessIncidentReportExportService
         sb.AppendLine("    tr:last-child td { border-bottom:none; }");
         sb.AppendLine("    ul { margin:8px 0 0 18px; padding:0; }");
         sb.AppendLine("    li { margin-bottom:6px; }");
+        sb.AppendLine("    .incident-graph-summary { margin-bottom:12px; }");
+        sb.AppendLine("    .incident-graph-scroll { overflow-x:auto; padding-bottom:4px; }");
+        sb.AppendLine("    .incident-graph-frame { min-width:100%; }");
+        sb.AppendLine("    .incident-graph-lanes { display:grid; gap:12px; margin-bottom:10px; }");
+        sb.AppendLine("    .incident-graph-lane { padding:8px 12px; border:1px solid var(--line); border-radius:999px; background:#f3f6fa; text-align:center; font-size:12px; font-weight:700; color:#304252; }");
+        sb.AppendLine("    .incident-graph-svg { display:block; background:#f8fafc; border:1px solid var(--line); border-radius:14px; }");
+        sb.AppendLine("    .graph-node { width:100%; height:100%; border:1.4px solid; border-radius:10px; padding:12px 10px; font:12px/1.35 'Segoe UI', Tahoma, sans-serif; overflow:hidden; display:flex; flex-direction:column; }");
+        sb.AppendLine("    .graph-node-head { display:flex; justify-content:space-between; align-items:flex-start; gap:8px; }");
+        sb.AppendLine("    .graph-node-kind { font-size:10px; font-weight:700; }");
+        sb.AppendLine("    .graph-node-badge { padding:2px 6px; border:1px solid; border-radius:999px; font-size:9px; font-weight:700; white-space:nowrap; }");
+        sb.AppendLine("    .graph-node-title { margin-top:5px; font-size:13px; font-weight:700; color:var(--text); display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }");
+        sb.AppendLine("    .graph-node-subtitle { margin-top:3px; font-size:10px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }");
+        sb.AppendLine("    .graph-node-metric { margin-top:auto; padding-top:6px; font-size:10px; font-weight:700; }");
         sb.AppendLine("  </style>");
         sb.AppendLine("</head>");
         sb.AppendLine("<body>");
@@ -359,6 +376,8 @@ public sealed class ProcessIncidentReportExportService
         }
         sb.AppendLine("  </div>");
 
+        AppendIncidentGraphSection(sb, document.IncidentGraph);
+
         sb.AppendLine("  <h2>Risk signals</h2>");
         sb.AppendLine("  <div class=\"card\">");
         if (document.RiskReasons.Length == 0)
@@ -381,6 +400,113 @@ public sealed class ProcessIncidentReportExportService
         sb.AppendLine("</body>");
         sb.AppendLine("</html>");
         return sb.ToString();
+    }
+
+    private static IncidentGraphDocument BuildIncidentGraphDocument(ProcessIncidentGraph graph)
+    {
+        ArgumentNullException.ThrowIfNull(graph);
+
+        return new IncidentGraphDocument(
+            HasGraph: graph.HasGraph,
+            SummaryLabel: graph.SummaryLabel,
+            EmptyState: graph.EmptyState,
+            CanvasWidth: graph.CanvasWidth,
+            CanvasHeight: graph.CanvasHeight,
+            Lanes: graph.Lanes
+                .Select(lane => new IncidentGraphLaneDocument(lane.Label))
+                .ToArray(),
+            Nodes: graph.Nodes
+                .Select(node => new IncidentGraphNodeDocument(
+                    KindLabel: node.KindLabel,
+                    Title: node.Title,
+                    Subtitle: node.Subtitle,
+                    MetricLabel: node.MetricLabel,
+                    Tooltip: node.Tooltip,
+                    BadgeText: node.BadgeText,
+                    Left: node.Left,
+                    Top: node.Top,
+                    Width: node.Width,
+                    Height: node.Height,
+                    BackgroundColor: BrushToCss(node.BackgroundBrush),
+                    BorderColor: BrushToCss(node.BorderBrush),
+                    AccentColor: BrushToCss(node.AccentBrush),
+                    SecondaryColor: BrushToCss(node.SecondaryBrush),
+                    BadgeBackgroundColor: BrushToCss(node.BadgeBackgroundBrush),
+                    BadgeBorderColor: BrushToCss(node.BadgeBorderBrush),
+                    BadgeForegroundColor: BrushToCss(node.BadgeForegroundBrush),
+                    HasBadge: node.HasBadge))
+                .ToArray(),
+            Edges: graph.Edges
+                .Select(edge => new IncidentGraphEdgeDocument(
+                    PathData: edge.Geometry.ToString(CultureInfo.InvariantCulture),
+                    Tooltip: edge.Tooltip,
+                    StrokeColor: BrushToCss(edge.Stroke),
+                    StrokeDashArray: edge.StrokeDashArray is null
+                        ? ""
+                        : string.Join(" ", edge.StrokeDashArray.Select(value => value.ToString("0.###", CultureInfo.InvariantCulture))),
+                    Thickness: edge.Thickness,
+                    Opacity: edge.Opacity))
+                .ToArray());
+    }
+
+    private static void AppendIncidentGraphSection(StringBuilder sb, IncidentGraphDocument graph)
+    {
+        sb.AppendLine("  <h2>Incident graph</h2>");
+        sb.AppendLine("  <div class=\"card\">");
+
+        if (!string.IsNullOrWhiteSpace(graph.SummaryLabel))
+            sb.AppendLine($"    <p class=\"subtle incident-graph-summary\">{Html(graph.SummaryLabel)}</p>");
+
+        if (!graph.HasGraph || graph.Nodes.Length == 0)
+        {
+            sb.AppendLine($"    <p class=\"subtle\">{Html(graph.EmptyState)}</p>");
+            sb.AppendLine("  </div>");
+            return;
+        }
+
+        int laneCount = Math.Max(1, graph.Lanes.Length);
+        sb.AppendLine("    <div class=\"incident-graph-scroll\">");
+        sb.AppendLine($"      <div class=\"incident-graph-frame\" style=\"width:{FormatNumber(graph.CanvasWidth)}px;\">");
+        sb.AppendLine($"        <div class=\"incident-graph-lanes\" style=\"grid-template-columns:repeat({laneCount}, minmax(0, 1fr));\">");
+        for (int i = 0; i < graph.Lanes.Length; i++)
+            sb.AppendLine($"          <div class=\"incident-graph-lane\">{Html(graph.Lanes[i].Label)}</div>");
+        sb.AppendLine("        </div>");
+        sb.AppendLine($"        <svg class=\"incident-graph-svg\" width=\"{FormatNumber(graph.CanvasWidth)}\" height=\"{FormatNumber(graph.CanvasHeight)}\" viewBox=\"0 0 {FormatNumber(graph.CanvasWidth)} {FormatNumber(graph.CanvasHeight)}\" xmlns=\"http://www.w3.org/2000/svg\">");
+
+        for (int i = 0; i < graph.Edges.Length; i++)
+        {
+            var edge = graph.Edges[i];
+            sb.Append($"          <path d=\"{HtmlAttribute(edge.PathData)}\" fill=\"none\" stroke=\"{HtmlAttribute(edge.StrokeColor)}\" stroke-width=\"{FormatNumber(edge.Thickness)}\" opacity=\"{FormatNumber(edge.Opacity)}\" stroke-linecap=\"round\"");
+            if (!string.IsNullOrWhiteSpace(edge.StrokeDashArray))
+                sb.Append($" stroke-dasharray=\"{HtmlAttribute(edge.StrokeDashArray)}\"");
+            sb.AppendLine(">");
+            if (!string.IsNullOrWhiteSpace(edge.Tooltip))
+                sb.AppendLine($"            <title>{Html(edge.Tooltip)}</title>");
+            sb.AppendLine("          </path>");
+        }
+
+        for (int i = 0; i < graph.Nodes.Length; i++)
+        {
+            var node = graph.Nodes[i];
+            sb.AppendLine($"          <foreignObject x=\"{FormatNumber(node.Left)}\" y=\"{FormatNumber(node.Top)}\" width=\"{FormatNumber(node.Width)}\" height=\"{FormatNumber(node.Height)}\">");
+            sb.AppendLine($"            <div xmlns=\"http://www.w3.org/1999/xhtml\" class=\"graph-node\" style=\"background:{HtmlAttribute(node.BackgroundColor)}; border-color:{HtmlAttribute(node.BorderColor)};\" title=\"{HtmlAttribute(node.Tooltip)}\">");
+            sb.AppendLine("              <div class=\"graph-node-head\">");
+            sb.AppendLine($"                <span class=\"graph-node-kind\" style=\"color:{HtmlAttribute(node.AccentColor)};\">{Html(node.KindLabel)}</span>");
+            if (node.HasBadge)
+                sb.AppendLine($"                <span class=\"graph-node-badge\" style=\"background:{HtmlAttribute(node.BadgeBackgroundColor)}; border-color:{HtmlAttribute(node.BadgeBorderColor)}; color:{HtmlAttribute(node.BadgeForegroundColor)};\">{Html(node.BadgeText)}</span>");
+            sb.AppendLine("              </div>");
+            sb.AppendLine($"              <div class=\"graph-node-title\">{Html(node.Title)}</div>");
+            if (!string.IsNullOrWhiteSpace(node.Subtitle))
+                sb.AppendLine($"              <div class=\"graph-node-subtitle\" style=\"color:{HtmlAttribute(node.SecondaryColor)};\">{Html(node.Subtitle)}</div>");
+            sb.AppendLine($"              <div class=\"graph-node-metric\" style=\"color:{HtmlAttribute(node.AccentColor)};\">{Html(node.MetricLabel)}</div>");
+            sb.AppendLine("            </div>");
+            sb.AppendLine("          </foreignObject>");
+        }
+
+        sb.AppendLine("        </svg>");
+        sb.AppendLine("      </div>");
+        sb.AppendLine("    </div>");
+        sb.AppendLine("  </div>");
     }
 
     private static void AppendMetricCard(StringBuilder sb, string label, string value, string caption)
@@ -488,13 +614,36 @@ public sealed class ProcessIncidentReportExportService
         return $"{bytes:N0} B";
     }
 
+    private static string FormatNumber(double value) => value.ToString("0.###", CultureInfo.InvariantCulture);
+
     private static string Html(string? value) => WebUtility.HtmlEncode(value ?? "");
+
+    private static string HtmlAttribute(string? value)
+        => Html(value)
+            .Replace("\r", string.Empty, StringComparison.Ordinal)
+            .Replace("\n", "&#10;", StringComparison.Ordinal);
+
+    private static string BrushToCss(Brush? brush)
+    {
+        if (brush is SolidColorBrush solidColorBrush)
+        {
+            var color = solidColorBrush.Color;
+            if (color.A == byte.MaxValue)
+                return $"#{color.R:X2}{color.G:X2}{color.B:X2}";
+
+            string alpha = (color.A / 255d).ToString("0.###", CultureInfo.InvariantCulture);
+            return $"rgba({color.R}, {color.G}, {color.B}, {alpha})";
+        }
+
+        return "#000000";
+    }
 
     private sealed record IncidentReportDocument(
         DateTime ExportedAtLocal,
         string GeneratedBy,
         string MachineName,
         IncidentSummaryDocument Summary,
+        IncidentGraphDocument IncidentGraph,
         DetectionScenarioDocument[] DetectionScenarios,
         TlsDnsInsightDocument[] TlsDnsInsights,
         BehaviorDeviationDocument[] BehaviorDeviations,
@@ -595,6 +744,46 @@ public sealed class ProcessIncidentReportExportService
         string[] Evidence);
 
     private sealed record RiskReasonDocument(string Summary, int Points);
+
+    private sealed record IncidentGraphDocument(
+        bool HasGraph,
+        string SummaryLabel,
+        string EmptyState,
+        double CanvasWidth,
+        double CanvasHeight,
+        IncidentGraphLaneDocument[] Lanes,
+        IncidentGraphNodeDocument[] Nodes,
+        IncidentGraphEdgeDocument[] Edges);
+
+    private sealed record IncidentGraphLaneDocument(string Label);
+
+    private sealed record IncidentGraphNodeDocument(
+        string KindLabel,
+        string Title,
+        string Subtitle,
+        string MetricLabel,
+        string Tooltip,
+        string BadgeText,
+        double Left,
+        double Top,
+        double Width,
+        double Height,
+        string BackgroundColor,
+        string BorderColor,
+        string AccentColor,
+        string SecondaryColor,
+        string BadgeBackgroundColor,
+        string BadgeBorderColor,
+        string BadgeForegroundColor,
+        bool HasBadge);
+
+    private sealed record IncidentGraphEdgeDocument(
+        string PathData,
+        string Tooltip,
+        string StrokeColor,
+        string StrokeDashArray,
+        double Thickness,
+        double Opacity);
 
     private sealed record TimelineEventDocument(DateTime Timestamp, string Title, string Detail);
 

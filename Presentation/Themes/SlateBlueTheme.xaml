@@ -29,12 +29,6 @@
         <GradientStop Color="#FFEAF1F7" Offset="1"/>
     </LinearGradientBrush>
 
-    <DropShadowEffect x:Key="CardShadowEffect"
-                      Color="#1C3F5970"
-                      BlurRadius="18"
-                      ShadowDepth="3"
-                      Opacity="1"/>
-
     <Style TargetType="Window">
         <Setter Property="Background" Value="{StaticResource WindowBackgroundBrush}"/>
         <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
@@ -81,7 +75,6 @@
         <Setter Property="BorderThickness" Value="1"/>
         <Setter Property="CornerRadius" Value="14"/>
         <Setter Property="Padding" Value="14"/>
-        <Setter Property="Effect" Value="{StaticResource CardShadowEffect}"/>
     </Style>
 
     <Style x:Key="ToolbarButtonStyle" TargetType="Button">

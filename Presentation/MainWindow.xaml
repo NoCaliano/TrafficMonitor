@@ -71,6 +71,10 @@
                     <MenuItem Header="Process" IsCheckable="True" IsChecked="{Binding IsProcessColumnVisible, Mode=TwoWay}"/>
                     <MenuItem Header="Info" IsCheckable="True" IsChecked="{Binding IsInfoColumnVisible, Mode=TwoWay}"/>
                 </MenuItem>
+                <MenuItem Header="_Analyze">
+                    <MenuItem Header="_Flows" Command="{Binding ShowFlowsCommand}" />
+                    <MenuItem Header="_Statistics" Command="{Binding OpenStatisticsCommand}" />
+                </MenuItem>
             </Menu>
         </Border>
 
@@ -111,33 +115,44 @@
                               SelectedItem="{Binding SelectedDevice}"
                               DisplayMemberPath="Name"/>
 
+
+
                     <Separator/>
 
-                    <Button Content="Start" Command="{Binding StartCommand}" />
-                    <Button Content="Stop" Command="{Binding StopCommand}" />
+                    <Button Content="Start" Command="{Binding StartCommand}" Style="{StaticResource IconToolbarButtonStyle}"/>
+                    <Button Content="Stop" Command="{Binding StopCommand}" Style="{StaticResource IconToolbarButtonStyle}" />
                     <Button Content="Unfollow Flow"
                             Command="{Binding ClearFlowFilterCommand}"
-                            Visibility="{Binding IsFlowFollowActive, Converter={StaticResource BoolToVisibilityConverter}}" />
+                            Visibility="{Binding IsFlowFollowActive, Converter={StaticResource BoolToVisibilityConverter}}"
+                            Style="{StaticResource IconToolbarButtonStyle}"/>
 
                     <Separator/>
 
-                    <TextBlock Foreground="{StaticResource TextSecondaryBrush}" Text="{Binding FiltersText}"/>
+                    <Button Content="DataGrid" Command="{Binding ShowPacketsCommand}" ToolTip="Show Packets" Style="{StaticResource IconToolbarButtonStyle}"/>
+                    <Button Content="Processes"
+                            Command="{Binding ShowProcessPacketsCommand}"
+                            Style="{StaticResource CompactToolbarButtonStyle}" />
 
                     <Separator/>
-
-                    <Button Content="Show Packets" Command="{Binding ShowPacketsCommand}" />
-                    <TextBlock Text="|" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,6,0" VerticalAlignment="Center"/>
-                    <Button Content="Show Flows" Command="{Binding ShowFlowsCommand}" />
-                    <TextBlock Text="|" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,6,0" VerticalAlignment="Center"/>
-                    <Button Content="Process Packets" Command="{Binding ShowProcessPacketsCommand}" />
-                    <Button Content="Statistics" Command="{Binding OpenStatisticsCommand}" />
-                    <Button Content="🔍−" Command="{Binding ZoomOutPacketsCommand}" ToolTip="Зменшити масштаб" Style="{StaticResource IconToolbarButtonStyle}" />
-                    <Button Content="🔍+" Command="{Binding ZoomInPacketsCommand}" ToolTip="Збільшити масштаб" Style="{StaticResource IconToolbarButtonStyle}" />
-                    <Button Content="⏮" Command="{Binding SelectFirstPacketCommand}" ToolTip="Перший пакет" Style="{StaticResource IconToolbarButtonStyle}" />
-                    <Button Content="◀" Command="{Binding SelectPreviousPacketCommand}" ToolTip="Попередній пакет" Style="{StaticResource IconToolbarButtonStyle}" />
-                    <Button Content="▶" Command="{Binding SelectNextPacketCommand}" ToolTip="Наступний пакет" Style="{StaticResource IconToolbarButtonStyle}" />
-                    <Button Content="⏭" Command="{Binding SelectLastPacketCommand}" ToolTip="Останній пакет" Style="{StaticResource IconToolbarButtonStyle}" />
                     
+                    <Button Content="🔍−" Command="{Binding ZoomOutPacketsCommand}" ToolTip="Zoom out" Style="{StaticResource IconToolbarButtonStyle}" />
+                    <Button Content="🔍+" Command="{Binding ZoomInPacketsCommand}" ToolTip="Zoom in" Style="{StaticResource IconToolbarButtonStyle}" />
+                    <Button Content="⏮" Command="{Binding SelectFirstPacketCommand}" ToolTip="First packet" Style="{StaticResource IconToolbarButtonStyle}" />
+                    <Button Content="◀" Command="{Binding SelectPreviousPacketCommand}" ToolTip="Previous packet" Style="{StaticResource IconToolbarButtonStyle}" />
+                    <Button Content="▶" Command="{Binding SelectNextPacketCommand}" ToolTip="Next packet" Style="{StaticResource IconToolbarButtonStyle}" />
+                    <Button Content="⏭" Command="{Binding SelectLastPacketCommand}" ToolTip="Last packet" Style="{StaticResource IconToolbarButtonStyle}" />
+                    
+                    <Separator/>
+                    
+                    <Button Content="📂"
+                        Command="{Binding OpenCaptureCommand}"
+                        ToolTip="Import capture file (Ctrl+O)"
+                        Style="{StaticResource IconToolbarButtonStyle}" />
+                    <Button Content="🗂️"
+                        Command="{Binding SaveCaptureCommand}"
+                        ToolTip="Save capture file (Ctrl+S)"
+                        Style="{StaticResource IconToolbarButtonStyle}" />
+
                 </ToolBar>
             </ToolBarTray>
         </Border>

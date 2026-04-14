@@ -54,6 +54,8 @@ public sealed class MainViewModel : ViewModelBase
     private readonly RelayCommand _followFlowBothDirectionsCommand;
     private readonly RelayCommand _clearFlowFilterCommand;
     private readonly RelayCommand _copyHexCommand;
+    private readonly AsyncRelayCommand _startCommand;
+    private readonly AsyncRelayCommand _stopCommand;
 
     // --- UI batching for incoming packets to avoid flooding the UI thread ---
     private readonly object _pendingLock = new();
@@ -288,7 +290,13 @@ public sealed class MainViewModel : ViewModelBase
     public CaptureDeviceInfo? SelectedDevice
     {
         get => _selectedDevice;
-        set => Set(ref _selectedDevice, value);
+        set
+        {
+            if (!Set(ref _selectedDevice, value))
+                return;
+
+            RefreshCaptureCommandStates();
+        }
     }
 
     private string? _bpfFilter;
@@ -329,7 +337,7 @@ public sealed class MainViewModel : ViewModelBase
 
     public string DisplayFilterHint => HasDisplayFilterError
         ? DisplayFilterError
-        : "Wireshark-like examples: arp, dns, tcp && ip.addr == 1.1.1.1, tcp.port == 443, process contains chrome";
+        : "Examples: arp, dns, tcp && ip.addr == 1.1.1.1, tcp.port == 443, process contains chrome";
 
     public IReadOnlyList<string> DisplayFilterExamples { get; } =
     [
@@ -471,8 +479,10 @@ public sealed class MainViewModel : ViewModelBase
         _filtersFactory = filtersFactory;
 
 
-        StartCommand = new AsyncRelayCommand(StartAsync);
-        StopCommand = new AsyncRelayCommand(StopAsync);
+        _startCommand = new AsyncRelayCommand(StartAsync, CanStartCapture);
+        _stopCommand = new AsyncRelayCommand(StopAsync, CanStopCapture);
+        StartCommand = _startCommand;
+        StopCommand = _stopCommand;
         ApplyBpfCommand = new AsyncRelayCommand(ApplyBpfAsync);
         SaveCaptureCommand = new AsyncRelayCommand(SaveCaptureAsync);
         OpenCaptureCommand = new AsyncRelayCommand(OpenCaptureAsync);
@@ -577,6 +587,7 @@ public sealed class MainViewModel : ViewModelBase
         PacketsView = CollectionViewSource.GetDefaultView(Packets);
 
         RefreshPacketsFilteringUi();
+        RefreshCaptureCommandStates();
     }
 
     private async Task SaveCaptureAsync(CancellationToken ct)
@@ -759,6 +770,16 @@ public sealed class MainViewModel : ViewModelBase
         SelectedDevice = Devices.FirstOrDefault();
     }
 
+    private bool CanStartCapture() => SelectedDevice is not null && !_captureService.IsRunning;
+
+    private bool CanStopCapture() => _captureService.IsRunning;
+
+    private void RefreshCaptureCommandStates()
+    {
+        _startCommand.RaiseCanExecuteChanged();
+        _stopCommand.RaiseCanExecuteChanged();
+    }
+
     // ===================== START/STOP =====================
 
     // Відповідає за запуск захоплення: reset UI, reset flows/stats, запуск reader task і старт capture.
@@ -767,67 +788,79 @@ public sealed class MainViewModel : ViewModelBase
         if (SelectedDevice is null) return;
         if (_captureService.IsRunning) return;
 
-        StatusText = "Starting...";
+        try
+        {
+            StatusText = "Starting...";
 
-        ProcessPackets.FinalizeCurrentSession();
+            ProcessPackets.FinalizeCurrentSession();
 
-        // Відповідає за повний reset перед новим захопленням
-        _packetNo = 0;
-        _captureController.ResetSessionState();
-        RawBytesStore.Clear();
-        Packets.Clear();
-        ResetPacketIndices();
-        ClearPacketDetailsCache();
-        ProcessPackets.Reset();
-        _flowsVm.Flows.Clear();
-        _flowAggregator.Reset();
-        Stats.Reset();
+            // Відповідає за повний reset перед новим захопленням
+            _packetNo = 0;
+            _captureController.ResetSessionState();
+            RawBytesStore.Clear();
+            Packets.Clear();
+            ResetPacketIndices();
+            ClearPacketDetailsCache();
+            ProcessPackets.Reset();
+            _flowsVm.Flows.Clear();
+            _flowAggregator.Reset();
+            Stats.Reset();
 
-        // Скидаємо фільтри
-        _flowFilterService.Clear();
-        _uiFilter = new PacketFilterModel();
-        DisplayFilterText = "";
-        RefreshPacketsFilteringUi();
+            // Скидаємо фільтри
+            _flowFilterService.Clear();
+            _uiFilter = new PacketFilterModel();
+            DisplayFilterText = "";
+            RefreshPacketsFilteringUi();
 
 
-        _capTotalPackets = 0;
-        _capTotalBytes = 0;
-        _capFirstSeen = null;
-        _capLastSeen = null;
-        _uiPacketsDropped = 0;
-        _capSw.Restart();
-        lock (_pendingLock)
-            _pendingPackets.Clear();
+            _capTotalPackets = 0;
+            _capTotalBytes = 0;
+            _capFirstSeen = null;
+            _capLastSeen = null;
+            _uiPacketsDropped = 0;
+            _capSw.Restart();
+            lock (_pendingLock)
+                _pendingPackets.Clear();
 
-        // Скидаємо деталі
-        SelectedPacket = null;
-        ProtocolRoot = null;
-        HexDump = "";
+            // Скидаємо деталі
+            SelectedPacket = null;
+            ProtocolRoot = null;
+            HexDump = "";
 
-        await _captureController.StartAsync(SelectedDevice.Id, BpfFilter, ct);
+            await _captureController.StartAsync(SelectedDevice.Id, BpfFilter, ct);
 
-        // start periodic flush timer
-        _flushTimer.Change(_flushIntervalMs, _flushIntervalMs);
+            // start periodic flush timer
+            _flushTimer.Change(_flushIntervalMs, _flushIntervalMs);
 
-        StatusText = "Capturing";
+            StatusText = "Capturing";
+        }
+        finally
+        {
+            RefreshCaptureCommandStates();
+        }
     }
 
     private async Task StopAsync(CancellationToken ct)
     {
         if (!_captureService.IsRunning) return;
 
+        try
+        {
+            StatusText = "Stopping...";
+            _capSw.Stop();
+            await _captureController.StopAsync(ct);
 
+            // stop flush timer and flush remaining
+            _flushTimer.Change(System.Threading.Timeout.Infinite, System.Threading.Timeout.Infinite);
+            FlushPending(drainAll: true);
+            ProcessPackets.FinalizeCurrentSession();
 
-        StatusText = "Stopping...";
-        _capSw.Stop();
-        await _captureController.StopAsync(ct);
-
-        // stop flush timer and flush remaining
-        _flushTimer.Change(System.Threading.Timeout.Infinite, System.Threading.Timeout.Infinite);
-        FlushPending(drainAll: true);
-        ProcessPackets.FinalizeCurrentSession();
-
-        StatusText = "Idle";
+            StatusText = "Idle";
+        }
+        finally
+        {
+            RefreshCaptureCommandStates();
+        }
     }
 
     private async Task ApplyBpfAsync(CancellationToken ct)

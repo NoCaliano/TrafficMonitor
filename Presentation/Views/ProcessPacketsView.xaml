@@ -333,10 +333,27 @@
                            Foreground="{StaticResource TextMutedBrush}"
                            TextWrapping="Wrap"/>
 
-                <TextBlock Margin="0,14,0,0"
-                           Text="Incident graph"
-                           FontWeight="SemiBold"
-                           Foreground="{StaticResource TextPrimaryBrush}"/>
+                <Grid Margin="0,14,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock Text="Incident graph"
+                               FontWeight="SemiBold"
+                               Foreground="{StaticResource TextPrimaryBrush}"
+                               VerticalAlignment="Center"/>
+
+                    <Button Grid.Column="1"
+                            Margin="12,0,0,0"
+                            Padding="10,4"
+                            MinHeight="28"
+                            Content="🖼 Save image"
+                            Command="{Binding DataContext.SaveIncidentGraphImageCommand, ElementName=ProcessPacketsLayout}"
+                            CommandParameter="{Binding ElementName=IncidentGraphExportContent}"
+                            ToolTip="Save incident graph as PNG"
+                            Visibility="{Binding DataContext.SelectedIncidentGraph.HasGraph, ElementName=ProcessPacketsLayout, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                </Grid>
 
                 <TextBlock Margin="0,4,0,0"
                            Text="{Binding DataContext.SelectedIncidentGraph.SummaryLabel, ElementName=ProcessPacketsLayout}"
@@ -344,7 +361,8 @@
                            Foreground="{StaticResource TextMutedBrush}"
                            TextWrapping="Wrap"/>
 
-                <Border Margin="0,10,0,0"
+                <Border x:Name="IncidentGraphExportSurface"
+                        Margin="0,10,0,0"
                         Padding="12"
                         Background="{StaticResource SurfaceBrush}"
                         BorderBrush="{StaticResource BorderBrushSoft}"
@@ -354,7 +372,7 @@
                     <Viewbox Stretch="Uniform"
                              StretchDirection="DownOnly"
                              HorizontalAlignment="Center">
-                        <StackPanel>
+                        <StackPanel x:Name="IncidentGraphExportContent">
                             <ItemsControl ItemsSource="{Binding DataContext.SelectedIncidentGraph.Lanes, ElementName=ProcessPacketsLayout}">
                                 <ItemsControl.Width>
                                     <Binding Path="DataContext.SelectedIncidentGraph.CanvasWidth" ElementName="ProcessPacketsLayout"/>
