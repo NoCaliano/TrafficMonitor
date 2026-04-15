@@ -470,7 +470,59 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
             {
                 _firewallBlocked = value;
                 OnPropertyChanged();
+                OnPropertyChanged(nameof(HasFirewallBlockBadge));
+                OnPropertyChanged(nameof(FirewallBlockBadgeLabel));
             }
+        }
+    }
+
+    private DateTime? _firewallBlockedUntilLocal;
+    public DateTime? FirewallBlockedUntilLocal
+    {
+        get => _firewallBlockedUntilLocal;
+        private set
+        {
+            if (_firewallBlockedUntilLocal != value)
+            {
+                _firewallBlockedUntilLocal = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(HasTimedFirewallBlock));
+                OnPropertyChanged(nameof(FirewallBlockBadgeLabel));
+            }
+        }
+    }
+
+    private bool _firewallBlockedUntilAppExit;
+    public bool FirewallBlockedUntilAppExit
+    {
+        get => _firewallBlockedUntilAppExit;
+        private set
+        {
+            if (_firewallBlockedUntilAppExit != value)
+            {
+                _firewallBlockedUntilAppExit = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(FirewallBlockBadgeLabel));
+            }
+        }
+    }
+
+    public bool HasTimedFirewallBlock => FirewallBlocked && FirewallBlockedUntilLocal.HasValue;
+    public bool HasFirewallBlockBadge => FirewallBlocked;
+    public string FirewallBlockBadgeLabel
+    {
+        get
+        {
+            if (!FirewallBlocked)
+                return "";
+
+            if (FirewallBlockedUntilLocal.HasValue)
+                return $"Blocked until {FirewallBlockedUntilLocal.Value:HH:mm}";
+
+            if (FirewallBlockedUntilAppExit)
+                return "Blocked until app exit";
+
+            return "Blocked";
         }
     }
 
@@ -1121,16 +1173,51 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
             AppendTimelineEvent($"process-identity-{timestamp.Ticks}", timestamp, "Process identity changed", detail);
         });
 
-    public void RecordFirewallBlock(DateTime timestamp)
+    public void SyncFirewallBlockState(bool isBlocked, DateTime? blockedUntilLocal, bool blockedUntilAppExit)
     {
-        FirewallBlocked = true;
-        AppendTimelineEvent($"firewall-block-{timestamp.Ticks}", timestamp, "Firewall block applied", "TrafficMonitor added Windows Firewall rules for this executable.");
+        FirewallBlocked = isBlocked;
+        FirewallBlockedUntilLocal = isBlocked ? blockedUntilLocal : null;
+        FirewallBlockedUntilAppExit = isBlocked && blockedUntilAppExit;
     }
 
-    public void RecordFirewallUnblock(DateTime timestamp)
+    public void RecordFirewallBlock(DateTime timestamp, string? detail = null)
     {
-        FirewallBlocked = false;
-        AppendTimelineEvent($"firewall-unblock-{timestamp.Ticks}", timestamp, "Firewall block removed", "TrafficMonitor removed its Windows Firewall rules for this executable.");
+        SyncFirewallBlockState(isBlocked: true, blockedUntilLocal: null, blockedUntilAppExit: false);
+        AppendTimelineEvent(
+            $"firewall-block-{timestamp.Ticks}",
+            timestamp,
+            "Firewall block applied",
+            detail ?? "TrafficMonitor added Windows Firewall rules for this executable.");
+    }
+
+    public void RecordTimedFirewallBlock(DateTime timestamp, DateTime blockedUntilLocal, string? detail = null)
+    {
+        SyncFirewallBlockState(isBlocked: true, blockedUntilLocal: blockedUntilLocal, blockedUntilAppExit: false);
+        AppendTimelineEvent(
+            $"firewall-block-{timestamp.Ticks}",
+            timestamp,
+            "Temporary firewall block applied",
+            detail ?? $"TrafficMonitor added Windows Firewall rules for this executable until {blockedUntilLocal:HH:mm}.");
+    }
+
+    public void RecordFirewallBlockUntilAppExit(DateTime timestamp, string? detail = null)
+    {
+        SyncFirewallBlockState(isBlocked: true, blockedUntilLocal: null, blockedUntilAppExit: true);
+        AppendTimelineEvent(
+            $"firewall-block-{timestamp.Ticks}",
+            timestamp,
+            "Firewall block applied",
+            detail ?? "TrafficMonitor added Windows Firewall rules for this executable until the app exits.");
+    }
+
+    public void RecordFirewallUnblock(DateTime timestamp, string? detail = null)
+    {
+        SyncFirewallBlockState(isBlocked: false, blockedUntilLocal: null, blockedUntilAppExit: false);
+        AppendTimelineEvent(
+            $"firewall-unblock-{timestamp.Ticks}",
+            timestamp,
+            "Firewall block removed",
+            detail ?? "TrafficMonitor removed its Windows Firewall rules for this executable.");
     }
 
     public void UpdateConversations(IEnumerable<ProcessConversationRow> conversations)

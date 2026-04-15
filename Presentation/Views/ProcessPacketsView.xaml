@@ -70,6 +70,56 @@
             </Setter>
         </Style>
 
+        <Style x:Key="ProcessActionButtonStyle" TargetType="Button" BasedOn="{StaticResource ChipButtonStyle}">
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+            <Setter Property="MinHeight" Value="34"/>
+            <Setter Property="Margin" Value="0,0,6,6"/>
+        </Style>
+
+        <Style x:Key="ProcessActionArrowToggleStyle" TargetType="ToggleButton">
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+            <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrushSoft}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="10,4"/>
+            <Setter Property="Margin" Value="0,0,6,6"/>
+            <Setter Property="MinHeight" Value="34"/>
+            <Setter Property="MinWidth" Value="36"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="ArrowBorder"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="0,10,10,0"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ArrowBorder" Property="BorderBrush" Value="{StaticResource BorderBrushStrong}"/>
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="ArrowBorder" Property="Background" Value="{StaticResource AccentBrushSoft}"/>
+                                <Setter TargetName="ArrowBorder" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="ProcessPopupActionButtonStyle" TargetType="Button" BasedOn="{StaticResource ToolbarButtonStyle}">
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+            <Setter Property="Padding" Value="10,6"/>
+            <Setter Property="MinHeight" Value="30"/>
+            <Setter Property="Margin" Value="0,0,0,6"/>
+        </Style>
+
         <DataTemplate x:Key="ProcessTimelineDetailsTemplate" DataType="{x:Type models:ProcessStatRow}">
             <StackPanel>
                 <TextBlock Margin="0,4,0,0"
@@ -738,7 +788,7 @@
         <DataTemplate x:Key="ProcessStatCardTemplate" DataType="{x:Type models:ProcessStatRow}">
             <Border Margin="0,0,10,10"
                     Style="{StaticResource ProcessCardStyle}"
-                    MinHeight="250"
+                    MinHeight="210"
                     Cursor="Hand">
                 <Border.InputBindings>
                     <MouseBinding Gesture="LeftClick"
@@ -748,7 +798,6 @@
 
                 <Grid>
                     <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
@@ -770,6 +819,19 @@
                             <TextBlock Text="{Binding LivenessLabel}" FontSize="11" FontWeight="SemiBold" Foreground="{Binding LivenessBrush}" HorizontalAlignment="Right"/>
                             <TextBlock Text="{Binding RiskLabel}" FontSize="11" FontWeight="SemiBold" Foreground="{Binding RiskBrush}" HorizontalAlignment="Right"/>
                             <TextBlock Text="{Binding SignedLabel}" FontSize="11" Foreground="{StaticResource TextMutedBrush}" HorizontalAlignment="Right"/>
+                            <Border Margin="0,6,0,0"
+                                    Padding="8,2"
+                                    Background="{StaticResource AccentBrushSoft}"
+                                    BorderBrush="{StaticResource AccentBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="10"
+                                    HorizontalAlignment="Right"
+                                    Visibility="{Binding HasFirewallBlockBadge, Converter={StaticResource BoolToVisibilityConverter}}">
+                                <TextBlock Text="{Binding FirewallBlockBadgeLabel}"
+                                           FontSize="10"
+                                           FontWeight="SemiBold"
+                                           Foreground="{StaticResource AccentBrush}"/>
+                            </Border>
                         </StackPanel>
 
                         <StackPanel>
@@ -867,67 +929,6 @@
                             </Viewbox>
                         </Grid>
                     </Border>
-
-                    <Grid Grid.Row="6" Margin="0,10,0,0">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
-                        </Grid.RowDefinitions>
-
-                        <Button Grid.Row="0"
-                                Grid.Column="0"
-                                Content="Open folder"
-                                Command="{Binding DataContext.LocateProcessCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
-                                CommandParameter="{Binding Pid}"
-                                Style="{StaticResource ChipButtonStyle}"
-                                HorizontalAlignment="Stretch"
-                                Margin="0,0,6,6"/>
-                        <Button Grid.Row="0"
-                                Grid.Column="1"
-                                Content="Block network"
-                                Command="{Binding DataContext.BlockProcessFirewallCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
-                                CommandParameter="{Binding Pid}"
-                                Style="{StaticResource ChipButtonStyle}"
-                                HorizontalAlignment="Stretch"
-                                Margin="0,0,6,6"/>
-                        <Button Grid.Row="0"
-                                Grid.Column="2"
-                                Content="Restore network"
-                                Command="{Binding DataContext.UnblockProcessFirewallCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
-                                CommandParameter="{Binding Pid}"
-                                Style="{StaticResource ChipButtonStyle}"
-                                HorizontalAlignment="Stretch"
-                                Margin="0,0,0,6"/>
-                        <Button Grid.Row="1"
-                                Grid.Column="0"
-                                Content="End process"
-                                Command="{Binding DataContext.KillProcessCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
-                                CommandParameter="{Binding Pid}"
-                                Style="{StaticResource ChipButtonStyle}"
-                                HorizontalAlignment="Stretch"
-                                Margin="0,0,6,0"/>
-                        <Button Grid.Row="1"
-                                Grid.Column="1"
-                                Content="Show packets"
-                                Command="{Binding DataContext.ShowPacketsForPidCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
-                                CommandParameter="{Binding Pid}"
-                                Style="{StaticResource ChipButtonStyle}"
-                                HorizontalAlignment="Stretch"
-                                Margin="0,0,6,0"/>
-                        <Button Grid.Row="1"
-                                Grid.Column="2"
-                                Content="Export report"
-                                Command="{Binding DataContext.ExportIncidentReportCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
-                                CommandParameter="{Binding Pid}"
-                                Style="{StaticResource ChipButtonStyle}"
-                                HorizontalAlignment="Stretch"
-                                Margin="0,0,0,0"/>
-                    </Grid>
                 </Grid>
             </Border>
         </DataTemplate>
@@ -1112,82 +1113,205 @@
                     <RowDefinition Height="*"/>
                 </Grid.RowDefinitions>
 
-                <Grid Grid.Row="0">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
+                <StackPanel Grid.Row="0">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
 
-                    <Border Grid.Column="0"
-                            Width="44"
-                            Height="44"
-                            CornerRadius="10"
-                            Margin="0,0,14,0"
-                            Background="{StaticResource CardAltBrush}"
-                            BorderBrush="{StaticResource BorderBrushSoft}"
-                            BorderThickness="1"
-                            VerticalAlignment="Top">
-                        <Image Width="24" Height="24" VerticalAlignment="Center" HorizontalAlignment="Center">
-                            <Image.Source>
-                                <Binding Path="DataContext.SelectedProcessStat.Pid" ElementName="ProcessPacketsLayout" Converter="{StaticResource ProcessIconConverter}"/>
-                            </Image.Source>
-                        </Image>
-                    </Border>
+                        <Border Grid.Column="0"
+                                Width="44"
+                                Height="44"
+                                CornerRadius="10"
+                                Margin="0,0,14,0"
+                                Background="{StaticResource CardAltBrush}"
+                                BorderBrush="{StaticResource BorderBrushSoft}"
+                                BorderThickness="1"
+                                VerticalAlignment="Top">
+                            <Image Width="24" Height="24" VerticalAlignment="Center" HorizontalAlignment="Center">
+                                <Image.Source>
+                                    <Binding Path="DataContext.SelectedProcessStat.Pid" ElementName="ProcessPacketsLayout" Converter="{StaticResource ProcessIconConverter}"/>
+                                </Image.Source>
+                            </Image>
+                        </Border>
 
-                    <StackPanel Grid.Column="1">
-                        <TextBlock Text="Investigation details"
-                                   FontWeight="SemiBold"
-                                   Foreground="{StaticResource TextPrimaryBrush}"/>
-                        <TextBlock Margin="0,4,0,0"
-                                   Text="{Binding DataContext.SelectedProcessStat.DisplayName, ElementName=ProcessPacketsLayout}"
-                                   FontSize="16"
-                                   FontWeight="SemiBold"
-                                   Foreground="{StaticResource TextPrimaryBrush}"
-                                   TextWrapping="Wrap"/>
-                        <WrapPanel Margin="0,6,0,0">
-                            <TextBlock Margin="0,0,12,4"
-                                       Text="{Binding DataContext.SelectedProcessStat.RiskLabel, ElementName=ProcessPacketsLayout}"
-                                       Foreground="{Binding DataContext.SelectedProcessStat.RiskBrush, ElementName=ProcessPacketsLayout}"
-                                       FontSize="11"
-                                       FontWeight="SemiBold"/>
-                            <TextBlock Margin="0,0,12,4"
-                                       Text="{Binding DataContext.SelectedProcessStat.LivenessLabel, ElementName=ProcessPacketsLayout}"
-                                       Foreground="{Binding DataContext.SelectedProcessStat.LivenessBrush, ElementName=ProcessPacketsLayout}"
-                                       FontSize="11"
-                                       FontWeight="SemiBold"/>
-                            <TextBlock Margin="0,0,12,4"
-                                       Text="{Binding DataContext.SelectedProcessStat.BaselineStateLabel, ElementName=ProcessPacketsLayout}"
-                                       Foreground="{StaticResource TextMutedBrush}"
-                                       FontSize="11"
-                                       Visibility="{Binding DataContext.SelectedProcessStat.HasBaselineState, ElementName=ProcessPacketsLayout, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                            <TextBlock Margin="0,0,12,4"
-                                       Text="{Binding DataContext.SelectedProcessStat.PacketCount, ElementName=ProcessPacketsLayout, StringFormat=Packets: {0:N0}}"
-                                       Foreground="{StaticResource TextMutedBrush}"
-                                       FontSize="11"/>
-                            <TextBlock Margin="0,0,12,4"
-                                       Text="{Binding DataContext.SelectedProcessStat.TotalBytesHuman, ElementName=ProcessPacketsLayout, StringFormat=Traffic: {0}}"
-                                       Foreground="{StaticResource TextMutedBrush}"
-                                       FontSize="11"/>
-                            <TextBlock Margin="0,0,12,4"
-                                       Text="{Binding DataContext.SelectedProcessStat.DistinctRemoteEndpoints, ElementName=ProcessPacketsLayout, StringFormat=Remotes: {0}}"
-                                       Foreground="{StaticResource TextMutedBrush}"
-                                       FontSize="11"/>
-                            <TextBlock Margin="0,0,12,4"
-                                       Text="{Binding DataContext.SelectedProcessStat.LastSeenLabel, ElementName=ProcessPacketsLayout}"
-                                       Foreground="{StaticResource TextMutedBrush}"
-                                       FontSize="11"/>
-                        </WrapPanel>
-                    </StackPanel>
+                        <StackPanel Grid.Column="1">
+                            <TextBlock Text="Investigation details"
+                                       FontWeight="SemiBold"
+                                       Foreground="{StaticResource TextPrimaryBrush}"/>
+                            <TextBlock Margin="0,4,0,0"
+                                       Text="{Binding DataContext.SelectedProcessStat.DisplayName, ElementName=ProcessPacketsLayout}"
+                                       FontSize="16"
+                                       FontWeight="SemiBold"
+                                       Foreground="{StaticResource TextPrimaryBrush}"
+                                       TextWrapping="Wrap"/>
+                            <WrapPanel Margin="0,6,0,0">
+                                <TextBlock Margin="0,0,12,4"
+                                           Text="{Binding DataContext.SelectedProcessStat.RiskLabel, ElementName=ProcessPacketsLayout}"
+                                           Foreground="{Binding DataContext.SelectedProcessStat.RiskBrush, ElementName=ProcessPacketsLayout}"
+                                           FontSize="11"
+                                           FontWeight="SemiBold"/>
+                                <TextBlock Margin="0,0,12,4"
+                                           Text="{Binding DataContext.SelectedProcessStat.LivenessLabel, ElementName=ProcessPacketsLayout}"
+                                           Foreground="{Binding DataContext.SelectedProcessStat.LivenessBrush, ElementName=ProcessPacketsLayout}"
+                                           FontSize="11"
+                                           FontWeight="SemiBold"/>
+                                <Border Margin="0,0,12,4"
+                                        Padding="8,2"
+                                        Background="{StaticResource AccentBrushSoft}"
+                                        BorderBrush="{StaticResource AccentBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="10"
+                                        Visibility="{Binding DataContext.SelectedProcessStat.HasFirewallBlockBadge, ElementName=ProcessPacketsLayout, Converter={StaticResource BoolToVisibilityConverter}}">
+                                    <TextBlock Text="{Binding DataContext.SelectedProcessStat.FirewallBlockBadgeLabel, ElementName=ProcessPacketsLayout}"
+                                               FontSize="10"
+                                               FontWeight="SemiBold"
+                                               Foreground="{StaticResource AccentBrush}"/>
+                                </Border>
+                                <TextBlock Margin="0,0,12,4"
+                                           Text="{Binding DataContext.SelectedProcessStat.BaselineStateLabel, ElementName=ProcessPacketsLayout}"
+                                           Foreground="{StaticResource TextMutedBrush}"
+                                           FontSize="11"
+                                           Visibility="{Binding DataContext.SelectedProcessStat.HasBaselineState, ElementName=ProcessPacketsLayout, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                <TextBlock Margin="0,0,12,4"
+                                           Text="{Binding DataContext.SelectedProcessStat.PacketCount, ElementName=ProcessPacketsLayout, StringFormat=Packets: {0:N0}}"
+                                           Foreground="{StaticResource TextMutedBrush}"
+                                           FontSize="11"/>
+                                <TextBlock Margin="0,0,12,4"
+                                           Text="{Binding DataContext.SelectedProcessStat.TotalBytesHuman, ElementName=ProcessPacketsLayout, StringFormat=Traffic: {0}}"
+                                           Foreground="{StaticResource TextMutedBrush}"
+                                           FontSize="11"/>
+                                <TextBlock Margin="0,0,12,4"
+                                           Text="{Binding DataContext.SelectedProcessStat.DistinctRemoteEndpoints, ElementName=ProcessPacketsLayout, StringFormat=Remotes: {0}}"
+                                           Foreground="{StaticResource TextMutedBrush}"
+                                           FontSize="11"/>
+                                <TextBlock Margin="0,0,12,4"
+                                           Text="{Binding DataContext.SelectedProcessStat.LastSeenLabel, ElementName=ProcessPacketsLayout}"
+                                           Foreground="{StaticResource TextMutedBrush}"
+                                           FontSize="11"/>
+                            </WrapPanel>
+                        </StackPanel>
 
-                    <Button Grid.Column="2"
-                            Content="Back to process list"
-                            Command="{Binding BackToProcessGridCommand}"
-                            Style="{StaticResource ChipButtonStyle}"
-                            Margin="12,0,0,0"
-                            VerticalAlignment="Top"
-                            HorizontalAlignment="Right"/>
-                </Grid>
+                        <Button Grid.Column="2"
+                                Content="Back to process list"
+                                Command="{Binding BackToProcessGridCommand}"
+                                Style="{StaticResource ChipButtonStyle}"
+                                Margin="12,0,0,0"
+                                VerticalAlignment="Top"
+                                HorizontalAlignment="Right"/>
+                    </Grid>
+
+                    <Grid Margin="0,14,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <Button Grid.Row="0"
+                                Grid.Column="0"
+                                Content="Open folder"
+                                Command="{Binding LocateProcessCommand}"
+                                CommandParameter="{Binding DataContext.SelectedProcessStat, ElementName=ProcessPacketsLayout}"
+                                Style="{StaticResource ProcessActionButtonStyle}"/>
+
+                        <Grid Grid.Row="0"
+                              Grid.Column="1"
+                              x:Name="BlockActionsAnchor"
+                              Margin="0,0,6,6">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+
+                            <Button Grid.Column="0"
+                                    Content="Block network"
+                                    Command="{Binding BlockProcessFirewallCommand}"
+                                    CommandParameter="{Binding DataContext.SelectedProcessStat, ElementName=ProcessPacketsLayout}"
+                                    Style="{StaticResource ProcessActionButtonStyle}"
+                                    Margin="0"/>
+
+                            <ToggleButton Grid.Column="1"
+                                          Content="▾"
+                                          IsChecked="{Binding IsBlockPresetMenuOpen, Mode=TwoWay}"
+                                          Style="{StaticResource ProcessActionArrowToggleStyle}"
+                                          Margin="0"/>
+
+                            <Popup PlacementTarget="{Binding ElementName=BlockActionsAnchor}"
+                                   Placement="Bottom"
+                                   HorizontalOffset="0"
+                                   VerticalOffset="6"
+                                   AllowsTransparency="True"
+                                   PopupAnimation="Fade"
+                                   StaysOpen="False"
+                                   IsOpen="{Binding DataContext.IsBlockPresetMenuOpen, ElementName=ProcessPacketsLayout, Mode=TwoWay}">
+                                <Border Width="220"
+                                        Padding="8"
+                                        Background="{StaticResource CardBrush}"
+                                        BorderBrush="{StaticResource BorderBrushSoft}"
+                                        BorderThickness="1"
+                                        CornerRadius="10"
+                                        SnapsToDevicePixels="True">
+                                    <StackPanel>
+                                        <Button Content="Block permanently"
+                                                Command="{Binding DataContext.BlockProcessFirewallCommand, ElementName=ProcessPacketsLayout}"
+                                                CommandParameter="{Binding DataContext.SelectedProcessStat, ElementName=ProcessPacketsLayout}"
+                                                Style="{StaticResource ProcessPopupActionButtonStyle}"/>
+                                        <Button Content="Block for 15 min"
+                                                Command="{Binding DataContext.BlockProcessFirewallFor15MinutesCommand, ElementName=ProcessPacketsLayout}"
+                                                CommandParameter="{Binding DataContext.SelectedProcessStat, ElementName=ProcessPacketsLayout}"
+                                                Style="{StaticResource ProcessPopupActionButtonStyle}"/>
+                                        <Button Content="Block for 1 hour"
+                                                Command="{Binding DataContext.BlockProcessFirewallFor1HourCommand, ElementName=ProcessPacketsLayout}"
+                                                CommandParameter="{Binding DataContext.SelectedProcessStat, ElementName=ProcessPacketsLayout}"
+                                                Style="{StaticResource ProcessPopupActionButtonStyle}"/>
+                                        <Button Content="Block until app exit"
+                                                Command="{Binding DataContext.BlockProcessFirewallUntilAppExitCommand, ElementName=ProcessPacketsLayout}"
+                                                CommandParameter="{Binding DataContext.SelectedProcessStat, ElementName=ProcessPacketsLayout}"
+                                                Style="{StaticResource ProcessPopupActionButtonStyle}"
+                                                Margin="0"/>
+                                    </StackPanel>
+                                </Border>
+                            </Popup>
+                        </Grid>
+
+                        <Button Grid.Row="0"
+                                Grid.Column="2"
+                                Content="Restore network"
+                                Command="{Binding UnblockProcessFirewallCommand}"
+                                CommandParameter="{Binding DataContext.SelectedProcessStat, ElementName=ProcessPacketsLayout}"
+                                Style="{StaticResource ProcessActionButtonStyle}"
+                                Margin="0,0,0,6"/>
+
+                        <Button Grid.Row="1"
+                                Grid.Column="0"
+                                Content="End process"
+                                Command="{Binding KillProcessCommand}"
+                                CommandParameter="{Binding DataContext.SelectedProcessStat, ElementName=ProcessPacketsLayout}"
+                                Style="{StaticResource ProcessActionButtonStyle}"
+                                Margin="0,0,6,0"/>
+                        <Button Grid.Row="1"
+                                Grid.Column="1"
+                                Content="Show packets"
+                                Command="{Binding ShowPacketsForPidCommand}"
+                                CommandParameter="{Binding DataContext.SelectedProcessStat, ElementName=ProcessPacketsLayout}"
+                                Style="{StaticResource ProcessActionButtonStyle}"
+                                Margin="0,0,6,0"/>
+                        <Button Grid.Row="1"
+                                Grid.Column="2"
+                                Content="Export report"
+                                Command="{Binding ExportIncidentReportCommand}"
+                                CommandParameter="{Binding DataContext.SelectedProcessStat, ElementName=ProcessPacketsLayout}"
+                                Style="{StaticResource ProcessActionButtonStyle}"
+                                Margin="0"/>
+                    </Grid>
+                </StackPanel>
 
                 <ScrollViewer Grid.Row="1"
                               VerticalScrollBarVisibility="Hidden"

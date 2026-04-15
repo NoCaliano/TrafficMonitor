@@ -44,6 +44,7 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
     private Action<string>? _reportStatus;
     private readonly ThreatNotificationCoordinator _notificationCoordinator;
     private bool _emitNotificationsForCurrentSession;
+    private bool _isBlockPresetMenuOpen;
 
     public ObservableCollection<ProcessStatRow> ProcessStats { get; } = new();
     public ObservableCollection<ProcessStatCardRow> VisibleProcessRows { get; } = new();
@@ -77,6 +78,12 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
 
     public bool IsOverviewMode => !IsProcessDetailsOpen;
 
+    public bool IsBlockPresetMenuOpen
+    {
+        get => _isBlockPresetMenuOpen;
+        set => Set(ref _isBlockPresetMenuOpen, value);
+    }
+
     private ProcessStatRow? _selectedProcessStat;
     public ProcessStatRow? SelectedProcessStat
     {
@@ -96,6 +103,7 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
             if (value is not null)
                 value.IsSelectedInProcessGrid = true;
 
+            IsBlockPresetMenuOpen = false;
             RefreshSelectedProcessDetails();
         }
     }
@@ -108,6 +116,9 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
     public ICommand LocateProcessCommand { get; }
     public ICommand KillProcessCommand { get; }
     public ICommand BlockProcessFirewallCommand { get; }
+    public ICommand BlockProcessFirewallFor15MinutesCommand { get; }
+    public ICommand BlockProcessFirewallFor1HourCommand { get; }
+    public ICommand BlockProcessFirewallUntilAppExitCommand { get; }
     public ICommand UnblockProcessFirewallCommand { get; }
     public ICommand ExportIncidentReportCommand { get; }
     public ICommand ToggleConversationsExpansionCommand { get; }
@@ -264,6 +275,9 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
         LocateProcessCommand = new RelayCommand(p => LocateProcess(p));
         KillProcessCommand = new RelayCommand(p => KillProcess(p));
         BlockProcessFirewallCommand = new RelayCommand(p => BlockProcessInFirewall(p));
+        BlockProcessFirewallFor15MinutesCommand = new RelayCommand(p => BlockProcessInFirewall(p, ProcessRemediationCoordinator.FirewallBlockPreset.FifteenMinutes));
+        BlockProcessFirewallFor1HourCommand = new RelayCommand(p => BlockProcessInFirewall(p, ProcessRemediationCoordinator.FirewallBlockPreset.OneHour));
+        BlockProcessFirewallUntilAppExitCommand = new RelayCommand(p => BlockProcessInFirewall(p, ProcessRemediationCoordinator.FirewallBlockPreset.UntilAppExit));
         UnblockProcessFirewallCommand = new RelayCommand(p => UnblockProcessInFirewall(p));
         ExportIncidentReportCommand = new RelayCommand(p => ExportIncidentReport(p));
         ToggleConversationsExpansionCommand = new RelayCommand(p => ToggleConversationsExpansion(p));
@@ -272,6 +286,7 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
             p => SaveIncidentGraphImage(p),
             p => CanSaveIncidentGraphImage(p));
         BackToProcessGridCommand = new RelayCommand(_ => BackToProcessGrid());
+        _remediationCoordinator.FirewallBlockStateChanged += OnFirewallBlockStateChanged;
 
         ProcessStatsView = CollectionViewSource.GetDefaultView(ProcessStats);
         ProcessStatsView.Filter = MatchesCurrentFilters;
@@ -318,6 +333,7 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
         SelectedProcessStat = null;
         SelectedIncidentGraph = ProcessIncidentGraph.Empty;
         IsProcessDetailsOpen = false;
+        IsBlockPresetMenuOpen = false;
         SearchText = "";
         ShowHighRiskOnly = false;
         ShowBeaconOnly = false;
@@ -493,6 +509,7 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
         var details = _processMapperService.GetProcessDetailsCached(pid);
         var parentName = details.ParentPid > 0 ? _processMapperService.GetProcessNameCached(details.ParentPid) : "";
         row.UpdateIdentity(details.ExePath, details.Publisher, details.IsSigned, details.SignerSubject, details.ParentPid, parentName);
+        ApplyTrackedFirewallState(row);
         TryPopulateProcessStart(row);
 
         RegisterProcessRow(row);
@@ -501,7 +518,8 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
 
     private void ShowPacketsForPid(object? parameter)
     {
-        if (parameter is not int pid)
+        int pid = ResolvePid(parameter);
+        if (pid <= 0)
             return;
 
         SelectProcess(pid);
@@ -519,6 +537,7 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
 
     private void BackToProcessGrid()
     {
+        IsBlockPresetMenuOpen = false;
         IsProcessDetailsOpen = false;
     }
 
@@ -551,7 +570,8 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
 
     private void LocateProcess(object? parameter)
     {
-        if (parameter is not int pid)
+        int pid = ResolvePid(parameter);
+        if (pid <= 0)
             return;
 
         SelectProcess(pid);
@@ -560,7 +580,8 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
 
     private void KillProcess(object? parameter)
     {
-        if (parameter is not int pid)
+        int pid = ResolvePid(parameter);
+        if (pid <= 0)
             return;
 
         SelectProcess(pid);
@@ -568,37 +589,115 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
     }
 
     private void BlockProcessInFirewall(object? parameter)
+        => BlockProcessInFirewall(parameter, ProcessRemediationCoordinator.FirewallBlockPreset.Permanent);
+
+    private void BlockProcessInFirewall(object? parameter, ProcessRemediationCoordinator.FirewallBlockPreset preset)
     {
-        if (parameter is not int pid)
+        int pid = ResolvePid(parameter);
+        if (pid <= 0)
             return;
 
+        IsBlockPresetMenuOpen = false;
         SelectProcess(pid);
-        var status = _remediationCoordinator.BlockInFirewall(pid);
-        if (!string.IsNullOrWhiteSpace(status)
-            && status.StartsWith("Firewall: blocked", StringComparison.OrdinalIgnoreCase)
-            && _processStatsMap.TryGetValue(pid, out var row))
-        {
-            row.RecordFirewallBlock(DateTime.Now);
-        }
-
-        ReportStatus(status);
+        ReportStatus(_remediationCoordinator.BlockInFirewall(pid, preset));
     }
 
     private void UnblockProcessInFirewall(object? parameter)
     {
-        if (parameter is not int pid)
+        int pid = ResolvePid(parameter);
+        if (pid <= 0)
             return;
 
+        IsBlockPresetMenuOpen = false;
         SelectProcess(pid);
-        var status = _remediationCoordinator.UnblockInFirewall(pid);
-        if (!string.IsNullOrWhiteSpace(status)
-            && status.StartsWith("Firewall: unblocked", StringComparison.OrdinalIgnoreCase)
-            && _processStatsMap.TryGetValue(pid, out var row))
+        ReportStatus(_remediationCoordinator.UnblockInFirewall(pid));
+    }
+
+    private void OnFirewallBlockStateChanged(ProcessRemediationCoordinator.FirewallBlockStateChange change)
+    {
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher is null || dispatcher.CheckAccess())
         {
-            row.RecordFirewallUnblock(DateTime.Now);
+            ApplyFirewallBlockStateChange(change);
+            return;
         }
 
-        ReportStatus(status);
+        dispatcher.BeginInvoke(
+            new Action(() => ApplyFirewallBlockStateChange(change)),
+            DispatcherPriority.Background);
+    }
+
+    private void ApplyFirewallBlockStateChange(ProcessRemediationCoordinator.FirewallBlockStateChange change)
+    {
+        var affectedRows = GetAffectedRows(change).ToArray();
+        foreach (var row in affectedRows)
+        {
+            switch (change.Scope)
+            {
+                case ProcessRemediationCoordinator.FirewallBlockScope.Permanent:
+                    row.RecordFirewallBlock(change.TimestampLocal);
+                    break;
+                case ProcessRemediationCoordinator.FirewallBlockScope.UntilTime when change.ExpiresAtLocal.HasValue:
+                    row.RecordTimedFirewallBlock(change.TimestampLocal, change.ExpiresAtLocal.Value);
+                    break;
+                case ProcessRemediationCoordinator.FirewallBlockScope.UntilAppExit:
+                    row.RecordFirewallBlockUntilAppExit(change.TimestampLocal);
+                    break;
+                default:
+                    row.RecordFirewallUnblock(change.TimestampLocal, change.TimelineDetail);
+                    break;
+            }
+        }
+
+        if (change.ReportStatusToUser)
+            ReportStatus(change.StatusMessage);
+    }
+
+    private IEnumerable<ProcessStatRow> GetAffectedRows(ProcessRemediationCoordinator.FirewallBlockStateChange change)
+    {
+        var rows = ProcessStats
+            .Where(row => HasSameExePath(row.ExePath, change.ExePath))
+            .ToArray();
+
+        if (rows.Length > 0)
+            return rows;
+
+        return change.SourcePid > 0 && _processStatsMap.TryGetValue(change.SourcePid, out var rowByPid)
+            ? new[] { rowByPid }
+            : Array.Empty<ProcessStatRow>();
+    }
+
+    private void ApplyTrackedFirewallState(ProcessStatRow row)
+    {
+        if (!_remediationCoordinator.TryGetFirewallBlockState(row.ExePath, out var snapshot))
+            return;
+
+        switch (snapshot.Scope)
+        {
+            case ProcessRemediationCoordinator.FirewallBlockScope.Permanent:
+                row.SyncFirewallBlockState(isBlocked: true, blockedUntilLocal: null, blockedUntilAppExit: false);
+                break;
+            case ProcessRemediationCoordinator.FirewallBlockScope.UntilTime:
+                row.SyncFirewallBlockState(isBlocked: true, blockedUntilLocal: snapshot.ExpiresAtLocal, blockedUntilAppExit: false);
+                break;
+            case ProcessRemediationCoordinator.FirewallBlockScope.UntilAppExit:
+                row.SyncFirewallBlockState(isBlocked: true, blockedUntilLocal: null, blockedUntilAppExit: true);
+                break;
+            default:
+                row.SyncFirewallBlockState(isBlocked: false, blockedUntilLocal: null, blockedUntilAppExit: false);
+                break;
+        }
+    }
+
+    private int ResolvePid(object? parameter)
+    {
+        if (parameter is int pid && pid > 0)
+            return pid;
+
+        if (parameter is ProcessStatRow row && row.Pid > 0)
+            return row.Pid;
+
+        return SelectedProcessStat?.Pid ?? 0;
     }
 
     private void ReportStatus(string? status)
@@ -930,6 +1029,11 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
 
     private static bool ContainsIgnoreCase(string? value, string search)
         => !string.IsNullOrWhiteSpace(value) && value.IndexOf(search, StringComparison.OrdinalIgnoreCase) >= 0;
+
+    private static bool HasSameExePath(string? left, string? right)
+        => !string.IsNullOrWhiteSpace(left)
+            && !string.IsNullOrWhiteSpace(right)
+            && string.Equals(left.Trim(), right.Trim(), StringComparison.OrdinalIgnoreCase);
 
     private ProcessStatRow? ResolveReportRow(object? parameter)
     {
