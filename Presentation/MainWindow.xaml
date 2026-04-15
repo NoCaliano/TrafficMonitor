@@ -5,6 +5,7 @@
         xmlns:helpers="clr-namespace:Presentation.Helpers"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="TrafficMonitor"
+        Icon="Images/Icon1024by1024.png"
         Height="720"
         Width="1280"
         MinHeight="680"
@@ -56,6 +57,8 @@
                 <MenuItem Header="_File">
                     <MenuItem Header="_Open..." Command="{Binding OpenCaptureCommand}" InputGestureText="Ctrl+O"/>
                     <MenuItem Header="Save _As..." Command="{Binding SaveCaptureCommand}" InputGestureText="Ctrl+S"/>
+                    <Separator/>
+                    <MenuItem Header="_Quit" Command="{Binding QuitApplicationCommand}"/>
                 </MenuItem>
                 <MenuItem Header="_View">
                     <MenuItem Header="No" IsCheckable="True" IsChecked="{Binding IsNoColumnVisible, Mode=TwoWay}"/>
@@ -74,6 +77,9 @@
                 <MenuItem Header="_Analyze">
                     <MenuItem Header="_Flows" Command="{Binding ShowFlowsCommand}" />
                     <MenuItem Header="_Statistics" Command="{Binding OpenStatisticsCommand}" />
+                </MenuItem>
+                <MenuItem Header="_Settings">
+                    <MenuItem Header="_Notifications..." Command="{Binding OpenNotificationSettingsCommand}" />
                 </MenuItem>
             </Menu>
         </Border>

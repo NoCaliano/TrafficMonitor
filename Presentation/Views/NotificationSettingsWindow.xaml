@@ -1,0 +1,107 @@
+<Window x:Class="Presentation.Views.NotificationSettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Notification Settings"
+        SizeToContent="WidthAndHeight"
+        MinWidth="520"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        WindowStyle="ToolWindow"
+        ShowInTaskbar="False">
+
+    <Border Padding="18" Background="{StaticResource WindowBackgroundBrush}">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="14"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <StackPanel>
+                <TextBlock Text="Windows Notifications" Style="{StaticResource ViewTitleTextStyle}"/>
+                <TextBlock Margin="0,4,0,0"
+                           Style="{StaticResource SectionCaptionTextStyle}"
+                           Text="Shell notifications stay visible even when the main window is minimized."/>
+            </StackPanel>
+
+            <Grid Grid.Row="2">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="12"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="14"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <CheckBox Grid.Row="0"
+                          Content="Enable Windows notifications"
+                          IsChecked="{Binding NotificationsEnabled, Mode=TwoWay}"/>
+
+                <Border Grid.Row="2"
+                        Padding="14,12"
+                        Background="{StaticResource SurfaceBrush}"
+                        BorderBrush="{StaticResource BorderBrushSoft}"
+                        BorderThickness="1"
+                        CornerRadius="10">
+                    <StackPanel>
+                        <CheckBox Content="Notify when a new process first shows network activity"
+                                  IsChecked="{Binding NewProcessNotificationsEnabled, Mode=TwoWay}"
+                                  IsEnabled="{Binding NotificationsEnabled}"/>
+                        <TextBlock Margin="24,4,0,10"
+                                   Foreground="{StaticResource TextMutedBrush}"
+                                   FontSize="11"
+                                   Text="Repeated instances of the same executable are suppressed for the current live capture session."/>
+
+                        <CheckBox Content="Notify when a process crosses the risk score threshold"
+                                  IsChecked="{Binding RiskScoreNotificationsEnabled, Mode=TwoWay}"
+                                  IsEnabled="{Binding NotificationsEnabled}"/>
+
+                        <StackPanel Margin="24,6,0,10"
+                                    IsEnabled="{Binding RiskScoreNotificationsEnabled}">
+                            <TextBlock Foreground="{StaticResource TextMutedBrush}"
+                                       FontSize="11"
+                                       Text="Risk score threshold"/>
+                            <DockPanel Margin="0,6,0,0" LastChildFill="False">
+                                <Slider Minimum="1"
+                                        Maximum="100"
+                                        Value="{Binding RiskScoreThreshold, Mode=TwoWay}"
+                                        TickFrequency="5"
+                                        IsSnapToTickEnabled="False"
+                                        Width="260"/>
+                                <Border Margin="12,0,0,0"
+                                        Padding="10,4"
+                                        Background="{StaticResource CardAltBrush}"
+                                        BorderBrush="{StaticResource BorderBrushSoft}"
+                                        BorderThickness="1"
+                                        CornerRadius="8">
+                                    <TextBlock Text="{Binding RiskScoreThresholdLabel}"
+                                               FontWeight="SemiBold"
+                                               Foreground="{StaticResource TextPrimaryBrush}"/>
+                                </Border>
+                            </DockPanel>
+                        </StackPanel>
+
+                        <CheckBox Content="Notify when beaconing is detected"
+                                  IsChecked="{Binding BeaconNotificationsEnabled, Mode=TwoWay}"
+                                  IsEnabled="{Binding NotificationsEnabled}"/>
+                    </StackPanel>
+                </Border>
+
+                <StackPanel Grid.Row="4"
+                            Orientation="Horizontal"
+                            HorizontalAlignment="Right">
+                    <Button Content="Cancel"
+                            MinWidth="90"
+                            Margin="0,0,8,0"
+                            Command="{Binding CancelCommand}"
+                            CommandParameter="{Binding RelativeSource={RelativeSource AncestorType=Window}}"/>
+                    <Button Content="Save"
+                            MinWidth="90"
+                            Style="{StaticResource PrimaryButtonStyle}"
+                            Command="{Binding SaveCommand}"
+                            CommandParameter="{Binding RelativeSource={RelativeSource AncestorType=Window}}"/>
+                </StackPanel>
+            </Grid>
+        </Grid>
+    </Border>
+</Window>

@@ -42,6 +42,8 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
     private Action<ProcessConversationRow>? _showPacketsForConversation;
     private Action<ProcessSessionClusterRow>? _showPacketsForSessionCluster;
     private Action<string>? _reportStatus;
+    private readonly ThreatNotificationCoordinator _notificationCoordinator;
+    private bool _emitNotificationsForCurrentSession;
 
     public ObservableCollection<ProcessStatRow> ProcessStats { get; } = new();
     public ObservableCollection<ProcessStatCardRow> VisibleProcessRows { get; } = new();
@@ -241,7 +243,8 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
         ProcessBehaviorBaselineService behaviorBaselineService,
         ProcessIncidentGraphBuilder incidentGraphBuilder,
         IFileDialogService fileDialogService,
-        ProcessIncidentReportExportService incidentReportExportService)
+        ProcessIncidentReportExportService incidentReportExportService,
+        ThreatNotificationCoordinator notificationCoordinator)
     {
         _processMapperService = processMapperService;
         _forensicsTracker = forensicsTracker;
@@ -251,6 +254,7 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
         _incidentGraphBuilder = incidentGraphBuilder;
         _fileDialogService = fileDialogService;
         _incidentReportExportService = incidentReportExportService;
+        _notificationCoordinator = notificationCoordinator;
 
         SelectProcessStatCommand = new RelayCommand(p => OpenProcessDetails(p), p => p is ProcessStatRow);
         ShowPacketsForPidCommand = new RelayCommand(p => ShowPacketsForPid(p));
@@ -290,12 +294,19 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
         _reportStatus = reportStatus;
     }
 
+    public void BeginCaptureSession(bool emitNotifications)
+    {
+        _emitNotificationsForCurrentSession = emitNotifications;
+        _notificationCoordinator.ResetSession();
+    }
+
     public void Reset()
     {
         _processStatsMap.Clear();
         _processPacketsSinceLastSample.Clear();
         _burstingPids.Clear();
         _baselineFinalizedRows.Clear();
+        _notificationCoordinator.ResetSession();
         _forensicsTracker.Reset();
         _livenessTracker.Reset();
 
@@ -362,7 +373,11 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
         var forensicsUpdate = _forensicsTracker.Update(packet, row);
 
         if (isFirstPacket)
+        {
             row.RecordFirstPacket(packet.Timestamp, BuildPacketTimelineDetail(packet));
+            if (_emitNotificationsForCurrentSession)
+                _notificationCoordinator.NotifyNewProcess(row);
+        }
 
         if (forensicsUpdate.HasFirstOutboundConnection)
             row.RecordFirstOutboundConnection(packet.Timestamp, forensicsUpdate.FirstOutboundConnectionDetail);
@@ -744,8 +759,16 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
 
     private void OnProcessStatPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (sender is not ProcessStatRow)
+        if (sender is not ProcessStatRow row)
             return;
+
+        if (_emitNotificationsForCurrentSession)
+        {
+            if (e.PropertyName == nameof(ProcessStatRow.RiskScore))
+                _notificationCoordinator.ObserveRiskScore(row);
+            else if (e.PropertyName == nameof(ProcessStatRow.BeaconSuspected))
+                _notificationCoordinator.ObserveBeacon(row);
+        }
 
         if (string.IsNullOrWhiteSpace(e.PropertyName)
             || e.PropertyName is nameof(ProcessStatRow.RiskScore)

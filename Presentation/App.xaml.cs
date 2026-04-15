@@ -49,6 +49,9 @@ public partial class App : System.Windows.Application
                 services.AddSingleton<HostResolutionService>();
                 services.AddSingleton<ProcessForensicsTracker>();
                 services.AddSingleton<ProcessLivenessTracker>();
+                services.AddSingleton<NotificationSettingsStore>();
+                services.AddSingleton<WindowsShellNotificationService>();
+                services.AddSingleton<ThreatNotificationCoordinator>();
                 services.AddSingleton<ProcessRemediationCoordinator>();
                 services.AddSingleton<ProcessIncidentReportExportService>();
                 services.AddSingleton<IProcessBaselineStore, JsonProcessBaselineStore>();
@@ -64,6 +67,8 @@ public partial class App : System.Windows.Application
                 services.AddTransient<Func<Func<bool>, Action, FlowsViewModel>>(sp => (uiNonEmpty, onFilterChanged) => ActivatorUtilities.CreateInstance<FlowsViewModel>(sp, uiNonEmpty, onFilterChanged));
                 // FiltersViewModel requires initial PacketFilterModel -> factory
                 services.AddTransient(sp => (Func<PacketFilterModel, FiltersViewModel>)(p => ActivatorUtilities.CreateInstance<FiltersViewModel>(sp, p)));
+                services.AddTransient<NotificationSettingsViewModel>();
+                services.AddTransient<Func<NotificationSettingsViewModel>>(sp => () => ActivatorUtilities.CreateInstance<NotificationSettingsViewModel>(sp));
 
                 // Capture controller (expose via interface)
                 services.AddSingleton<ICaptureController, CaptureController>();

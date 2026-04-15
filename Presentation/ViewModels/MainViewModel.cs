@@ -10,6 +10,7 @@ using PacketDotNet;
 using Presentation.Abstractions;
 using Presentation.Helpers;
 using Presentation.Models;
+using Presentation.Services;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -49,6 +50,8 @@ public sealed class MainViewModel : ViewModelBase
     private readonly ICaptureController _captureController;
     private readonly Func<Func<bool>, Action, FlowsViewModel> _flowsFactory;
     private readonly Func<PacketFilterModel, FiltersViewModel> _filtersFactory;
+    private readonly Func<NotificationSettingsViewModel> _notificationSettingsFactory;
+    private readonly WindowsShellNotificationService _shellNotificationService;
 
     private readonly RelayCommand _followFlowCommand;
     private readonly RelayCommand _followFlowBothDirectionsCommand;
@@ -387,6 +390,7 @@ public sealed class MainViewModel : ViewModelBase
     public ICommand ApplyBpfCommand { get; }
     public ICommand SaveCaptureCommand { get; }
     public ICommand OpenCaptureCommand { get; }
+    public ICommand QuitApplicationCommand { get; }
 
     // ===================== LEFT TABS =====================
 
@@ -432,6 +436,7 @@ public sealed class MainViewModel : ViewModelBase
     public ICommand ClearFlowFilterCommand => _clearFlowFilterCommand;
     public ICommand ShowPacketsCommand { get; }
     public ICommand OpenFiltersCommand { get; }
+    public ICommand OpenNotificationSettingsCommand { get; }
     public ICommand ShowFlowsCommand { get; }
     public ICommand OpenStatisticsCommand { get; }
     public ICommand ShowProcessPacketsCommand { get; }
@@ -463,7 +468,9 @@ public sealed class MainViewModel : ViewModelBase
         ICaptureController captureController,
         StatsViewModel stats,
         Func<Func<bool>, Action, FlowsViewModel> flowsFactory,
-        Func<PacketFilterModel, FiltersViewModel> filtersFactory)
+        Func<PacketFilterModel, FiltersViewModel> filtersFactory,
+        Func<NotificationSettingsViewModel> notificationSettingsFactory,
+        WindowsShellNotificationService shellNotificationService)
     {
         _deviceService = deviceService;
         _captureService = captureService;
@@ -477,6 +484,8 @@ public sealed class MainViewModel : ViewModelBase
         Stats = stats;
         _flowsFactory = flowsFactory;
         _filtersFactory = filtersFactory;
+        _notificationSettingsFactory = notificationSettingsFactory;
+        _shellNotificationService = shellNotificationService;
 
 
         _startCommand = new AsyncRelayCommand(StartAsync, CanStartCapture);
@@ -486,9 +495,16 @@ public sealed class MainViewModel : ViewModelBase
         ApplyBpfCommand = new AsyncRelayCommand(ApplyBpfAsync);
         SaveCaptureCommand = new AsyncRelayCommand(SaveCaptureAsync);
         OpenCaptureCommand = new AsyncRelayCommand(OpenCaptureAsync);
+        QuitApplicationCommand = new AsyncRelayCommand(QuitApplicationAsync);
+        _shellNotificationService.ConfigureMenu(
+            isCapturing: () => _captureService.IsRunning,
+            startCommand: StartCommand,
+            stopCommand: StopCommand,
+            quitCommand: QuitApplicationCommand);
 
         // Відповідає за команду відкриття вікна Filters (модально по центру).
         OpenFiltersCommand = new RelayCommand(_ => OpenFiltersDialog());
+        OpenNotificationSettingsCommand = new RelayCommand(_ => OpenNotificationSettingsDialog());
         ShowFlowsCommand = new RelayCommand(_ => ShowFlows());
         OpenStatisticsCommand = new RelayCommand(_ => ShowStatistics());
         ShowPacketsCommand = new RelayCommand(_ => ShowPackets());
@@ -668,6 +684,7 @@ public sealed class MainViewModel : ViewModelBase
             Packets.Clear();
             ResetPacketIndices();
             ClearPacketDetailsCache();
+            ProcessPackets.BeginCaptureSession(emitNotifications: false);
             ProcessPackets.Reset();
             _flowsVm.Flows.Clear();
             _flowAggregator.Reset();
@@ -780,6 +797,29 @@ public sealed class MainViewModel : ViewModelBase
         _stopCommand.RaiseCanExecuteChanged();
     }
 
+    private async Task QuitApplicationAsync(CancellationToken ct)
+    {
+        try
+        {
+            if (_captureService.IsRunning)
+            {
+                StatusText = "Stopping capture before exit...";
+                await StopAsync(ct);
+            }
+
+            System.Windows.Application.Current.Shutdown();
+        }
+        catch (OperationCanceledException)
+        {
+            StatusText = "Quit canceled.";
+        }
+        catch (Exception ex)
+        {
+            StatusText = "Quit failed";
+            MessageBox.Show(ex.Message, "Quit failed", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
     // ===================== START/STOP =====================
 
     // Відповідає за запуск захоплення: reset UI, reset flows/stats, запуск reader task і старт capture.
@@ -801,6 +841,7 @@ public sealed class MainViewModel : ViewModelBase
             Packets.Clear();
             ResetPacketIndices();
             ClearPacketDetailsCache();
+            ProcessPackets.BeginCaptureSession(emitNotifications: true);
             ProcessPackets.Reset();
             _flowsVm.Flows.Clear();
             _flowAggregator.Reset();
@@ -1240,6 +1281,19 @@ public sealed class MainViewModel : ViewModelBase
         _uiFilter = vm.GetAppliedFilter();
         RefreshPacketsFilteringUi();
         (ClearFlowFilterCommand as RelayCommand)?.RaiseCanExecuteChanged();
+    }
+
+    private void OpenNotificationSettingsDialog()
+    {
+        var vm = _notificationSettingsFactory();
+
+        var win = new Presentation.Views.NotificationSettingsWindow
+        {
+            Owner = System.Windows.Application.Current.MainWindow,
+            DataContext = vm
+        };
+
+        win.ShowDialog();
     }
 
     private bool PassesCombinedFilters(PacketInfo p)
