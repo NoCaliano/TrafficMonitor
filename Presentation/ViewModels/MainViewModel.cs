@@ -55,6 +55,7 @@ public sealed class MainViewModel : ViewModelBase
     private readonly Func<Func<bool>, Action, FlowsViewModel> _flowsFactory;
     private readonly Func<PacketFilterModel, FiltersViewModel> _filtersFactory;
     private readonly Func<NotificationSettingsViewModel> _notificationSettingsFactory;
+    private readonly Func<TrafficControlRulesViewModel> _trafficControlRulesFactory;
     private readonly WindowsShellNotificationService _shellNotificationService;
     private readonly TrafficHistoryStore _trafficHistoryStore;
 
@@ -444,6 +445,7 @@ public sealed class MainViewModel : ViewModelBase
     public ICommand ShowPacketsCommand { get; }
     public ICommand OpenFiltersCommand { get; }
     public ICommand OpenNotificationSettingsCommand { get; }
+    public ICommand OpenTrafficControlRulesCommand { get; }
     public ICommand ShowFlowsCommand { get; }
     public ICommand ShowEndpointsCommand { get; }
     public ICommand ShowHistoryCommand { get; }
@@ -482,6 +484,7 @@ public sealed class MainViewModel : ViewModelBase
         Func<Func<bool>, Action, FlowsViewModel> flowsFactory,
         Func<PacketFilterModel, FiltersViewModel> filtersFactory,
         Func<NotificationSettingsViewModel> notificationSettingsFactory,
+        Func<TrafficControlRulesViewModel> trafficControlRulesFactory,
         WindowsShellNotificationService shellNotificationService,
         TrafficHistoryStore trafficHistoryStore)
     {
@@ -501,6 +504,7 @@ public sealed class MainViewModel : ViewModelBase
         _flowsFactory = flowsFactory;
         _filtersFactory = filtersFactory;
         _notificationSettingsFactory = notificationSettingsFactory;
+        _trafficControlRulesFactory = trafficControlRulesFactory;
         _shellNotificationService = shellNotificationService;
         _trafficHistoryStore = trafficHistoryStore;
 
@@ -522,6 +526,7 @@ public sealed class MainViewModel : ViewModelBase
         // Відповідає за команду відкриття вікна Filters (модально по центру).
         OpenFiltersCommand = new RelayCommand(_ => OpenFiltersDialog());
         OpenNotificationSettingsCommand = new RelayCommand(_ => OpenNotificationSettingsDialog());
+        OpenTrafficControlRulesCommand = new RelayCommand(_ => OpenTrafficControlRulesDialog());
         ShowFlowsCommand = new RelayCommand(_ => ShowFlows());
         ShowEndpointsCommand = new RelayCommand(_ => ShowEndpoints());
         ShowHistoryCommand = new RelayCommand(_ => ShowHistory());
@@ -1340,6 +1345,19 @@ public sealed class MainViewModel : ViewModelBase
         var vm = _notificationSettingsFactory();
 
         var win = new Presentation.Views.NotificationSettingsWindow
+        {
+            Owner = System.Windows.Application.Current.MainWindow,
+            DataContext = vm
+        };
+
+        win.ShowDialog();
+    }
+
+    private void OpenTrafficControlRulesDialog()
+    {
+        var vm = _trafficControlRulesFactory();
+
+        var win = new Presentation.Views.TrafficControlRulesWindow
         {
             Owner = System.Windows.Application.Current.MainWindow,
             DataContext = vm

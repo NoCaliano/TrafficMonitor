@@ -1220,6 +1220,14 @@ public sealed class ProcessStatRow : INotifyPropertyChanged
             detail ?? "TrafficMonitor removed its Windows Firewall rules for this executable.");
     }
 
+    public void RecordQuotaAlert(string alertKey, DateTime timestamp, string title, string detail)
+    {
+        if (string.IsNullOrWhiteSpace(alertKey) || string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(detail))
+            return;
+
+        AddTimelineEventIfMissing($"quota-{alertKey.Trim()}", timestamp, title.Trim(), detail.Trim(), new InvestigationTimelineTarget("quota-alert", alertKey.Trim()));
+    }
+
     public void UpdateConversations(IEnumerable<ProcessConversationRow> conversations)
     {
         _allConversations = conversations as IReadOnlyList<ProcessConversationRow> ?? conversations.ToArray();

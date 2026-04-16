@@ -82,6 +82,7 @@
                 </MenuItem>
                 <MenuItem Header="_Settings">
                     <MenuItem Header="_Notifications..." Command="{Binding OpenNotificationSettingsCommand}" />
+                    <MenuItem Header="_Traffic Control..." Command="{Binding OpenTrafficControlRulesCommand}" />
                 </MenuItem>
                 <MenuItem Header="_Guide" Click="GuideMenuItem_Click"/>
             </Menu>

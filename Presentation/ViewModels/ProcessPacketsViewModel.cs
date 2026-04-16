@@ -43,6 +43,7 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
     private Action<ProcessSessionClusterRow>? _showPacketsForSessionCluster;
     private Action<string>? _reportStatus;
     private readonly ThreatNotificationCoordinator _notificationCoordinator;
+    private readonly TrafficControlManager _trafficControlManager;
     private bool _emitNotificationsForCurrentSession;
     private bool _isBlockPresetMenuOpen;
 
@@ -255,7 +256,8 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
         ProcessIncidentGraphBuilder incidentGraphBuilder,
         IFileDialogService fileDialogService,
         ProcessIncidentReportExportService incidentReportExportService,
-        ThreatNotificationCoordinator notificationCoordinator)
+        ThreatNotificationCoordinator notificationCoordinator,
+        TrafficControlManager trafficControlManager)
     {
         _processMapperService = processMapperService;
         _forensicsTracker = forensicsTracker;
@@ -266,6 +268,7 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
         _fileDialogService = fileDialogService;
         _incidentReportExportService = incidentReportExportService;
         _notificationCoordinator = notificationCoordinator;
+        _trafficControlManager = trafficControlManager;
 
         SelectProcessStatCommand = new RelayCommand(p => OpenProcessDetails(p), p => p is ProcessStatRow);
         ShowPacketsForPidCommand = new RelayCommand(p => ShowPacketsForPid(p));
@@ -313,6 +316,7 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
     {
         _emitNotificationsForCurrentSession = emitNotifications;
         _notificationCoordinator.ResetSession();
+        _trafficControlManager.BeginLiveSession();
     }
 
     public void Reset()
@@ -387,6 +391,7 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
         row.ObserveActivityAt(packet.Timestamp);
 
         var forensicsUpdate = _forensicsTracker.Update(packet, row);
+        bool hasDnsObservation = TryExtractDnsObservation(packet, out var dnsDomain, out var dnsQueryType, out var isDnsResponse);
 
         if (isFirstPacket)
         {
@@ -398,7 +403,7 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
         if (forensicsUpdate.HasFirstOutboundConnection)
             row.RecordFirstOutboundConnection(packet.Timestamp, forensicsUpdate.FirstOutboundConnectionDetail);
 
-        if (TryExtractDnsObservation(packet, out var dnsDomain, out var dnsQueryType, out var isDnsResponse))
+        if (hasDnsObservation)
         {
             row.RecordFirstDomain(packet.Timestamp, dnsDomain);
 
@@ -414,6 +419,12 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
 
         if (forensicsUpdate.HasBeaconDetected)
             row.RecordBeaconDetected(packet.Timestamp, forensicsUpdate.BeaconDetail);
+
+        if (_emitNotificationsForCurrentSession)
+            _trafficControlManager.ObservePacket(row, packet);
+
+        if (_emitNotificationsForCurrentSession)
+            _notificationCoordinator.ObserveSoftQuotas(row, packet, isDnsQuery: hasDnsObservation && !isDnsResponse);
 
         if (_processPacketsSinceLastSample.TryGetValue(pid, out var count))
             _processPacketsSinceLastSample[pid] = count + 1;
