@@ -27,6 +27,12 @@
     <Resource Include="Images\Icon1024by1024.png" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Update="Docs\TrafficMonitor-Guide.html">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
   <Target Name="UnblockBuildOutput" AfterTargets="Build" Condition="'$(OS)' == 'Windows_NT'">
     <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -Command &quot;Get-ChildItem -LiteralPath '$(TargetDir)' -Filter '*.dll' -File | ForEach-Object { Unblock-File -LiteralPath $_.FullName -ErrorAction SilentlyContinue }&quot;" />
   </Target>

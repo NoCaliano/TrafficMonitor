@@ -83,7 +83,7 @@
                 <MenuItem Header="_Settings">
                     <MenuItem Header="_Notifications..." Command="{Binding OpenNotificationSettingsCommand}" />
                 </MenuItem>
-                <MenuItem Header="_Guide"></MenuItem>
+                <MenuItem Header="_Guide" Click="GuideMenuItem_Click"/>
             </Menu>
         </Border>
 
