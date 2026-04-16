@@ -324,4 +324,21 @@
         <Setter Property="MinWidth" Value="0"/>
     </Style>
 
+    <Style x:Key="AppTableDataGridStyle" TargetType="DataGrid" BasedOn="{StaticResource {x:Type DataGrid}}">
+        <Setter Property="RowDetailsVisibilityMode" Value="Collapsed"/>
+        <Setter Property="RowHeaderWidth" Value="0"/>
+        <Setter Property="ColumnHeaderStyle" Value="{StaticResource AppDataGridColumnHeaderStyle}"/>
+        <Setter Property="CellStyle" Value="{StaticResource AppDataGridCellStyle}"/>
+        <Setter Property="RowStyle" Value="{StaticResource AppDataGridRowStyle}"/>
+        <Setter Property="RowHeaderStyle" Value="{StaticResource AppDataGridRowHeaderHiddenStyle}"/>
+        <Setter Property="ScrollViewer.CanContentScroll" Value="True"/>
+        <Setter Property="ScrollViewer.IsDeferredScrollingEnabled" Value="True"/>
+        <Setter Property="EnableRowVirtualization" Value="True"/>
+        <Setter Property="EnableColumnVirtualization" Value="True"/>
+        <Setter Property="VirtualizingPanel.IsVirtualizing" Value="True"/>
+        <Setter Property="VirtualizingPanel.VirtualizationMode" Value="Recycling"/>
+        <Setter Property="VirtualizingPanel.CacheLength" Value="1"/>
+        <Setter Property="VirtualizingPanel.CacheLengthUnit" Value="Page"/>
+    </Style>
+
 </ResourceDictionary>

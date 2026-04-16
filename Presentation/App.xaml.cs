@@ -50,6 +50,7 @@ public partial class App : System.Windows.Application
                 services.AddSingleton<ProcessForensicsTracker>();
                 services.AddSingleton<ProcessLivenessTracker>();
                 services.AddSingleton<NotificationSettingsStore>();
+                services.AddSingleton<TrafficHistoryStore>();
                 services.AddSingleton<WindowsShellNotificationService>();
                 services.AddSingleton<ThreatNotificationCoordinator>();
                 services.AddSingleton<ProcessRemediationCoordinator>();
@@ -60,7 +61,9 @@ public partial class App : System.Windows.Application
 
                 // ViewModels
                 services.AddSingleton<MainViewModel>();
+                services.AddSingleton<HistoryViewModel>();
                 services.AddSingleton<ProcessPacketsViewModel>();
+                services.AddSingleton<EndpointsViewModel>();
                 services.AddSingleton<StatsViewModel>();
                 // FlowsViewModel requires delegates created by MainViewModel, register factory
                 services.AddTransient<FlowsViewModel>();

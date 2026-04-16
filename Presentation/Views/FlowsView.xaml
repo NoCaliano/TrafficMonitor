@@ -114,13 +114,9 @@
                 Style="{StaticResource SectionCardStyle}">
             <DataGrid ItemsSource="{Binding Flows}"
                       SelectedItem="{Binding SelectedFlow}"
+                      Style="{StaticResource AppTableDataGridStyle}"
                       IsReadOnly="True"
-                      AutoGenerateColumns="False"
-                      ScrollViewer.VerticalScrollBarVisibility="Hidden"
-                      EnableRowVirtualization="True"
-                      EnableColumnVirtualization="True"
-                      VirtualizingPanel.IsVirtualizing="True"
-                      VirtualizingPanel.VirtualizationMode="Recycling">
+                      AutoGenerateColumns="False">
 
                 <DataGrid.ContextMenu>
                     <ContextMenu>

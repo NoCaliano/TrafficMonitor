@@ -2,6 +2,7 @@
 using Application.Abstractions;
 using Application.Capture;
 using Application.Filtering;
+using Application.Networking;
 using Domain.Models;
 using Infrastructure.Capture;
 using Infrastructure.Networking;
@@ -32,8 +33,10 @@ public sealed class MainViewModel : ViewModelBase
 {
     private const int PacketsTabIndex = 0;
     private const int FlowsTabIndex = 1;
-    private const int ProcessPacketsTabIndex = 2;
-    private const int StatisticsTabIndex = 3;
+    private const int EndpointsTabIndex = 2;
+    private const int HistoryTabIndex = 3;
+    private const int ProcessPacketsTabIndex = 4;
+    private const int StatisticsTabIndex = 5;
     private const int PacketProtocolDetailsTabIndex = 0;
     private const int PacketHexDetailsTabIndex = 1;
     private const int PacketDetailsCacheCapacity = 24;
@@ -44,6 +47,7 @@ public sealed class MainViewModel : ViewModelBase
 
     // Відповідає за агрегатор потоків.
     private readonly IFlowAggregator _flowAggregator;
+    private readonly HostResolutionService _hostResolutionService;
     private readonly IHexDumpService _hexDumpService;
     private readonly IPacketFilterService _packetFilterService;
     private readonly IFlowFilterService _flowFilterService;
@@ -52,6 +56,7 @@ public sealed class MainViewModel : ViewModelBase
     private readonly Func<PacketFilterModel, FiltersViewModel> _filtersFactory;
     private readonly Func<NotificationSettingsViewModel> _notificationSettingsFactory;
     private readonly WindowsShellNotificationService _shellNotificationService;
+    private readonly TrafficHistoryStore _trafficHistoryStore;
 
     private readonly RelayCommand _followFlowCommand;
     private readonly RelayCommand _followFlowBothDirectionsCommand;
@@ -84,6 +89,8 @@ public sealed class MainViewModel : ViewModelBase
         get => _packetsTableFontSize;
         set => Set(ref _packetsTableFontSize, value);
     }
+    public HistoryViewModel History { get; }
+    public EndpointsViewModel Endpoints { get; }
     public ProcessPacketsViewModel ProcessPackets { get; }
 
     private sealed class PidPacketIndex
@@ -438,6 +445,8 @@ public sealed class MainViewModel : ViewModelBase
     public ICommand OpenFiltersCommand { get; }
     public ICommand OpenNotificationSettingsCommand { get; }
     public ICommand ShowFlowsCommand { get; }
+    public ICommand ShowEndpointsCommand { get; }
+    public ICommand ShowHistoryCommand { get; }
     public ICommand OpenStatisticsCommand { get; }
     public ICommand ShowProcessPacketsCommand { get; }
     public ICommand SelectPreviousPacketCommand { get; }
@@ -460,8 +469,11 @@ public sealed class MainViewModel : ViewModelBase
         ICaptureDeviceService deviceService,
         IPacketCaptureService captureService,
         IPacketParser parser,
+        HistoryViewModel history,
+        EndpointsViewModel endpoints,
         ProcessPacketsViewModel processPackets,
         IFlowAggregator flowAggregator,
+        HostResolutionService hostResolutionService,
         IHexDumpService hexDumpService,
         IPacketFilterService packetFilterService,
         IFlowFilterService flowFilterService,
@@ -470,12 +482,16 @@ public sealed class MainViewModel : ViewModelBase
         Func<Func<bool>, Action, FlowsViewModel> flowsFactory,
         Func<PacketFilterModel, FiltersViewModel> filtersFactory,
         Func<NotificationSettingsViewModel> notificationSettingsFactory,
-        WindowsShellNotificationService shellNotificationService)
+        WindowsShellNotificationService shellNotificationService,
+        TrafficHistoryStore trafficHistoryStore)
     {
         _deviceService = deviceService;
         _captureService = captureService;
         _flowAggregator = flowAggregator;
+        _hostResolutionService = hostResolutionService;
         _parser = parser;
+        History = history;
+        Endpoints = endpoints;
         ProcessPackets = processPackets;
         _hexDumpService = hexDumpService;
         _packetFilterService = packetFilterService;
@@ -486,6 +502,7 @@ public sealed class MainViewModel : ViewModelBase
         _filtersFactory = filtersFactory;
         _notificationSettingsFactory = notificationSettingsFactory;
         _shellNotificationService = shellNotificationService;
+        _trafficHistoryStore = trafficHistoryStore;
 
 
         _startCommand = new AsyncRelayCommand(StartAsync, CanStartCapture);
@@ -506,6 +523,8 @@ public sealed class MainViewModel : ViewModelBase
         OpenFiltersCommand = new RelayCommand(_ => OpenFiltersDialog());
         OpenNotificationSettingsCommand = new RelayCommand(_ => OpenNotificationSettingsDialog());
         ShowFlowsCommand = new RelayCommand(_ => ShowFlows());
+        ShowEndpointsCommand = new RelayCommand(_ => ShowEndpoints());
+        ShowHistoryCommand = new RelayCommand(_ => ShowHistory());
         OpenStatisticsCommand = new RelayCommand(_ => ShowStatistics());
         ShowPacketsCommand = new RelayCommand(_ => ShowPackets());
         ShowProcessPacketsCommand = new RelayCommand(_ => ShowProcessPackets());
@@ -522,6 +541,7 @@ public sealed class MainViewModel : ViewModelBase
             ShowPacketsForConversation,
             ShowPacketsForSessionCluster,
             message => StatusText = message);
+        Endpoints.ConfigureActions(ShowPacketsForHost);
 
         // FlowsViewModel will manage flow selection and flow commands
         _flowsVm = _flowsFactory(() => !_uiFilterIsEmpty, () => RefreshPacketsFilteringUi());
@@ -686,6 +706,7 @@ public sealed class MainViewModel : ViewModelBase
             ClearPacketDetailsCache();
             ProcessPackets.BeginCaptureSession(emitNotifications: false);
             ProcessPackets.Reset();
+            Endpoints.Reset();
             _flowsVm.Flows.Clear();
             _flowAggregator.Reset();
             Stats.Reset();
@@ -729,6 +750,7 @@ public sealed class MainViewModel : ViewModelBase
                     last = last is null || info.Timestamp > last ? info.Timestamp : last;
 
                     _flowAggregator.Add(info);
+                    _hostResolutionService.Observe(info);
                 }
 
                 return (parsed, totalBytes, first, last);
@@ -746,6 +768,8 @@ public sealed class MainViewModel : ViewModelBase
 
             foreach (var a in pidAgg)
                 ProcessPackets.SeedProcessSummary(a.Pid, a.ProcessName, a.Count, a.Bytes);
+
+            Endpoints.ObservePackets(loaded.parsed);
 
             var top = _flowAggregator.SnapshotTop(take: 500);
             _flowsVm.UpdateFlows(top);
@@ -843,6 +867,7 @@ public sealed class MainViewModel : ViewModelBase
             ClearPacketDetailsCache();
             ProcessPackets.BeginCaptureSession(emitNotifications: true);
             ProcessPackets.Reset();
+            Endpoints.Reset();
             _flowsVm.Flows.Clear();
             _flowAggregator.Reset();
             Stats.Reset();
@@ -895,6 +920,7 @@ public sealed class MainViewModel : ViewModelBase
             _flushTimer.Change(System.Threading.Timeout.Infinite, System.Threading.Timeout.Infinite);
             FlushPending(drainAll: true);
             ProcessPackets.FinalizeCurrentSession();
+            PersistCurrentSessionHistory();
 
             StatusText = "Idle";
         }
@@ -952,6 +978,8 @@ public sealed class MainViewModel : ViewModelBase
             // on whether a row survives UI throttling.
             for (int i = 0; i < toFlush.Count; i++)
                 ProcessPackets.ObservePacket(toFlush[i]);
+
+            Endpoints.ObservePackets(toFlush);
 
             if (toFlush.Count > 0)
             {
@@ -1283,6 +1311,30 @@ public sealed class MainViewModel : ViewModelBase
         (ClearFlowFilterCommand as RelayCommand)?.RaiseCanExecuteChanged();
     }
 
+    private void PersistCurrentSessionHistory()
+    {
+        try
+        {
+            _trafficHistoryStore.AppendLiveSession(
+                new CaptureStats
+                {
+                    TotalPackets = Stats.SummaryTotalPackets,
+                    TotalBytes = Stats.SummaryTotalBytes,
+                    FirstSeen = Stats.SummaryFirstSeen,
+                    LastSeen = Stats.SummaryLastSeen,
+                    Elapsed = Stats.SummaryDuration
+                },
+                SelectedDevice?.Name,
+                BpfFilter,
+                ProcessPackets.ProcessStats.ToArray(),
+                Endpoints.Hosts.ToArray());
+        }
+        catch
+        {
+            // keep stopping capture resilient even if history persistence fails
+        }
+    }
+
     private void OpenNotificationSettingsDialog()
     {
         var vm = _notificationSettingsFactory();
@@ -1477,6 +1529,16 @@ public sealed class MainViewModel : ViewModelBase
         LeftTabIndex = FlowsTabIndex;
     }
 
+    private void ShowEndpoints()
+    {
+        LeftTabIndex = EndpointsTabIndex;
+    }
+
+    private void ShowHistory()
+    {
+        LeftTabIndex = HistoryTabIndex;
+    }
+
     private void ShowStatistics()
     {
         LeftTabIndex = StatisticsTabIndex;
@@ -1502,6 +1564,33 @@ public sealed class MainViewModel : ViewModelBase
         DisplayFilterText = "";
         RefreshPacketsFilteringUi();
         LeftTabIndex = PacketsTabIndex;
+    }
+
+    private void ShowPacketsForHost(string ip)
+    {
+        string normalizedIp = (ip ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(normalizedIp))
+            return;
+
+        _flowFilterService.Clear();
+        _uiFilter = new PacketFilterModel
+        {
+            AnyIpOp = TextMatchOp.Equals,
+            AnyIpValue = normalizedIp
+        };
+
+        DisplayFilterText = "";
+        RefreshPacketsFilteringUi();
+        LeftTabIndex = PacketsTabIndex;
+
+        var packet = Packets.FirstOrDefault(p =>
+            string.Equals(p.SrcIp, normalizedIp, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(p.DstIp, normalizedIp, StringComparison.OrdinalIgnoreCase));
+
+        if (packet is not null && IsPacketVisibleInView(packet))
+            SelectedPacket = packet;
+
+        StatusText = $"Filtered packets for host {normalizedIp}.";
     }
 
     private void FocusPacketForTimelineEvent(ProcessStatRow.InvestigationTimelineEvent timelineEvent)

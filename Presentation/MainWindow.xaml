@@ -76,11 +76,14 @@
                 </MenuItem>
                 <MenuItem Header="_Analyze">
                     <MenuItem Header="_Flows" Command="{Binding ShowFlowsCommand}" />
+                    <MenuItem Header="_Hosts / Endpoints" Command="{Binding ShowEndpointsCommand}" />
+                    <MenuItem Header="_History" Command="{Binding ShowHistoryCommand}" />
                     <MenuItem Header="_Statistics" Command="{Binding OpenStatisticsCommand}" />
                 </MenuItem>
                 <MenuItem Header="_Settings">
                     <MenuItem Header="_Notifications..." Command="{Binding OpenNotificationSettingsCommand}" />
                 </MenuItem>
+                <MenuItem Header="_Guide"></MenuItem>
             </Menu>
         </Border>
 
@@ -210,6 +213,14 @@
 
                 <TabItem Header="Flows">
                     <views:FlowsView />
+                </TabItem>
+
+                <TabItem Header="Endpoints">
+                    <views:EndpointsView DataContext="{Binding Endpoints}" />
+                </TabItem>
+
+                <TabItem Header="History">
+                    <views:HistoryView DataContext="{Binding History}" />
                 </TabItem>
 
                 <TabItem Header="Process Packets">
