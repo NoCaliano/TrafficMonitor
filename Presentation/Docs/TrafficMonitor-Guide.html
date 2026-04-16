@@ -366,9 +366,10 @@
             <h1>TrafficMonitor User's Guide</h1>
             <p>
                 TrafficMonitor is a desktop network analysis tool for live packet capture, packet inspection,
-                host and flow tracking, process-aware traffic investigation, historical session review, and
-                quick security-oriented triage. This guide explains the screens, actions, and everyday workflows
-                available in the current application build.
+                host and flow tracking, process-aware traffic investigation, historical session review,
+                Windows shell notifications, and traffic control rules for throttling, priority marking,
+                daily quotas, and scheduled enforcement. This guide explains the screens, actions, and
+                everyday workflows available in the current application build.
             </p>
 
             <div class="hero-grid">
@@ -381,6 +382,7 @@
                         <li>Following conversations through flow and host pivots.</li>
                         <li>Surfacing process-level network behavior and risk signals.</li>
                         <li>Reviewing capture history across sessions, processes, and hosts.</li>
+                        <li>Applying traffic control rules for bandwidth limits, priorities, quotas, and schedules.</li>
                     </ul>
                 </section>
 
@@ -410,6 +412,7 @@
                 <li><a href="#history">Traffic History</a></li>
                 <li><a href="#processes">Process Investigation</a></li>
                 <li><a href="#statistics">Statistics</a></li>
+                <li><a href="#traffic-control">Traffic Control Rules</a></li>
                 <li><a href="#notifications">Notifications</a></li>
                 <li><a href="#files">Capture Files</a></li>
                 <li><a href="#tips">Tips and Notes</a></li>
@@ -491,7 +494,7 @@
                     </tr>
                     <tr>
                         <th>Settings menu</th>
-                        <td>Open notification settings for Windows shell alerts.</td>
+                        <td>Open notification settings and the traffic control rules editor.</td>
                     </tr>
                     <tr>
                         <th>Guide menu</th>
@@ -608,7 +611,7 @@
                     </tr>
                     <tr>
                         <th>Host details</th>
-                        <td>See hostname resolution source, traffic totals, sent versus received split, first seen and last seen timing, and related DNS or TLS context.</td>
+                        <td>See hostname resolution hints, traffic totals, sent versus received split, first seen and last seen timing, owning processes, DNS history, TLS server names, and certificate history when those observations exist.</td>
                     </tr>
                     <tr>
                         <th>Context action</th>
@@ -681,7 +684,7 @@
                     <li>TLS and DNS insights.</li>
                     <li>Behavior deviations from learned process baselines.</li>
                     <li>An incident graph with a save-to-image action.</li>
-                    <li>Investigation timeline events that can jump back to packets.</li>
+                    <li>Investigation timeline events that can jump back to packets, including quota and enforcement alerts raised during live capture.</li>
                     <li>Conversation and session-cluster rollups with packet pivot buttons.</li>
                 </ul>
 
@@ -720,6 +723,50 @@
                 </p>
             </section>
 
+            <section class="section" id="traffic-control">
+                <h2>Traffic Control Rules</h2>
+                <p class="lead">
+                    Traffic control rules move TrafficMonitor from observation into policy enforcement.
+                    Open them from <code>Settings &gt; Traffic Control...</code>.
+                </p>
+
+                <table>
+                    <tr>
+                        <th>Rule targets</th>
+                        <td>Create rules for a process, a host, or a specific process-to-host combination.</td>
+                    </tr>
+                    <tr>
+                        <th>Host matching</th>
+                        <td>Host rules match remote IP addresses or CIDR ranges such as <code>8.8.8.8</code> or <code>142.250.0.0/16</code>. They do not match by domain name.</td>
+                    </tr>
+                    <tr>
+                        <th>Bandwidth limit</th>
+                        <td>Apply an outbound QoS throttle in Mbps. Use <code>0</code> to leave traffic unthrottled.</td>
+                    </tr>
+                    <tr>
+                        <th>Priority</th>
+                        <td>Mark traffic with Windows QoS priority levels such as <code>Background</code>, <code>High</code>, or <code>Critical</code>.</td>
+                    </tr>
+                    <tr>
+                        <th>Daily quota</th>
+                        <td>Set a per-day traffic budget in MB. When the quota is reached, the rule can notify only or notify and auto-block the matching traffic until the next local day begins.</td>
+                    </tr>
+                    <tr>
+                        <th>Scheduler</th>
+                        <td>Limit a rule to selected days and time windows. Overnight ranges such as <code>22:00</code> to <code>06:00</code> are supported.</td>
+                    </tr>
+                    <tr>
+                        <th>Persistence</th>
+                        <td>Rules are saved locally and reloaded with the application. QoS and firewall actions can trigger an elevation prompt when Windows needs admin approval.</td>
+                    </tr>
+                </table>
+
+                <div class="callout">
+                    Traffic control rules are strongest during live capture on Windows. Throttling and priority are
+                    applied through native Windows QoS policies, while quota auto-block uses Windows Firewall rules.
+                </div>
+            </section>
+
             <section class="section" id="notifications">
                 <h2>Notifications</h2>
                 <p class="lead">
@@ -743,7 +790,16 @@
                         <th>Beacon detection</th>
                         <td>Alerts when repetitive beacon-like behavior is detected.</td>
                     </tr>
+                    <tr>
+                        <th>Soft traffic quotas</th>
+                        <td>Alerts on daily process traffic thresholds, unknown-host traffic volume, and DNS burst activity. These notifications are informational and also write investigation timeline events.</td>
+                    </tr>
                 </table>
+
+                <p>
+                    Notification-based quota alerts are separate from traffic control rules. Soft quota alerts warn you
+                    about suspicious or excessive usage, while traffic control rules can enforce shaping or auto-blocking.
+                </p>
             </section>
 
             <section class="section" id="files">
@@ -773,6 +829,7 @@
                     <li>Use Endpoints when the main question is "Which host is this?" rather than "Which packet is this?"</li>
                     <li>Use History when you need to compare current behavior with earlier sessions.</li>
                     <li>Use Process Packets when you want to connect traffic to an executable and respond quickly.</li>
+                    <li>Use Traffic Control Rules when you want repeatable shaping or enforcement instead of one-off manual blocks.</li>
                     <li>Clear filters before exporting if you want a full capture file instead of the current subset.</li>
                     <li>The application is strongest on Windows environments where process attribution and Windows notifications are available.</li>
                 </ul>
