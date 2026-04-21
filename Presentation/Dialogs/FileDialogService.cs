@@ -11,7 +11,7 @@ public sealed class FileDialogService : IFileDialogService
         var dlg = new OpenFileDialog
         {
             Title = "Open capture",
-            Filter = "pcap (*.pcap)|*.pcap|All files (*.*)|*.*",
+            Filter = "Capture files (*.pcap;*.pcapng)|*.pcap;*.pcapng|pcap (*.pcap)|*.pcap|pcapng (*.pcapng)|*.pcapng|All files (*.*)|*.*",
             DefaultExt = ".pcap",
             Multiselect = false
         };
@@ -24,7 +24,7 @@ public sealed class FileDialogService : IFileDialogService
         var dlg = new SaveFileDialog
         {
             Title = "Save capture",
-            Filter = "pcap (*.pcap)|*.pcap|All files (*.*)|*.*",
+            Filter = "Classic pcap (*.pcap)|*.pcap|All files (*.*)|*.*",
             DefaultExt = ".pcap",
             AddExtension = true,
             FileName = suggestedFileName

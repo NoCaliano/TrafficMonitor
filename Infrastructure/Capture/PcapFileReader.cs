@@ -1,4 +1,6 @@
 using PacketDotNet;
+using SharpPcap;
+using SharpPcap.LibPcap;
 using System.IO;
 
 namespace Infrastructure.Capture;
@@ -30,7 +32,7 @@ public static class PcapFileReader
         else if (magic == 0xd4c3b2a1u) { swap = true; nano = false; }
         else if (magic == 0xa1b23c4du) { swap = false; nano = true; }
         else if (magic == 0x4d3cb2a1u) { swap = true; nano = true; }
-        else if (magic == 0x0A0D0D0Au) { throw new NotSupportedException("pcapng is not supported. Please export as classic pcap (*.pcap)." ); }
+        else if (magic == 0x0A0D0D0Au) { return ReadPcapNg(filePath, maxPackets); }
         else { throw new InvalidOperationException($"Unsupported capture format (magic=0x{magic:X8})."); }
 
         // version major/minor (unused)
@@ -95,6 +97,52 @@ public static class PcapFileReader
         }
 
         return result;
+    }
+
+    private static List<PcapPacket> ReadPcapNg(string filePath, int? maxPackets)
+    {
+        try
+        {
+            using var device = new CaptureFileReaderDevice(filePath);
+            var result = new List<PcapPacket>(capacity: 4096);
+
+            device.OnPacketArrival += (_, e) =>
+            {
+                var raw = e.GetPacket();
+                result.Add(new PcapPacket(raw.Timeval.Date, (int)raw.LinkLayerType, raw.Data));
+            };
+
+            device.Open();
+
+            if (maxPackets is int packetLimit)
+            {
+                device.Capture(packetLimit);
+            }
+            else
+            {
+                device.Capture();
+            }
+
+            return result;
+        }
+        catch (DllNotFoundException ex)
+        {
+            throw new InvalidOperationException(
+                "pcapng import requires Npcap/libpcap support. Please install or repair Npcap and try again.",
+                ex);
+        }
+        catch (TypeInitializationException ex) when (ex.InnerException is DllNotFoundException or FileNotFoundException)
+        {
+            throw new InvalidOperationException(
+                "pcapng import requires Npcap/libpcap support. Please install or repair Npcap and try again.",
+                ex);
+        }
+        catch (PcapException ex)
+        {
+            throw new InvalidOperationException(
+                $"Failed to read pcapng file '{Path.GetFileName(filePath)}'. {ex.Message}",
+                ex);
+        }
     }
 
     private static uint ReadU32Little(ReadOnlySpan<byte> b)

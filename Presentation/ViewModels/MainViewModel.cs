@@ -26,6 +26,7 @@ using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Collections.Generic;
+using System.Windows.Threading;
 
 namespace Presentation.ViewModels;
 
@@ -57,6 +58,7 @@ public sealed class MainViewModel : ViewModelBase
     private readonly Func<NotificationSettingsViewModel> _notificationSettingsFactory;
     private readonly Func<TrafficControlRulesViewModel> _trafficControlRulesFactory;
     private readonly WindowsShellNotificationService _shellNotificationService;
+    private readonly DisplayFilterLibraryStore _displayFilterLibraryStore;
     private readonly TrafficHistoryStore _trafficHistoryStore;
     private readonly TrafficControlManager _trafficControlManager;
 
@@ -64,6 +66,8 @@ public sealed class MainViewModel : ViewModelBase
     private readonly RelayCommand _followFlowBothDirectionsCommand;
     private readonly RelayCommand _clearFlowFilterCommand;
     private readonly RelayCommand _copyHexCommand;
+    private readonly RelayCommand _saveCurrentDisplayFilterCommand;
+    private readonly RelayCommand _clearRecentDisplayFiltersCommand;
     private readonly AsyncRelayCommand _startCommand;
     private readonly AsyncRelayCommand _stopCommand;
 
@@ -82,8 +86,10 @@ public sealed class MainViewModel : ViewModelBase
     private readonly Dictionary<long, int> _packetStorageIndexByNo = new();
     private readonly Dictionary<int, PidPacketIndex> _packetsByPid = new();
     private readonly Dictionary<long, PacketDetailsCacheEntry> _packetDetailsCache = new();
+    private readonly DispatcherTimer _displayFilterRecentCommitTimer;
     private CancellationTokenSource? _packetProtocolLoadCts;
     private CancellationTokenSource? _packetHexLoadCts;
+    private string _pendingRecentDisplayFilterText = "";
 
     private double _packetsTableFontSize = 12.0;
     public double PacketsTableFontSize
@@ -360,31 +366,16 @@ public sealed class MainViewModel : ViewModelBase
         "process contains chrome",
         "frame.len > 512 && not arp"
     ];
+    public ObservableCollection<string> SavedDisplayFilters { get; } = new();
+    public ObservableCollection<string> RecentDisplayFilters { get; } = new();
+    public bool HasSavedDisplayFilters => SavedDisplayFilters.Count > 0;
+    public bool HasRecentDisplayFilters => RecentDisplayFilters.Count > 0;
 
     private bool _isDisplayFilterExamplesOpen;
     public bool IsDisplayFilterExamplesOpen
     {
         get => _isDisplayFilterExamplesOpen;
         set => Set(ref _isDisplayFilterExamplesOpen, value);
-    }
-
-    private string? _selectedDisplayFilterExample;
-    public string? SelectedDisplayFilterExample
-    {
-        get => _selectedDisplayFilterExample;
-        set
-        {
-            if (!Set(ref _selectedDisplayFilterExample, value))
-                return;
-
-            if (string.IsNullOrWhiteSpace(value))
-                return;
-
-            DisplayFilterText = value;
-            IsDisplayFilterExamplesOpen = false;
-            _selectedDisplayFilterExample = null;
-            OnPropertyChanged();
-        }
     }
 
     private string _statusText = "Idle";
@@ -459,6 +450,10 @@ public sealed class MainViewModel : ViewModelBase
     public ICommand ZoomInPacketsCommand { get; }
     public ICommand ZoomOutPacketsCommand { get; }
     public ICommand ToggleDisplayFilterExamplesCommand { get; }
+    public ICommand SaveCurrentDisplayFilterCommand => _saveCurrentDisplayFilterCommand;
+    public ICommand ApplyDisplayFilterSuggestionCommand { get; }
+    public ICommand RemoveSavedDisplayFilterCommand { get; }
+    public ICommand ClearRecentDisplayFiltersCommand => _clearRecentDisplayFiltersCommand;
     public ICommand CopyHexCommand => _copyHexCommand;
 
     public StatsViewModel Stats { get; }
@@ -487,6 +482,7 @@ public sealed class MainViewModel : ViewModelBase
         Func<NotificationSettingsViewModel> notificationSettingsFactory,
         Func<TrafficControlRulesViewModel> trafficControlRulesFactory,
         WindowsShellNotificationService shellNotificationService,
+        DisplayFilterLibraryStore displayFilterLibraryStore,
         TrafficHistoryStore trafficHistoryStore,
         TrafficControlManager trafficControlManager)
     {
@@ -508,8 +504,14 @@ public sealed class MainViewModel : ViewModelBase
         _notificationSettingsFactory = notificationSettingsFactory;
         _trafficControlRulesFactory = trafficControlRulesFactory;
         _shellNotificationService = shellNotificationService;
+        _displayFilterLibraryStore = displayFilterLibraryStore;
         _trafficHistoryStore = trafficHistoryStore;
         _trafficControlManager = trafficControlManager;
+        _displayFilterRecentCommitTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromSeconds(1.5)
+        };
+        _displayFilterRecentCommitTimer.Tick += (_, _) => CommitPendingRecentDisplayFilter();
 
 
         _startCommand = new AsyncRelayCommand(StartAsync, CanStartCapture);
@@ -543,6 +545,14 @@ public sealed class MainViewModel : ViewModelBase
         ZoomInPacketsCommand = new RelayCommand(_ => ZoomPackets(+1));
         ZoomOutPacketsCommand = new RelayCommand(_ => ZoomPackets(-1));
         ToggleDisplayFilterExamplesCommand = new RelayCommand(_ => ToggleDisplayFilterExamples());
+        _saveCurrentDisplayFilterCommand = new RelayCommand(
+            _ => SaveCurrentDisplayFilter(),
+            _ => CanSaveCurrentDisplayFilter());
+        ApplyDisplayFilterSuggestionCommand = new RelayCommand(parameter => ApplyDisplayFilterSuggestion(parameter as string));
+        RemoveSavedDisplayFilterCommand = new RelayCommand(parameter => RemoveSavedDisplayFilter(parameter as string));
+        _clearRecentDisplayFiltersCommand = new RelayCommand(
+            _ => ClearRecentDisplayFilters(),
+            _ => RecentDisplayFilters.Count > 0);
         ProcessPackets.ConfigureActions(
             ApplyProcessPacketFilter,
             FocusPacketForTimelineEvent,
@@ -589,6 +599,7 @@ public sealed class MainViewModel : ViewModelBase
             _ => CopyHexToClipboard(),
             _ => !string.IsNullOrWhiteSpace(HexDump));
 
+        LoadDisplayFilterLibrary();
 
         LoadDevices();
         // subscribe to capture controller events
@@ -652,7 +663,7 @@ public sealed class MainViewModel : ViewModelBase
         var dlg = new SaveFileDialog
         {
             Title = "Save capture",
-            Filter = "pcap (*.pcap)|*.pcap|All files (*.*)|*.*",
+            Filter = "Classic pcap (*.pcap)|*.pcap|All files (*.*)|*.*",
             DefaultExt = ".pcap",
             AddExtension = true,
             FileName = $"capture_{DateTime.Now:yyyyMMdd_HHmmss}.pcap"
@@ -691,7 +702,7 @@ public sealed class MainViewModel : ViewModelBase
         var dlg = new OpenFileDialog
         {
             Title = "Open capture",
-            Filter = "pcap (*.pcap)|*.pcap|All files (*.*)|*.*",
+            Filter = "Capture files (*.pcap;*.pcapng)|*.pcap;*.pcapng|pcap (*.pcap)|*.pcap|pcapng (*.pcapng)|*.pcapng|All files (*.*)|*.*",
             DefaultExt = ".pcap",
             Multiselect = false
         };
@@ -1492,15 +1503,175 @@ public sealed class MainViewModel : ViewModelBase
         return false;
     }
 
+    private void LoadDisplayFilterLibrary()
+    {
+        var library = _displayFilterLibraryStore.Load();
+        ReplaceDisplayFilterCollection(SavedDisplayFilters, library.SavedFilters);
+        ReplaceDisplayFilterCollection(RecentDisplayFilters, library.RecentFilters);
+        RaiseDisplayFilterLibraryChanged();
+    }
+
+    private void PersistDisplayFilterLibrary()
+    {
+        var library = DisplayFilterLibrary.CreateNormalized(new DisplayFilterLibrary
+        {
+            SavedFilters = [.. SavedDisplayFilters],
+            RecentFilters = [.. RecentDisplayFilters]
+        });
+
+        ReplaceDisplayFilterCollection(SavedDisplayFilters, library.SavedFilters);
+        ReplaceDisplayFilterCollection(RecentDisplayFilters, library.RecentFilters);
+        _displayFilterLibraryStore.Save(library);
+        RaiseDisplayFilterLibraryChanged();
+    }
+
+    private static void ReplaceDisplayFilterCollection(ObservableCollection<string> target, IReadOnlyList<string> source)
+    {
+        target.Clear();
+        for (int i = 0; i < source.Count; i++)
+            target.Add(source[i]);
+    }
+
+    private void RaiseDisplayFilterLibraryChanged()
+    {
+        OnPropertyChanged(nameof(HasSavedDisplayFilters));
+        OnPropertyChanged(nameof(HasRecentDisplayFilters));
+        _saveCurrentDisplayFilterCommand.RaiseCanExecuteChanged();
+        _clearRecentDisplayFiltersCommand.RaiseCanExecuteChanged();
+    }
+
+    private static string NormalizeDisplayFilterValue(string? value)
+        => (value ?? string.Empty).Trim();
+
+    private static int IndexOfDisplayFilter(IReadOnlyList<string> filters, string value)
+    {
+        for (int i = 0; i < filters.Count; i++)
+        {
+            if (string.Equals(filters[i], value, StringComparison.OrdinalIgnoreCase))
+                return i;
+        }
+
+        return -1;
+    }
+
+    private bool CanSaveCurrentDisplayFilter()
+    {
+        string current = NormalizeDisplayFilterValue(DisplayFilterText);
+        return _hasValidDisplayFilter
+            && !string.IsNullOrWhiteSpace(current)
+            && IndexOfDisplayFilter(SavedDisplayFilters, current) < 0;
+    }
+
+    private void SaveCurrentDisplayFilter()
+    {
+        string current = NormalizeDisplayFilterValue(DisplayFilterText);
+        if (string.IsNullOrWhiteSpace(current) || !_hasValidDisplayFilter)
+            return;
+
+        if (IndexOfDisplayFilter(SavedDisplayFilters, current) >= 0)
+            return;
+
+        SavedDisplayFilters.Insert(0, current);
+        PersistDisplayFilterLibrary();
+        StatusText = "Display filter saved.";
+    }
+
+    private void ApplyDisplayFilterSuggestion(string? filterText)
+    {
+        string normalized = NormalizeDisplayFilterValue(filterText);
+        if (string.IsNullOrWhiteSpace(normalized))
+            return;
+
+        DisplayFilterText = normalized;
+        StopPendingRecentDisplayFilterCommit();
+        if (_hasValidDisplayFilter)
+            RememberDisplayFilterUsage(normalized);
+        IsDisplayFilterExamplesOpen = false;
+    }
+
+    private void RemoveSavedDisplayFilter(string? filterText)
+    {
+        string normalized = NormalizeDisplayFilterValue(filterText);
+        if (string.IsNullOrWhiteSpace(normalized))
+            return;
+
+        int index = IndexOfDisplayFilter(SavedDisplayFilters, normalized);
+        if (index < 0)
+            return;
+
+        SavedDisplayFilters.RemoveAt(index);
+        PersistDisplayFilterLibrary();
+        StatusText = "Saved display filter removed.";
+    }
+
+    private void ClearRecentDisplayFilters()
+    {
+        if (RecentDisplayFilters.Count == 0)
+            return;
+
+        RecentDisplayFilters.Clear();
+        PersistDisplayFilterLibrary();
+        StatusText = "Recent display filters cleared.";
+    }
+
+    private void RememberDisplayFilterUsage(string filterText)
+    {
+        string normalized = NormalizeDisplayFilterValue(filterText);
+        if (string.IsNullOrWhiteSpace(normalized))
+            return;
+
+        int existingIndex = IndexOfDisplayFilter(RecentDisplayFilters, normalized);
+        if (existingIndex == 0)
+            return;
+
+        if (existingIndex > 0)
+            RecentDisplayFilters.RemoveAt(existingIndex);
+
+        RecentDisplayFilters.Insert(0, normalized);
+        PersistDisplayFilterLibrary();
+    }
+
+    private void QueuePendingRecentDisplayFilter(string filterText)
+    {
+        _pendingRecentDisplayFilterText = filterText;
+        _displayFilterRecentCommitTimer.Stop();
+        _displayFilterRecentCommitTimer.Start();
+    }
+
+    private void StopPendingRecentDisplayFilterCommit()
+    {
+        _pendingRecentDisplayFilterText = "";
+        _displayFilterRecentCommitTimer.Stop();
+    }
+
+    private void CommitPendingRecentDisplayFilter()
+    {
+        _displayFilterRecentCommitTimer.Stop();
+
+        string pending = NormalizeDisplayFilterValue(_pendingRecentDisplayFilterText);
+        _pendingRecentDisplayFilterText = "";
+
+        if (string.IsNullOrWhiteSpace(pending) || !_hasValidDisplayFilter)
+            return;
+
+        string current = NormalizeDisplayFilterValue(DisplayFilterText);
+        if (!string.Equals(current, pending, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        RememberDisplayFilterUsage(current);
+    }
+
     private void ApplyDisplayFilterText()
     {
         var text = (DisplayFilterText ?? string.Empty).Trim();
         if (string.IsNullOrWhiteSpace(text))
         {
+            StopPendingRecentDisplayFilterCommit();
             _displayFilterPredicate = null;
             _hasValidDisplayFilter = false;
             DisplayFilterError = "";
             RefreshPacketsFilteringUi();
+            _saveCurrentDisplayFilterCommand.RaiseCanExecuteChanged();
             return;
         }
 
@@ -1509,22 +1680,23 @@ public sealed class MainViewModel : ViewModelBase
             _displayFilterPredicate = predicate;
             _hasValidDisplayFilter = predicate is not null;
             DisplayFilterError = "";
+            QueuePendingRecentDisplayFilter(text);
         }
         else
         {
+            StopPendingRecentDisplayFilterCommit();
             _displayFilterPredicate = null;
             _hasValidDisplayFilter = false;
             DisplayFilterError = error ?? "Invalid display filter.";
         }
 
         RefreshPacketsFilteringUi();
+        _saveCurrentDisplayFilterCommand.RaiseCanExecuteChanged();
     }
 
     private void ToggleDisplayFilterExamples()
     {
         IsDisplayFilterExamplesOpen = !IsDisplayFilterExamplesOpen;
-        if (IsDisplayFilterExamplesOpen)
-            SelectedDisplayFilterExample = null;
     }
 
     private void CopyHexToClipboard()

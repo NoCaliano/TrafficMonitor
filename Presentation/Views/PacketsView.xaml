@@ -18,6 +18,10 @@
             <Setter Property="MinHeight" Value="26"/>
             <Setter Property="MinWidth" Value="28"/>
         </Style>
+        <Style x:Key="DisplayFilterActionButtonStyle" TargetType="Button" BasedOn="{StaticResource ToolbarButtonStyle}">
+            <Setter Property="Padding" Value="8,3"/>
+            <Setter Property="MinHeight" Value="26"/>
+        </Style>
         <Style x:Key="HexHeaderButtonStyle" TargetType="Button" BasedOn="{StaticResource ToolbarButtonStyle}">
             <Setter Property="Padding" Value="4,2"/>
             <Setter Property="MinHeight" Value="22"/>
@@ -73,6 +77,46 @@
                 </Setter.Value>
             </Setter>
         </Style>
+        <Style x:Key="DisplayFilterPickerItemButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="10,8"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="ButtonBorder"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="8"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ButtonBorder" Property="Background" Value="{StaticResource AccentBrushSoft}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="ButtonBorder" Property="Background" Value="{StaticResource SelectionBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.55"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="DisplayFilterPickerIconButtonStyle" TargetType="Button" BasedOn="{StaticResource DisplayFilterPickerItemButtonStyle}">
+            <Setter Property="MinWidth" Value="30"/>
+            <Setter Property="Padding" Value="6,6"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+        </Style>
     </UserControl.Resources>
     
     <Grid Background="{StaticResource AppBackgroundBrush}">
@@ -123,6 +167,8 @@
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="8"/>
                         <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="8"/>
+                        <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
 
                     <TextBox x:Name="DisplayFilterInput"
@@ -132,6 +178,11 @@
                              ToolTip="{Binding DisplayFilterHint}"/>
 
                     <Button Grid.Column="2"
+                            Content="Save"
+                            Command="{Binding SaveCurrentDisplayFilterCommand}"
+                            Style="{StaticResource DisplayFilterActionButtonStyle}"/>
+
+                    <Button Grid.Column="4"
                             Content="🔽"
                             Command="{Binding ToggleDisplayFilterExamplesCommand}"
                             Style="{StaticResource DisplayFilterToggleButtonStyle}"/>
@@ -155,20 +206,105 @@
                             BorderThickness="1"
                             CornerRadius="10"
                             SnapsToDevicePixels="True">
-                        <ListBox MaxHeight="220"
-                                 Style="{StaticResource DisplayFilterExampleListBoxStyle}"
-                                 BorderThickness="0"
-                                 ItemContainerStyle="{StaticResource DisplayFilterExampleItemStyle}"
-                                 ItemsSource="{Binding DisplayFilterExamples}"
-                                 SelectedItem="{Binding SelectedDisplayFilterExample, Mode=TwoWay}">
-                            <ListBox.ItemTemplate>
-                                <DataTemplate>
-                                    <TextBlock Text="{Binding}"
-                                               TextWrapping="Wrap"
-                                               Foreground="{StaticResource TextPrimaryBrush}"/>
-                                </DataTemplate>
-                            </ListBox.ItemTemplate>
-                        </ListBox>
+                        <ScrollViewer MaxHeight="300"
+                                      VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Disabled">
+                            <StackPanel Margin="10">
+                                <DockPanel Margin="0,0,0,8" LastChildFill="False">
+                                    <Button DockPanel.Dock="Left"
+                                            Content="Save current"
+                                            Command="{Binding SaveCurrentDisplayFilterCommand}"
+                                            Style="{StaticResource DisplayFilterActionButtonStyle}"/>
+                                    <Button DockPanel.Dock="Right"
+                                            Content="Clear recent"
+                                            Command="{Binding ClearRecentDisplayFiltersCommand}"
+                                            Style="{StaticResource DisplayFilterActionButtonStyle}"
+                                            Visibility="{Binding HasRecentDisplayFilters, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                </DockPanel>
+
+                                <TextBlock Text="Saved"
+                                           Margin="0,0,0,6"
+                                           Style="{StaticResource SectionCaptionTextStyle}"/>
+                                <TextBlock Text="No saved display filters yet."
+                                           Margin="10,0,0,10"
+                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                           Visibility="{Binding HasSavedDisplayFilters, Converter={StaticResource BoolToVisibilityConverter}, ConverterParameter=Invert}"/>
+                                <ItemsControl ItemsSource="{Binding SavedDisplayFilters}"
+                                              Visibility="{Binding HasSavedDisplayFilters, Converter={StaticResource BoolToVisibilityConverter}}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid Margin="0,0,0,4">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="6"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+                                                <Button Grid.Column="0"
+                                                        Command="{Binding ElementName=PacketsRoot, Path=DataContext.ApplyDisplayFilterSuggestionCommand}"
+                                                        CommandParameter="{Binding}"
+                                                        Style="{StaticResource DisplayFilterPickerItemButtonStyle}">
+                                                    <TextBlock Text="{Binding}"
+                                                               TextWrapping="Wrap"
+                                                               Foreground="{StaticResource TextPrimaryBrush}"/>
+                                                </Button>
+                                                <Button Grid.Column="2"
+                                                        Content="✕"
+                                                        Command="{Binding ElementName=PacketsRoot, Path=DataContext.RemoveSavedDisplayFilterCommand}"
+                                                        CommandParameter="{Binding}"
+                                                        Style="{StaticResource DisplayFilterPickerIconButtonStyle}"
+                                                        ToolTip="Remove saved filter"/>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
+                                <Separator Margin="0,4,0,10"/>
+
+                                <TextBlock Text="Recent"
+                                           Margin="0,0,0,6"
+                                           Style="{StaticResource SectionCaptionTextStyle}"/>
+                                <TextBlock Text="Recent filters appear automatically after you use a valid display filter."
+                                           Margin="10,0,0,10"
+                                           TextWrapping="Wrap"
+                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                           Visibility="{Binding HasRecentDisplayFilters, Converter={StaticResource BoolToVisibilityConverter}, ConverterParameter=Invert}"/>
+                                <ItemsControl ItemsSource="{Binding RecentDisplayFilters}"
+                                              Visibility="{Binding HasRecentDisplayFilters, Converter={StaticResource BoolToVisibilityConverter}}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Button Margin="0,0,0,4"
+                                                    Command="{Binding ElementName=PacketsRoot, Path=DataContext.ApplyDisplayFilterSuggestionCommand}"
+                                                    CommandParameter="{Binding}"
+                                                    Style="{StaticResource DisplayFilterPickerItemButtonStyle}">
+                                                <TextBlock Text="{Binding}"
+                                                           TextWrapping="Wrap"
+                                                           Foreground="{StaticResource TextPrimaryBrush}"/>
+                                            </Button>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
+                                <Separator Margin="0,4,0,10"/>
+
+                                <TextBlock Text="Examples"
+                                           Margin="0,0,0,6"
+                                           Style="{StaticResource SectionCaptionTextStyle}"/>
+                                <ItemsControl ItemsSource="{Binding DisplayFilterExamples}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Button Margin="0,0,0,4"
+                                                    Command="{Binding ElementName=PacketsRoot, Path=DataContext.ApplyDisplayFilterSuggestionCommand}"
+                                                    CommandParameter="{Binding}"
+                                                    Style="{StaticResource DisplayFilterPickerItemButtonStyle}">
+                                                <TextBlock Text="{Binding}"
+                                                           TextWrapping="Wrap"
+                                                           Foreground="{StaticResource TextPrimaryBrush}"/>
+                                            </Button>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </ScrollViewer>
                     </Border>
                 </Popup>
             </Grid>
