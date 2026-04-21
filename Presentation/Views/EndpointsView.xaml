@@ -162,6 +162,28 @@
                             <MenuItem Header="Show packets"
                                       Command="{Binding PlacementTarget.DataContext.ShowPacketsForSelectedHostCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                       CommandParameter="{Binding PlacementTarget.DataContext.SelectedEndpoint, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                            <Separator/>
+                            <MenuItem Header="Block host"
+                                      Command="{Binding PlacementTarget.DataContext.BlockSelectedHostCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                      CommandParameter="{Binding PlacementTarget.DataContext.SelectedEndpoint, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                            <MenuItem Header="Block host for 15 min"
+                                      Command="{Binding PlacementTarget.DataContext.BlockSelectedHostFor15MinutesCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                      CommandParameter="{Binding PlacementTarget.DataContext.SelectedEndpoint, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                            <MenuItem Header="Throttle host">
+                                <MenuItem Header="1 Mbps"
+                                          Command="{Binding PlacementTarget.DataContext.ThrottleSelectedHostTo1MbpsCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                          CommandParameter="{Binding PlacementTarget.DataContext.SelectedEndpoint, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                                <MenuItem Header="5 Mbps"
+                                          Command="{Binding PlacementTarget.DataContext.ThrottleSelectedHostTo5MbpsCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                          CommandParameter="{Binding PlacementTarget.DataContext.SelectedEndpoint, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                                <MenuItem Header="25 Mbps"
+                                          Command="{Binding PlacementTarget.DataContext.ThrottleSelectedHostTo25MbpsCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                          CommandParameter="{Binding PlacementTarget.DataContext.SelectedEndpoint, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                            </MenuItem>
+                            <Separator/>
+                            <MenuItem Header="Create rule from host"
+                                      Command="{Binding PlacementTarget.DataContext.CreateRuleFromSelectedHostCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                      CommandParameter="{Binding PlacementTarget.DataContext.SelectedEndpoint, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
                         </ContextMenu>
                     </DataGrid.ContextMenu>
 
@@ -275,6 +297,47 @@
                                         CommandParameter="{Binding DataContext.SelectedEndpoint, ElementName=EndpointsLayout}"
                                         Style="{StaticResource ChipButtonStyle}"
                                         HorizontalAlignment="Left"/>
+
+                                <StackPanel Margin="0,14,0,0">
+                                    <TextBlock Text="Quick actions" Style="{StaticResource HostDetailSectionTitleStyle}"/>
+                                    <TextBlock Margin="0,4,0,8"
+                                               Text="Apply a temporary firewall block, throttle this remote host, or open a prefilled traffic-control rule."
+                                               Style="{StaticResource HostDetailSubtitleStyle}"/>
+                                    <WrapPanel>
+                                        <Button Content="Block host"
+                                                Margin="0,0,8,8"
+                                                Style="{StaticResource ChipButtonStyle}"
+                                                Command="{Binding DataContext.BlockSelectedHostCommand, ElementName=EndpointsLayout}"
+                                                CommandParameter="{Binding DataContext.SelectedEndpoint, ElementName=EndpointsLayout}"/>
+                                        <Button Content="Block 15 min"
+                                                Margin="0,0,8,8"
+                                                Style="{StaticResource ChipButtonStyle}"
+                                                Command="{Binding DataContext.BlockSelectedHostFor15MinutesCommand, ElementName=EndpointsLayout}"
+                                                CommandParameter="{Binding DataContext.SelectedEndpoint, ElementName=EndpointsLayout}"/>
+                                        <Button Content="Create rule"
+                                                Margin="0,0,8,8"
+                                                Style="{StaticResource ChipButtonStyle}"
+                                                Command="{Binding DataContext.CreateRuleFromSelectedHostCommand, ElementName=EndpointsLayout}"
+                                                CommandParameter="{Binding DataContext.SelectedEndpoint, ElementName=EndpointsLayout}"/>
+                                    </WrapPanel>
+                                    <WrapPanel>
+                                        <Button Content="Throttle 1 Mbps"
+                                                Margin="0,0,8,8"
+                                                Style="{StaticResource ChipButtonStyle}"
+                                                Command="{Binding DataContext.ThrottleSelectedHostTo1MbpsCommand, ElementName=EndpointsLayout}"
+                                                CommandParameter="{Binding DataContext.SelectedEndpoint, ElementName=EndpointsLayout}"/>
+                                        <Button Content="Throttle 5 Mbps"
+                                                Margin="0,0,8,8"
+                                                Style="{StaticResource ChipButtonStyle}"
+                                                Command="{Binding DataContext.ThrottleSelectedHostTo5MbpsCommand, ElementName=EndpointsLayout}"
+                                                CommandParameter="{Binding DataContext.SelectedEndpoint, ElementName=EndpointsLayout}"/>
+                                        <Button Content="Throttle 25 Mbps"
+                                                Margin="0,0,8,8"
+                                                Style="{StaticResource ChipButtonStyle}"
+                                                Command="{Binding DataContext.ThrottleSelectedHostTo25MbpsCommand, ElementName=EndpointsLayout}"
+                                                CommandParameter="{Binding DataContext.SelectedEndpoint, ElementName=EndpointsLayout}"/>
+                                    </WrapPanel>
+                                </StackPanel>
 
                                 <StackPanel Margin="0,18,0,0"
                                             Visibility="{Binding DataContext.SelectedEndpoint.HasResolutionHints, ElementName=EndpointsLayout, Converter={StaticResource BoolToVisibilityConverter}}">

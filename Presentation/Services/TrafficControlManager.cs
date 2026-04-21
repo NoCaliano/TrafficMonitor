@@ -1,6 +1,7 @@
 using Application.Abstractions;
 using Domain.Models;
 using Infrastructure.Remediation;
+using Presentation.Abstractions;
 using Presentation.Models;
 using System;
 using System.Collections.Generic;
@@ -9,15 +10,23 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Threading;
+using System.Windows;
 
 namespace Presentation.Services;
 
 public readonly record struct TrafficControlSaveResult(bool HasWarnings, string StatusMessage);
 
+public enum HostQuickBlockPreset
+{
+    UntilAppExit,
+    FifteenMinutes
+}
+
 public sealed class TrafficControlManager : IDisposable
 {
     private static readonly TimeSpan RefreshInterval = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan LocalIpsRefreshInterval = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan QuickHostTemporaryBlockDuration = TimeSpan.FromMinutes(15);
 
     private readonly object _gate = new();
     private readonly TrafficControlRulesStore _store;
@@ -25,8 +34,11 @@ public sealed class TrafficControlManager : IDisposable
     private readonly WindowsShellNotificationService _shellNotificationService;
     private readonly WindowsRemediationService _remediationService;
     private readonly ILocalAddressService _localAddressService;
+    private readonly IUserPromptService _prompt;
     private readonly Dictionary<string, AppliedQosPolicyEntry> _appliedQosPolicies = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, ActiveQuotaBlockEntry> _activeQuotaBlocks = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, ActiveHostFirewallBlockEntry> _activeHostFirewallBlocks = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, AppliedHostQosPolicyEntry> _activeHostQosPolicies = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, long> _liveBytesByRuleDay = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, long> _persistedBytesCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _suppressedQosEntryKeys = new(StringComparer.OrdinalIgnoreCase);
@@ -45,13 +57,15 @@ public sealed class TrafficControlManager : IDisposable
         TrafficHistoryStore historyStore,
         WindowsShellNotificationService shellNotificationService,
         WindowsRemediationService remediationService,
-        ILocalAddressService localAddressService)
+        ILocalAddressService localAddressService,
+        IUserPromptService prompt)
     {
         _store = store;
         _historyStore = historyStore;
         _shellNotificationService = shellNotificationService;
         _remediationService = remediationService;
         _localAddressService = localAddressService;
+        _prompt = prompt;
         _rules = _store.Load()
             .Select(TrafficControlRule.CreateNormalized)
             .ToList();
@@ -120,6 +134,104 @@ public sealed class TrafficControlManager : IDisposable
         }
     }
 
+    public string? BlockHost(string remoteAddress, HostQuickBlockPreset preset = HostQuickBlockPreset.UntilAppExit)
+    {
+        if (!TryNormalizeHostRemoteAddress(remoteAddress, out string normalizedAddress))
+            return "Host block failed: the selected endpoint does not have a valid IP address.";
+
+        var response = _prompt.Show(
+            BuildHostBlockPrompt(normalizedAddress, preset),
+            GetHostBlockPromptTitle(preset),
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+
+        if (response != MessageBoxResult.Yes)
+            return null;
+
+        string ruleBaseName = BuildQuickHostFirewallRuleBase(normalizedAddress);
+        if (!_remediationService.TryBlockTrafficInFirewall(ruleBaseName, null, normalizedAddress, out string error))
+            return $"Host block failed: {error}";
+
+        DateTime nowLocal = DateTime.Now;
+        DateTime? expiresAtLocal = preset == HostQuickBlockPreset.FifteenMinutes
+            ? nowLocal.Add(QuickHostTemporaryBlockDuration)
+            : null;
+
+        TrackQuickHostFirewallBlock(normalizedAddress, ruleBaseName, preset, expiresAtLocal);
+        return BuildHostBlockStatus(normalizedAddress, preset, expiresAtLocal);
+    }
+
+    public string? ThrottleHost(string remoteAddress, int throttleMbps)
+    {
+        if (!TryNormalizeHostRemoteAddress(remoteAddress, out string normalizedAddress))
+            return "Host throttle failed: the selected endpoint does not have a valid IP address.";
+
+        int normalizedThrottleMbps = Math.Clamp(throttleMbps, 1, 100_000);
+        var response = _prompt.Show(
+            BuildHostThrottlePrompt(normalizedAddress, normalizedThrottleMbps),
+            "Throttle host",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+
+        if (response != MessageBoxResult.Yes)
+            return null;
+
+        string hostKey = BuildQuickHostEntryKey(normalizedAddress);
+        AppliedHostQosPolicyEntry? existingEntry;
+        lock (_gate)
+            _activeHostQosPolicies.TryGetValue(hostKey, out existingEntry);
+
+        if (existingEntry is not null)
+            _remediationService.TryRemoveQosPolicy(existingEntry.PolicyName, out _);
+
+        string policyName = BuildQuickHostQosPolicyName(normalizedAddress);
+        var spec = new WindowsRemediationService.QosPolicySpec(
+            policyName,
+            AppPath: null,
+            RemoteAddress: normalizedAddress,
+            ThrottleBitsPerSecond: (ulong)normalizedThrottleMbps * 1_000_000UL,
+            DscpAction: null);
+
+        if (!_remediationService.TryApplyQosPolicy(spec, out string error))
+            return $"Host throttle failed: {error}";
+
+        lock (_gate)
+        {
+            _activeHostQosPolicies[hostKey] = new AppliedHostQosPolicyEntry(
+                hostKey,
+                normalizedAddress,
+                normalizedThrottleMbps,
+                policyName,
+                spec);
+        }
+
+        return $"Traffic control: throttling {normalizedAddress} to {normalizedThrottleMbps:N0} Mbps until TrafficMonitor exits.";
+    }
+
+    public TrafficControlRule BuildHostRuleDraft(string remoteAddress, string? displayHost)
+    {
+        string normalizedAddress = TryNormalizeHostRemoteAddress(remoteAddress, out string parsedAddress)
+            ? parsedAddress
+            : (remoteAddress ?? string.Empty).Trim();
+        string friendlyHost = string.IsNullOrWhiteSpace(displayHost)
+            ? normalizedAddress
+            : displayHost.Trim();
+
+        string ruleName = string.Equals(friendlyHost, normalizedAddress, StringComparison.OrdinalIgnoreCase)
+            ? $"Host rule: {normalizedAddress}"
+            : $"Host rule: {friendlyHost}";
+
+        return TrafficControlRule.CreateNormalized(new TrafficControlRule
+        {
+            Name = ruleName,
+            Enabled = true,
+            TargetKind = TrafficControlTargetKinds.Host,
+            RemoteAddress = normalizedAddress,
+            NotifyOnTrigger = true,
+            AutoBlockOnQuota = true
+        });
+    }
+
     public void ObservePacket(ProcessStatRow row, PacketInfo packet)
     {
         ArgumentNullException.ThrowIfNull(row);
@@ -172,6 +284,102 @@ public sealed class TrafficControlManager : IDisposable
         string warning = string.Empty;
         RemoveAllAppliedQosPolicies(ref warning);
         RemoveAllQuotaBlocks(ref warning);
+        RemoveAllQuickHostFirewallBlocks(ref warning);
+        RemoveAllQuickHostQosPolicies(ref warning);
+    }
+
+    private void TrackQuickHostFirewallBlock(string remoteAddress, string ruleBaseName, HostQuickBlockPreset preset, DateTime? expiresAtLocal)
+    {
+        string hostKey = BuildQuickHostEntryKey(remoteAddress);
+        ActiveHostFirewallBlockEntry? previous;
+        var next = new ActiveHostFirewallBlockEntry(hostKey, remoteAddress, ruleBaseName, preset, expiresAtLocal);
+
+        lock (_gate)
+        {
+            _activeHostFirewallBlocks.TryGetValue(hostKey, out previous);
+            _activeHostFirewallBlocks[hostKey] = next;
+        }
+
+        previous?.Dispose();
+
+        if (preset == HostQuickBlockPreset.FifteenMinutes && expiresAtLocal.HasValue)
+            next.StartTimer(OnQuickHostFirewallBlockExpired, hostKey, GetDueTime(expiresAtLocal.Value));
+    }
+
+    private void OnQuickHostFirewallBlockExpired(object? state)
+    {
+        if (state is not string hostKey)
+            return;
+
+        ActiveHostFirewallBlockEntry? entry;
+        lock (_gate)
+        {
+            if (!_activeHostFirewallBlocks.TryGetValue(hostKey, out entry)
+                || entry.Preset != HostQuickBlockPreset.FifteenMinutes)
+            {
+                return;
+            }
+        }
+
+        if (!_remediationService.TryRemoveTrafficFirewallRule(entry.RuleBaseName, out string error))
+        {
+            entry.Reschedule(GetDueTime(DateTime.Now.Add(TimeSpan.FromMinutes(1))));
+            NotifyRuleStatus(
+                title: $"Temporary host block still active: {entry.RemoteAddress}",
+                message: error,
+                severity: NotificationSeverity.Warning);
+            return;
+        }
+
+        lock (_gate)
+            _activeHostFirewallBlocks.Remove(hostKey);
+
+        entry.Dispose();
+        NotifyRuleStatus(
+            title: $"Host block expired: {entry.RemoteAddress}",
+            message: "TrafficMonitor restored access after the 15-minute block window ended.",
+            severity: NotificationSeverity.Info);
+    }
+
+    private void RemoveAllQuickHostFirewallBlocks(ref string warning)
+    {
+        Dictionary<string, ActiveHostFirewallBlockEntry> blocks;
+        lock (_gate)
+        {
+            blocks = _activeHostFirewallBlocks.ToDictionary(static entry => entry.Key, static entry => entry.Value, StringComparer.OrdinalIgnoreCase);
+            _activeHostFirewallBlocks.Clear();
+        }
+
+        foreach (var entry in blocks.Values)
+        {
+            try
+            {
+                if (!_remediationService.TryRemoveTrafficFirewallRule(entry.RuleBaseName, out string error))
+                    warning = AppendWarning(warning, error);
+            }
+            finally
+            {
+                entry.Dispose();
+            }
+        }
+    }
+
+    private void RemoveAllQuickHostQosPolicies(ref string warning)
+    {
+        Dictionary<string, AppliedHostQosPolicyEntry> policies;
+        lock (_gate)
+        {
+            policies = _activeHostQosPolicies.ToDictionary(static entry => entry.Key, static entry => entry.Value, StringComparer.OrdinalIgnoreCase);
+            _activeHostQosPolicies.Clear();
+        }
+
+        foreach (var entry in policies.Values)
+        {
+            if (_remediationService.TryRemoveQosPolicy(entry.PolicyName, out string error))
+                continue;
+
+            warning = AppendWarning(warning, error);
+        }
     }
 
     private void OnHistoryChanged()
@@ -815,6 +1023,71 @@ public sealed class TrafficControlManager : IDisposable
         return $"{row.ProcessName} -> {(string.IsNullOrWhiteSpace(remoteIp) ? rule.RemoteAddress : remoteIp)}";
     }
 
+    private static bool TryNormalizeHostRemoteAddress(string? remoteAddress, out string normalizedAddress)
+    {
+        normalizedAddress = string.Empty;
+        if (string.IsNullOrWhiteSpace(remoteAddress) || !IPAddress.TryParse(remoteAddress.Trim(), out var parsed))
+            return false;
+
+        normalizedAddress = parsed.ToString();
+        return true;
+    }
+
+    private static string BuildQuickHostEntryKey(string remoteAddress)
+        => NormalizeQuotaBlockKeyComponent(remoteAddress);
+
+    private static string BuildQuickHostFirewallRuleBase(string remoteAddress)
+    {
+        string suffix = BuildSafeHostNameToken(remoteAddress);
+        return $"TrafficMonitor Host Block {suffix}";
+    }
+
+    private static string BuildQuickHostQosPolicyName(string remoteAddress)
+    {
+        string suffix = BuildSafeHostNameToken(remoteAddress);
+        return $"TrafficMonitor Host QoS {suffix}";
+    }
+
+    private static string BuildSafeHostNameToken(string remoteAddress)
+    {
+        char[] chars = remoteAddress
+            .Trim()
+            .Select(static ch => char.IsLetterOrDigit(ch) ? ch : '-')
+            .ToArray();
+
+        string normalized = new string(chars).Trim('-');
+        return string.IsNullOrWhiteSpace(normalized) ? "host" : normalized;
+    }
+
+    private static string BuildHostBlockPrompt(string remoteAddress, HostQuickBlockPreset preset)
+    {
+        string timing = preset switch
+        {
+            HostQuickBlockPreset.FifteenMinutes => "The host will be unblocked automatically after 15 minutes.",
+            _ => "The host will stay blocked until TrafficMonitor exits."
+        };
+
+        return $"Block traffic to remote host {remoteAddress}?\n\n{timing}\n\nWindows may ask for admin approval.";
+    }
+
+    private static string GetHostBlockPromptTitle(HostQuickBlockPreset preset)
+        => preset switch
+        {
+            HostQuickBlockPreset.FifteenMinutes => "Block host for 15 minutes",
+            _ => "Block host"
+        };
+
+    private static string BuildHostBlockStatus(string remoteAddress, HostQuickBlockPreset preset, DateTime? expiresAtLocal)
+        => preset switch
+        {
+            HostQuickBlockPreset.FifteenMinutes when expiresAtLocal.HasValue
+                => $"Traffic control: blocked host {remoteAddress} until {expiresAtLocal.Value:HH:mm}.",
+            _ => $"Traffic control: blocked host {remoteAddress} until TrafficMonitor exits."
+        };
+
+    private static string BuildHostThrottlePrompt(string remoteAddress, int throttleMbps)
+        => $"Throttle traffic to remote host {remoteAddress} to {throttleMbps:N0} Mbps?\n\nThis temporary QoS policy stays active until TrafficMonitor exits.\n\nWindows may ask for admin approval.";
+
     private static string NormalizeQuotaBlockKeyComponent(string? value)
         => string.IsNullOrWhiteSpace(value) ? "-" : value.Trim().ToLowerInvariant();
 
@@ -862,10 +1135,49 @@ public sealed class TrafficControlManager : IDisposable
         string? RemoteAddress,
         WindowsRemediationService.QosPolicySpec Spec);
 
+    private sealed record AppliedHostQosPolicyEntry(
+        string Key,
+        string RemoteAddress,
+        int ThrottleMbps,
+        string PolicyName,
+        WindowsRemediationService.QosPolicySpec Spec);
+
     private sealed record ActiveQuotaBlockEntry(
         string Key,
         string RuleId,
         string RuleBaseName,
         DateTime ExpiresAtLocal,
         Timer Timer);
+
+    private sealed class ActiveHostFirewallBlockEntry : IDisposable
+    {
+        public ActiveHostFirewallBlockEntry(string key, string remoteAddress, string ruleBaseName, HostQuickBlockPreset preset, DateTime? expiresAtLocal)
+        {
+            Key = key;
+            RemoteAddress = remoteAddress;
+            RuleBaseName = ruleBaseName;
+            Preset = preset;
+            ExpiresAtLocal = expiresAtLocal;
+        }
+
+        public string Key { get; }
+        public string RemoteAddress { get; }
+        public string RuleBaseName { get; }
+        public HostQuickBlockPreset Preset { get; }
+        public DateTime? ExpiresAtLocal { get; }
+
+        private Timer? _timer;
+
+        public void StartTimer(TimerCallback callback, object state, TimeSpan dueTime)
+            => _timer = new Timer(callback, state, dueTime, Timeout.InfiniteTimeSpan);
+
+        public void Reschedule(TimeSpan dueTime)
+            => _timer?.Change(dueTime, Timeout.InfiniteTimeSpan);
+
+        public void Dispose()
+        {
+            _timer?.Dispose();
+            _timer = null;
+        }
+    }
 }

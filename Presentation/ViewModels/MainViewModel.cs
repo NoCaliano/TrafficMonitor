@@ -58,6 +58,7 @@ public sealed class MainViewModel : ViewModelBase
     private readonly Func<TrafficControlRulesViewModel> _trafficControlRulesFactory;
     private readonly WindowsShellNotificationService _shellNotificationService;
     private readonly TrafficHistoryStore _trafficHistoryStore;
+    private readonly TrafficControlManager _trafficControlManager;
 
     private readonly RelayCommand _followFlowCommand;
     private readonly RelayCommand _followFlowBothDirectionsCommand;
@@ -486,7 +487,8 @@ public sealed class MainViewModel : ViewModelBase
         Func<NotificationSettingsViewModel> notificationSettingsFactory,
         Func<TrafficControlRulesViewModel> trafficControlRulesFactory,
         WindowsShellNotificationService shellNotificationService,
-        TrafficHistoryStore trafficHistoryStore)
+        TrafficHistoryStore trafficHistoryStore,
+        TrafficControlManager trafficControlManager)
     {
         _deviceService = deviceService;
         _captureService = captureService;
@@ -507,6 +509,7 @@ public sealed class MainViewModel : ViewModelBase
         _trafficControlRulesFactory = trafficControlRulesFactory;
         _shellNotificationService = shellNotificationService;
         _trafficHistoryStore = trafficHistoryStore;
+        _trafficControlManager = trafficControlManager;
 
 
         _startCommand = new AsyncRelayCommand(StartAsync, CanStartCapture);
@@ -546,7 +549,12 @@ public sealed class MainViewModel : ViewModelBase
             ShowPacketsForConversation,
             ShowPacketsForSessionCluster,
             message => StatusText = message);
-        Endpoints.ConfigureActions(ShowPacketsForHost);
+        Endpoints.ConfigureActions(
+            ShowPacketsForHost,
+            BlockHost,
+            BlockHostFor15Minutes,
+            ThrottleHost,
+            CreateRuleFromHost);
 
         // FlowsViewModel will manage flow selection and flow commands
         _flowsVm = _flowsFactory(() => !_uiFilterIsEmpty, () => RefreshPacketsFilteringUi());
@@ -1353,9 +1361,11 @@ public sealed class MainViewModel : ViewModelBase
         win.ShowDialog();
     }
 
-    private void OpenTrafficControlRulesDialog()
+    private void OpenTrafficControlRulesDialog(TrafficControlRule? draftRule = null)
     {
         var vm = _trafficControlRulesFactory();
+        if (draftRule is not null)
+            vm.AppendDraftRule(draftRule);
 
         var win = new Presentation.Views.TrafficControlRulesWindow
         {
@@ -1609,6 +1619,34 @@ public sealed class MainViewModel : ViewModelBase
             SelectedPacket = packet;
 
         StatusText = $"Filtered packets for host {normalizedIp}.";
+    }
+
+    private void BlockHost(EndpointHostRow host)
+    {
+        string? status = _trafficControlManager.BlockHost(host.Ip, HostQuickBlockPreset.UntilAppExit);
+        if (!string.IsNullOrWhiteSpace(status))
+            StatusText = status;
+    }
+
+    private void BlockHostFor15Minutes(EndpointHostRow host)
+    {
+        string? status = _trafficControlManager.BlockHost(host.Ip, HostQuickBlockPreset.FifteenMinutes);
+        if (!string.IsNullOrWhiteSpace(status))
+            StatusText = status;
+    }
+
+    private void ThrottleHost(EndpointHostRow host, int throttleMbps)
+    {
+        string? status = _trafficControlManager.ThrottleHost(host.Ip, throttleMbps);
+        if (!string.IsNullOrWhiteSpace(status))
+            StatusText = status;
+    }
+
+    private void CreateRuleFromHost(EndpointHostRow host)
+    {
+        TrafficControlRule draftRule = _trafficControlManager.BuildHostRuleDraft(host.Ip, host.DisplayHost);
+        OpenTrafficControlRulesDialog(draftRule);
+        StatusText = $"Opened traffic control rules for host {host.Ip}.";
     }
 
     private void FocusPacketForTimelineEvent(ProcessStatRow.InvestigationTimelineEvent timelineEvent)

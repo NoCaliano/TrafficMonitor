@@ -20,11 +20,21 @@ public sealed class EndpointsViewModel : ViewModelBase
     private readonly Dictionary<string, EndpointHostRow> _rowsByIp = new(StringComparer.OrdinalIgnoreCase);
 
     private Action<string>? _showPacketsForIp;
+    private Action<EndpointHostRow>? _blockHost;
+    private Action<EndpointHostRow>? _blockHostFor15Minutes;
+    private Action<EndpointHostRow, int>? _throttleHost;
+    private Action<EndpointHostRow>? _createRuleFromHost;
 
     public BulkObservableCollection<EndpointHostRow> Hosts { get; } = new();
     public ICollectionView HostsView { get; }
 
     public ICommand ShowPacketsForSelectedHostCommand { get; }
+    public ICommand BlockSelectedHostCommand { get; }
+    public ICommand BlockSelectedHostFor15MinutesCommand { get; }
+    public ICommand ThrottleSelectedHostTo1MbpsCommand { get; }
+    public ICommand ThrottleSelectedHostTo5MbpsCommand { get; }
+    public ICommand ThrottleSelectedHostTo25MbpsCommand { get; }
+    public ICommand CreateRuleFromSelectedHostCommand { get; }
 
     private string _searchText = "";
     public string SearchText
@@ -104,10 +114,18 @@ public sealed class EndpointsViewModel : ViewModelBase
 
             OnPropertyChanged(nameof(HasSelectedEndpoint));
             (ShowPacketsForSelectedHostCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (BlockSelectedHostCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (BlockSelectedHostFor15MinutesCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (ThrottleSelectedHostTo1MbpsCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (ThrottleSelectedHostTo5MbpsCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (ThrottleSelectedHostTo25MbpsCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (CreateRuleFromSelectedHostCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            OnPropertyChanged(nameof(CanManageSelectedEndpoint));
         }
     }
 
     public bool HasSelectedEndpoint => SelectedEndpoint is not null;
+    public bool CanManageSelectedEndpoint => ResolveManageableHost(null) is not null;
 
     public EndpointsViewModel(HostResolutionService hostResolutionService)
     {
@@ -116,6 +134,24 @@ public sealed class EndpointsViewModel : ViewModelBase
         ShowPacketsForSelectedHostCommand = new RelayCommand(
             parameter => ShowPacketsForHost(parameter),
             parameter => ResolveTargetHost(parameter) is not null);
+        BlockSelectedHostCommand = new RelayCommand(
+            parameter => BlockHost(parameter),
+            parameter => ResolveManageableHost(parameter) is not null);
+        BlockSelectedHostFor15MinutesCommand = new RelayCommand(
+            parameter => BlockHostFor15Minutes(parameter),
+            parameter => ResolveManageableHost(parameter) is not null);
+        ThrottleSelectedHostTo1MbpsCommand = new RelayCommand(
+            parameter => ThrottleHost(parameter, 1),
+            parameter => ResolveManageableHost(parameter) is not null);
+        ThrottleSelectedHostTo5MbpsCommand = new RelayCommand(
+            parameter => ThrottleHost(parameter, 5),
+            parameter => ResolveManageableHost(parameter) is not null);
+        ThrottleSelectedHostTo25MbpsCommand = new RelayCommand(
+            parameter => ThrottleHost(parameter, 25),
+            parameter => ResolveManageableHost(parameter) is not null);
+        CreateRuleFromSelectedHostCommand = new RelayCommand(
+            parameter => CreateRuleFromHost(parameter),
+            parameter => ResolveManageableHost(parameter) is not null);
 
         HostsView = CollectionViewSource.GetDefaultView(Hosts);
         HostsView.Filter = MatchesCurrentFilters;
@@ -126,8 +162,19 @@ public sealed class EndpointsViewModel : ViewModelBase
         UpdateSummaryCounts();
     }
 
-    public void ConfigureActions(Action<string> showPacketsForIp)
-        => _showPacketsForIp = showPacketsForIp;
+    public void ConfigureActions(
+        Action<string> showPacketsForIp,
+        Action<EndpointHostRow> blockHost,
+        Action<EndpointHostRow> blockHostFor15Minutes,
+        Action<EndpointHostRow, int> throttleHost,
+        Action<EndpointHostRow> createRuleFromHost)
+    {
+        _showPacketsForIp = showPacketsForIp;
+        _blockHost = blockHost;
+        _blockHostFor15Minutes = blockHostFor15Minutes;
+        _throttleHost = throttleHost;
+        _createRuleFromHost = createRuleFromHost;
+    }
 
     public void Reset()
     {
@@ -450,6 +497,42 @@ public sealed class EndpointsViewModel : ViewModelBase
         _showPacketsForIp?.Invoke(ip);
     }
 
+    private void BlockHost(object? parameter)
+    {
+        var row = ResolveManageableHost(parameter);
+        if (row is null)
+            return;
+
+        _blockHost?.Invoke(row);
+    }
+
+    private void BlockHostFor15Minutes(object? parameter)
+    {
+        var row = ResolveManageableHost(parameter);
+        if (row is null)
+            return;
+
+        _blockHostFor15Minutes?.Invoke(row);
+    }
+
+    private void ThrottleHost(object? parameter, int throttleMbps)
+    {
+        var row = ResolveManageableHost(parameter);
+        if (row is null)
+            return;
+
+        _throttleHost?.Invoke(row, throttleMbps);
+    }
+
+    private void CreateRuleFromHost(object? parameter)
+    {
+        var row = ResolveManageableHost(parameter);
+        if (row is null)
+            return;
+
+        _createRuleFromHost?.Invoke(row);
+    }
+
     private string? ResolveTargetHost(object? parameter)
         => parameter switch
         {
@@ -457,6 +540,17 @@ public sealed class EndpointsViewModel : ViewModelBase
             string ip when !string.IsNullOrWhiteSpace(ip) => ip.Trim(),
             _ => SelectedEndpoint?.Ip
         };
+
+    private EndpointHostRow? ResolveManageableHost(object? parameter)
+    {
+        EndpointHostRow? row = parameter as EndpointHostRow ?? SelectedEndpoint;
+        if (row is null || string.IsNullOrWhiteSpace(row.Ip))
+            return null;
+
+        return !row.IsMulticastBroadcast && IPAddress.TryParse(row.Ip, out _)
+            ? row
+            : null;
+    }
 
     private static string NormalizeIp(string? ip)
         => string.IsNullOrWhiteSpace(ip) ? "" : ip.Trim();

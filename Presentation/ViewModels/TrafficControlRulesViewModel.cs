@@ -79,6 +79,14 @@ public sealed class TrafficControlRulesViewModel : ViewModelBase
         SelectedRule = Rules[0];
     }
 
+    public void AppendDraftRule(TrafficControlRule rule)
+    {
+        var draft = new EditableTrafficControlRuleViewModel(TrafficControlRule.CreateNormalized(rule));
+        Rules.Add(draft);
+        SelectedRule = draft;
+        ValidationMessage = "";
+    }
+
     private void AddRule()
     {
         var rule = new EditableTrafficControlRuleViewModel(new TrafficControlRule
