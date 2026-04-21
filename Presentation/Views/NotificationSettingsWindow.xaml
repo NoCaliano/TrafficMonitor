@@ -32,6 +32,8 @@
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="12"/>
                         <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="12"/>
+                        <RowDefinition Height="Auto"/>
                         <RowDefinition Height="14"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="14"/>
@@ -43,6 +45,47 @@
                               IsChecked="{Binding NotificationsEnabled, Mode=TwoWay}"/>
 
                     <Border Grid.Row="2"
+                            Padding="14,12"
+                            Background="{StaticResource CardAltBrush}"
+                            BorderBrush="{StaticResource BorderBrushSoft}"
+                            BorderThickness="1"
+                            CornerRadius="10">
+                        <StackPanel>
+                            <TextBlock Text="Quick mute"
+                                       FontWeight="SemiBold"
+                                       Foreground="{StaticResource TextPrimaryBrush}"/>
+                            <TextBlock Margin="0,4,0,0"
+                                       Foreground="{StaticResource TextMutedBrush}"
+                                       FontSize="11"
+                                       Text="These actions apply immediately and suppress Windows tray notifications, including rule alerts."/>
+                            <Border Margin="0,10,0,0"
+                                    Padding="10,8"
+                                    Background="{StaticResource SurfaceBrush}"
+                                    BorderBrush="{StaticResource BorderBrushSoft}"
+                                    BorderThickness="1"
+                                    CornerRadius="8">
+                                <TextBlock Text="{Binding NotificationSnoozeStatus}"
+                                           FontWeight="SemiBold"
+                                           Foreground="{StaticResource TextPrimaryBrush}"/>
+                            </Border>
+                            <StackPanel Margin="0,10,0,0"
+                                        Orientation="Horizontal">
+                                <Button Content="Mute 1 hour"
+                                        MinWidth="96"
+                                        Margin="0,0,8,0"
+                                        Command="{Binding SnoozeForOneHourCommand}"/>
+                                <Button Content="Mute 24 hours"
+                                        MinWidth="110"
+                                        Margin="0,0,8,0"
+                                        Command="{Binding SnoozeForTwentyFourHoursCommand}"/>
+                                <Button Content="Unmute"
+                                        MinWidth="90"
+                                        Command="{Binding ClearNotificationSnoozeCommand}"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Grid.Row="4"
                             Padding="14,12"
                             Background="{StaticResource SurfaceBrush}"
                             BorderBrush="{StaticResource BorderBrushSoft}"
@@ -92,7 +135,7 @@
                         </StackPanel>
                     </Border>
 
-                    <Border Grid.Row="4"
+                    <Border Grid.Row="6"
                             Padding="14,12"
                             Background="{StaticResource SurfaceBrush}"
                             BorderBrush="{StaticResource BorderBrushSoft}"
@@ -220,7 +263,7 @@
                         </StackPanel>
                     </Border>
 
-                    <StackPanel Grid.Row="6"
+                    <StackPanel Grid.Row="8"
                                 Orientation="Horizontal"
                                 HorizontalAlignment="Right">
                         <Button Content="Cancel"

@@ -9,6 +9,10 @@ namespace Presentation.ViewModels;
 public sealed class NotificationSettingsViewModel : ViewModelBase
 {
     private readonly ThreatNotificationCoordinator _notificationCoordinator;
+    private readonly NotificationSnoozeService _notificationSnoozeService;
+    private readonly RelayCommand _snoozeForOneHourCommand;
+    private readonly RelayCommand _snoozeForTwentyFourHoursCommand;
+    private readonly RelayCommand _clearNotificationSnoozeCommand;
 
     private bool _notificationsEnabled;
     private bool _newProcessNotificationsEnabled;
@@ -154,12 +158,22 @@ public sealed class NotificationSettingsViewModel : ViewModelBase
 
     public string DnsBurstWindowMinutesLabel => $"{DnsBurstWindowMinutes:N0} min";
 
+    public bool IsNotificationsSnoozed => _notificationSnoozeService.IsSnoozed;
+
+    public string NotificationSnoozeStatus => _notificationSnoozeService.GetStatusText();
+
     public ICommand SaveCommand { get; }
     public ICommand CancelCommand { get; }
+    public ICommand SnoozeForOneHourCommand => _snoozeForOneHourCommand;
+    public ICommand SnoozeForTwentyFourHoursCommand => _snoozeForTwentyFourHoursCommand;
+    public ICommand ClearNotificationSnoozeCommand => _clearNotificationSnoozeCommand;
 
-    public NotificationSettingsViewModel(ThreatNotificationCoordinator notificationCoordinator)
+    public NotificationSettingsViewModel(
+        ThreatNotificationCoordinator notificationCoordinator,
+        NotificationSnoozeService notificationSnoozeService)
     {
         _notificationCoordinator = notificationCoordinator;
+        _notificationSnoozeService = notificationSnoozeService;
 
         var settings = _notificationCoordinator.GetSettingsSnapshot();
         NotificationsEnabled = settings.NotificationsEnabled;
@@ -179,6 +193,11 @@ public sealed class NotificationSettingsViewModel : ViewModelBase
 
         SaveCommand = new RelayCommand(Save);
         CancelCommand = new RelayCommand(Cancel);
+        _snoozeForOneHourCommand = new RelayCommand(_ => SnoozeNotifications(TimeSpan.FromHours(1)));
+        _snoozeForTwentyFourHoursCommand = new RelayCommand(_ => SnoozeNotifications(TimeSpan.FromHours(24)));
+        _clearNotificationSnoozeCommand = new RelayCommand(
+            _ => ClearNotificationSnooze(),
+            _ => _notificationSnoozeService.IsSnoozed);
     }
 
     private void Save(object? parameter)
@@ -206,6 +225,25 @@ public sealed class NotificationSettingsViewModel : ViewModelBase
 
     private static void Cancel(object? parameter)
         => CloseWindow(parameter, dialogResult: false);
+
+    private void SnoozeNotifications(TimeSpan duration)
+    {
+        _notificationSnoozeService.SnoozeFor(duration);
+        RefreshSnoozeState();
+    }
+
+    private void ClearNotificationSnooze()
+    {
+        _notificationSnoozeService.ClearSnooze();
+        RefreshSnoozeState();
+    }
+
+    private void RefreshSnoozeState()
+    {
+        OnPropertyChanged(nameof(IsNotificationsSnoozed));
+        OnPropertyChanged(nameof(NotificationSnoozeStatus));
+        _clearNotificationSnoozeCommand.RaiseCanExecuteChanged();
+    }
 
     private static void CloseWindow(object? parameter, bool dialogResult)
     {

@@ -50,6 +50,8 @@ public partial class App : System.Windows.Application
                 services.AddSingleton<ProcessForensicsTracker>();
                 services.AddSingleton<ProcessLivenessTracker>();
                 services.AddSingleton<NotificationSettingsStore>();
+                services.AddSingleton<NotificationSnoozeStateStore>();
+                services.AddSingleton<NotificationSnoozeService>();
                 services.AddSingleton<DisplayFilterLibraryStore>();
                 services.AddSingleton<TrafficHistoryStore>();
                 services.AddSingleton<TrafficControlRulesStore>();

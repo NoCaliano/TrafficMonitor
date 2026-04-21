@@ -19,11 +19,20 @@ public enum NotificationSeverity
 public sealed class WindowsShellNotificationService : IDisposable
 {
     private const int BalloonTimeoutMs = 5000;
+    private static readonly TimeSpan SnoozeOneHour = TimeSpan.FromHours(1);
+    private static readonly TimeSpan SnoozeTwentyFourHours = TimeSpan.FromHours(24);
+
     private readonly Dispatcher _dispatcher;
     private readonly ILogger<WindowsShellNotificationService> _logger;
+    private readonly NotificationSnoozeService _notificationSnoozeService;
     private readonly Forms.NotifyIcon _notifyIcon;
     private readonly Forms.ContextMenuStrip _contextMenu;
     private readonly Forms.ToolStripMenuItem _toggleCaptureMenuItem;
+    private readonly Forms.ToolStripMenuItem _notificationsMenuItem;
+    private readonly Forms.ToolStripMenuItem _notificationStatusMenuItem;
+    private readonly Forms.ToolStripMenuItem _muteForOneHourMenuItem;
+    private readonly Forms.ToolStripMenuItem _muteForTwentyFourHoursMenuItem;
+    private readonly Forms.ToolStripMenuItem _clearNotificationSnoozeMenuItem;
     private readonly Forms.ToolStripMenuItem _quitMenuItem;
 
     private Func<bool>? _isCapturing;
@@ -31,9 +40,12 @@ public sealed class WindowsShellNotificationService : IDisposable
     private ICommand? _stopCommand;
     private ICommand? _quitCommand;
 
-    public WindowsShellNotificationService(ILogger<WindowsShellNotificationService> logger)
+    public WindowsShellNotificationService(
+        ILogger<WindowsShellNotificationService> logger,
+        NotificationSnoozeService notificationSnoozeService)
     {
         _logger = logger;
+        _notificationSnoozeService = notificationSnoozeService;
         _dispatcher = System.Windows.Application.Current?.Dispatcher ?? Dispatcher.CurrentDispatcher;
 
         _contextMenu = new Forms.ContextMenuStrip
@@ -45,6 +57,27 @@ public sealed class WindowsShellNotificationService : IDisposable
         _toggleCaptureMenuItem = new Forms.ToolStripMenuItem("Start capture");
         _toggleCaptureMenuItem.Click += OnToggleCaptureMenuItemClick;
         _contextMenu.Items.Add(_toggleCaptureMenuItem);
+
+        _contextMenu.Items.Add(new Forms.ToolStripSeparator());
+
+        _notificationsMenuItem = new Forms.ToolStripMenuItem("Notifications");
+        _notificationStatusMenuItem = new Forms.ToolStripMenuItem("Notifications are active")
+        {
+            Enabled = false
+        };
+        _muteForOneHourMenuItem = new Forms.ToolStripMenuItem("Mute for 1 hour");
+        _muteForOneHourMenuItem.Click += OnMuteForOneHourMenuItemClick;
+        _muteForTwentyFourHoursMenuItem = new Forms.ToolStripMenuItem("Mute for 24 hours");
+        _muteForTwentyFourHoursMenuItem.Click += OnMuteForTwentyFourHoursMenuItemClick;
+        _clearNotificationSnoozeMenuItem = new Forms.ToolStripMenuItem("Unmute notifications");
+        _clearNotificationSnoozeMenuItem.Click += OnClearNotificationSnoozeMenuItemClick;
+
+        _notificationsMenuItem.DropDownItems.Add(_notificationStatusMenuItem);
+        _notificationsMenuItem.DropDownItems.Add(new Forms.ToolStripSeparator());
+        _notificationsMenuItem.DropDownItems.Add(_muteForOneHourMenuItem);
+        _notificationsMenuItem.DropDownItems.Add(_muteForTwentyFourHoursMenuItem);
+        _notificationsMenuItem.DropDownItems.Add(_clearNotificationSnoozeMenuItem);
+        _contextMenu.Items.Add(_notificationsMenuItem);
 
         _contextMenu.Items.Add(new Forms.ToolStripSeparator());
 
@@ -60,6 +93,7 @@ public sealed class WindowsShellNotificationService : IDisposable
             ContextMenuStrip = _contextMenu
         };
         _notifyIcon.MouseUp += OnNotifyIconMouseUp;
+        UpdateNotifyIconTextCore();
     }
 
     public void ConfigureMenu(Func<bool> isCapturing, ICommand startCommand, ICommand stopCommand, ICommand quitCommand)
@@ -76,10 +110,16 @@ public sealed class WindowsShellNotificationService : IDisposable
         if (string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(message))
             return;
 
+        if (_notificationSnoozeService.IsSnoozed)
+            return;
+
         void ShowCore()
         {
             try
             {
+                if (_notificationSnoozeService.IsSnoozed)
+                    return;
+
                 _notifyIcon.Visible = true;
                 _notifyIcon.BalloonTipTitle = Truncate(title.Trim(), 63);
                 _notifyIcon.BalloonTipText = Truncate(message.Trim(), 255);
@@ -138,6 +178,15 @@ public sealed class WindowsShellNotificationService : IDisposable
     private void OnToggleCaptureMenuItemClick(object? sender, EventArgs e)
         => ExecuteToggleCapture();
 
+    private void OnMuteForOneHourMenuItemClick(object? sender, EventArgs e)
+        => ApplyNotificationSnooze(SnoozeOneHour);
+
+    private void OnMuteForTwentyFourHoursMenuItemClick(object? sender, EventArgs e)
+        => ApplyNotificationSnooze(SnoozeTwentyFourHours);
+
+    private void OnClearNotificationSnoozeMenuItemClick(object? sender, EventArgs e)
+        => ClearNotificationSnooze();
+
     private void OnQuitMenuItemClick(object? sender, EventArgs e)
         => ExecuteCommand(_quitCommand);
 
@@ -174,6 +223,40 @@ public sealed class WindowsShellNotificationService : IDisposable
         ExecuteCommand(command);
     }
 
+    private void ApplyNotificationSnooze(TimeSpan duration)
+    {
+        if (_dispatcher.CheckAccess())
+        {
+            ApplyNotificationSnoozeCore(duration);
+            return;
+        }
+
+        _dispatcher.BeginInvoke((Action)(() => ApplyNotificationSnoozeCore(duration)));
+    }
+
+    private void ApplyNotificationSnoozeCore(TimeSpan duration)
+    {
+        _notificationSnoozeService.SnoozeFor(duration);
+        UpdateMenuStateCore();
+    }
+
+    private void ClearNotificationSnooze()
+    {
+        if (_dispatcher.CheckAccess())
+        {
+            ClearNotificationSnoozeCore();
+            return;
+        }
+
+        _dispatcher.BeginInvoke((Action)ClearNotificationSnoozeCore);
+    }
+
+    private void ClearNotificationSnoozeCore()
+    {
+        _notificationSnoozeService.ClearSnooze();
+        UpdateMenuStateCore();
+    }
+
     private static void ExecuteCommand(ICommand? command)
     {
         if (command is null || !command.CanExecute(null))
@@ -200,7 +283,22 @@ public sealed class WindowsShellNotificationService : IDisposable
         _toggleCaptureMenuItem.Enabled = isCapturing
             ? _stopCommand?.CanExecute(null) == true
             : _startCommand?.CanExecute(null) == true;
+
+        bool isSnoozed = _notificationSnoozeService.IsSnoozed;
+        _notificationStatusMenuItem.Text = _notificationSnoozeService.GetStatusText();
+        _muteForOneHourMenuItem.Enabled = true;
+        _muteForTwentyFourHoursMenuItem.Enabled = true;
+        _clearNotificationSnoozeMenuItem.Enabled = isSnoozed;
+        UpdateNotifyIconTextCore();
+
         _quitMenuItem.Enabled = _quitCommand?.CanExecute(null) ?? true;
+    }
+
+    private void UpdateNotifyIconTextCore()
+    {
+        _notifyIcon.Text = _notificationSnoozeService.IsSnoozed
+            ? Truncate("TrafficMonitor - notifications muted", 63)
+            : "TrafficMonitor";
     }
 
     private void DisposeCore()
@@ -209,6 +307,9 @@ public sealed class WindowsShellNotificationService : IDisposable
         {
             _notifyIcon.MouseUp -= OnNotifyIconMouseUp;
             _toggleCaptureMenuItem.Click -= OnToggleCaptureMenuItemClick;
+            _muteForOneHourMenuItem.Click -= OnMuteForOneHourMenuItemClick;
+            _muteForTwentyFourHoursMenuItem.Click -= OnMuteForTwentyFourHoursMenuItemClick;
+            _clearNotificationSnoozeMenuItem.Click -= OnClearNotificationSnoozeMenuItemClick;
             _quitMenuItem.Click -= OnQuitMenuItemClick;
             _contextMenu.Opening -= OnContextMenuOpening;
             _notifyIcon.Visible = false;
