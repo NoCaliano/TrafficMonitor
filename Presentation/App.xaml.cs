@@ -55,6 +55,9 @@ public partial class App : System.Windows.Application
                 services.AddSingleton<DisplayFilterLibraryStore>();
                 services.AddSingleton<TrafficHistoryStore>();
                 services.AddSingleton<TrafficControlRulesStore>();
+                services.AddSingleton<ThemeSettingsStore>();
+                services.AddSingleton<MainWindowManager>();
+                services.AddSingleton<ThemeManagerService>();
                 services.AddSingleton<WindowsShellNotificationService>();
                 services.AddSingleton<ThreatNotificationCoordinator>();
                 services.AddSingleton<TrafficControlManager>();
@@ -88,18 +91,13 @@ public partial class App : System.Windows.Application
                 services.AddSingleton<IFlowAggregator, FlowAggregator>();
                 // Відповідає за визначення локальних IP для Direction.
                 services.AddSingleton<ILocalAddressService, LocalAddressService>();
-                // Views
-                services.AddSingleton<MainWindow>(sp =>
-                {
-                    var vm = sp.GetRequiredService<MainViewModel>();
-                    return new MainWindow { DataContext = vm };
-                });
             })
             .Build();
 
         await _host.StartAsync();
 
-        _host.Services.GetRequiredService<MainWindow>().Show();
+        _host.Services.GetRequiredService<ThemeManagerService>().Initialize();
+        _host.Services.GetRequiredService<MainWindowManager>().ShowMainWindow();
     }
 
     protected override async void OnExit(ExitEventArgs e)

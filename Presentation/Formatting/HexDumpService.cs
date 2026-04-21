@@ -1,4 +1,5 @@
 using Presentation.Abstractions;
+using System;
 using System.Windows;
 using System.Windows.Documents;
 using System.Windows.Media;
@@ -49,9 +50,15 @@ internal sealed class HexDumpService : IHexDumpService
 
         bool InSel(int idx) => sel is not null && idx >= selStart && idx < selEnd;
 
+        Brush offsetBrush = ResolveBrush("HexOffsetBrush", Brushes.Gray);
+        Brush selectionBackgroundBrush = ResolveBrush("HexSelectionBackgroundBrush", Brushes.Khaki);
+        Brush selectionForegroundBrush = ResolveBrush("HexSelectionForegroundBrush", Brushes.Black);
+        Brush documentForegroundBrush = ResolveBrush("TextPrimaryBrush", Brushes.Black);
+
         var doc = new FlowDocument
         {
-            PagePadding = new Thickness(0)
+            PagePadding = new Thickness(0),
+            Foreground = documentForegroundBrush
         };
 
         var p = new Paragraph
@@ -64,7 +71,7 @@ internal sealed class HexDumpService : IHexDumpService
         for (int i = 0; i < data.Length; i += bytesPerLine)
         {
             // offset
-            p.Inlines.Add(new Run(i.ToString("X4") + ": ") { Foreground = Brushes.Gray });
+            p.Inlines.Add(new Run(i.ToString("X4") + ": ") { Foreground = offsetBrush });
 
             int lineEnd = Math.Min(i + bytesPerLine, data.Length);
 
@@ -74,7 +81,11 @@ internal sealed class HexDumpService : IHexDumpService
                 if (j < lineEnd)
                 {
                     var run = new Run(data[j].ToString("X2") + " ");
-                    if (InSel(j)) run.Background = Brushes.Yellow;
+                    if (InSel(j))
+                    {
+                        run.Background = selectionBackgroundBrush;
+                        run.Foreground = selectionForegroundBrush;
+                    }
                     p.Inlines.Add(run);
                 }
                 else
@@ -83,7 +94,7 @@ internal sealed class HexDumpService : IHexDumpService
                 }
             }
 
-            p.Inlines.Add(new Run(" |") { Foreground = Brushes.Gray });
+            p.Inlines.Add(new Run(" |") { Foreground = offsetBrush });
 
             // ASCII part
             for (int j = i; j < lineEnd; j++)
@@ -92,11 +103,15 @@ internal sealed class HexDumpService : IHexDumpService
                 char c = (b >= 32 && b <= 126) ? (char)b : '.';
 
                 var run = new Run(c.ToString());
-                if (InSel(j)) run.Background = Brushes.Yellow;
+                if (InSel(j))
+                {
+                    run.Background = selectionBackgroundBrush;
+                    run.Foreground = selectionForegroundBrush;
+                }
                 p.Inlines.Add(run);
             }
 
-            p.Inlines.Add(new Run("|") { Foreground = Brushes.Gray });
+            p.Inlines.Add(new Run("|") { Foreground = offsetBrush });
             p.Inlines.Add(new LineBreak());
         }
 
@@ -119,12 +134,16 @@ internal sealed class HexDumpService : IHexDumpService
             }
         }
 
-        Brush hlBg = Brushes.Khaki;
+        Brush offsetBrush = ResolveBrush("HexOffsetBrush", Brushes.Gray);
+        Brush selectionBackgroundBrush = ResolveBrush("HexSelectionBackgroundBrush", Brushes.Khaki);
+        Brush selectionForegroundBrush = ResolveBrush("HexSelectionForegroundBrush", Brushes.Black);
+        Brush documentForegroundBrush = ResolveBrush("TextPrimaryBrush", Brushes.Black);
 
         var doc = new FlowDocument
         {
             PageWidth = 2000,
             LineHeight = 1,
+            Foreground = documentForegroundBrush
         };
 
         for (int i = 0; i < data.Length; i += bytesPerLine)
@@ -137,7 +156,7 @@ internal sealed class HexDumpService : IHexDumpService
             };
 
             // Offset
-            p.Inlines.Add(new Run(i.ToString("X4") + ": "));
+            p.Inlines.Add(new Run(i.ToString("X4") + ": ") { Foreground = offsetBrush });
 
             // HEX bytes
             for (int j = i; j < i + bytesPerLine; j++)
@@ -147,7 +166,11 @@ internal sealed class HexDumpService : IHexDumpService
                     bool isHl = highlightStart >= 0 && j >= highlightStart && j < highlightEnd;
 
                     var run = new Run(data[j].ToString("X2") + " ");
-                    if (isHl) run.Background = hlBg;
+                    if (isHl)
+                    {
+                        run.Background = selectionBackgroundBrush;
+                        run.Foreground = selectionForegroundBrush;
+                    }
                     p.Inlines.Add(run);
                 }
                 else
@@ -157,7 +180,7 @@ internal sealed class HexDumpService : IHexDumpService
             }
 
             // Separator
-            p.Inlines.Add(new Run(" |"));
+            p.Inlines.Add(new Run(" |") { Foreground = offsetBrush });
 
             // ASCII
             for (int j = i; j < lineEnd; j++)
@@ -166,16 +189,26 @@ internal sealed class HexDumpService : IHexDumpService
 
                 char c = data[j] >= 32 && data[j] <= 126 ? (char)data[j] : '.';
                 var run = new Run(c.ToString());
-                if (isHl) run.Background = hlBg;
+                if (isHl)
+                {
+                    run.Background = selectionBackgroundBrush;
+                    run.Foreground = selectionForegroundBrush;
+                }
                 p.Inlines.Add(run);
             }
 
             // Close
-            p.Inlines.Add(new Run("|"));
+            p.Inlines.Add(new Run("|") { Foreground = offsetBrush });
 
             doc.Blocks.Add(p);
         }
 
         return doc;
+    }
+
+    private static Brush ResolveBrush(string resourceKey, Brush fallback)
+    {
+        object? resource = System.Windows.Application.Current?.TryFindResource(resourceKey);
+        return resource as Brush ?? fallback;
     }
 }

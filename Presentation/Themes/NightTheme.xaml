@@ -4,67 +4,73 @@
     <FontFamily x:Key="AppFontFamily">Segoe UI</FontFamily>
     <FontFamily x:Key="DisplayFontFamily">Bahnschrift</FontFamily>
 
-    <SolidColorBrush x:Key="AppBackgroundBrush" Color="#FFF3EEE6"/>
-    <SolidColorBrush x:Key="ShellBackgroundBrush" Color="#FFFBF7F0"/>
-    <SolidColorBrush x:Key="ShellHeroBorderBrush" Color="#FFD7C4AA"/>
-    <SolidColorBrush x:Key="CaptureToolbarBackgroundBrush" Color="#FFF0F6F3"/>
-    <SolidColorBrush x:Key="CaptureToolbarBorderBrush" Color="#FFB5CBC4"/>
-    <SolidColorBrush x:Key="FilterToolbarBackgroundBrush" Color="#FFF8F2E7"/>
-    <SolidColorBrush x:Key="FilterToolbarBorderBrush" Color="#FFD7C4A4"/>
-    <SolidColorBrush x:Key="SurfaceBrush" Color="#FFFCFAF6"/>
-    <SolidColorBrush x:Key="CardBrush" Color="#FFFFFFFF"/>
-    <SolidColorBrush x:Key="CardAltBrush" Color="#FFF7F1E8"/>
-    <SolidColorBrush x:Key="BorderBrushSoft" Color="#FFE0D5C5"/>
-    <SolidColorBrush x:Key="BorderBrushStrong" Color="#FFC2A587"/>
-    <SolidColorBrush x:Key="AccentBrush" Color="#FF0F766E"/>
-    <SolidColorBrush x:Key="AccentBrushHover" Color="#FF11857C"/>
-    <SolidColorBrush x:Key="AccentBrushPressed" Color="#FF0C5E57"/>
-    <SolidColorBrush x:Key="AccentBrushSoft" Color="#FFD9ECE6"/>
-    <SolidColorBrush x:Key="HighlightBrush" Color="#FFC68C36"/>
-    <SolidColorBrush x:Key="HighlightSoftBrush" Color="#FFF7E8CC"/>
-    <SolidColorBrush x:Key="TextPrimaryBrush" Color="#FF233139"/>
-    <SolidColorBrush x:Key="TextSecondaryBrush" Color="#FF5B6872"/>
-    <SolidColorBrush x:Key="TextMutedBrush" Color="#FF7C868E"/>
-    <SolidColorBrush x:Key="ProtocolChipTextBrush" Color="#FF203039"/>
-    <SolidColorBrush x:Key="HexOffsetBrush" Color="#FF6E7F8E"/>
-    <SolidColorBrush x:Key="HexSelectionBackgroundBrush" Color="#FFF5E0AE"/>
-    <SolidColorBrush x:Key="HexSelectionForegroundBrush" Color="#FF1F2D35"/>
-    <SolidColorBrush x:Key="SelectionBrush" Color="#FFD9ECE6"/>
-    <SolidColorBrush x:Key="SelectionInactiveBrush" Color="#FFEAF4F0"/>
-    <SolidColorBrush x:Key="InputFocusBackgroundBrush" Color="#FFFFFFFF"/>
-    <SolidColorBrush x:Key="ValidationErrorBorderBrush" Color="#FFD96C6C"/>
-    <SolidColorBrush x:Key="ValidationErrorBackgroundBrush" Color="#FFFFF7F3"/>
-    <SolidColorBrush x:Key="MenuHoverBrush" Color="#FFF6EFE2"/>
-    <SolidColorBrush x:Key="MenuPressedBrush" Color="#FFEEE1CD"/>
-    <SolidColorBrush x:Key="TableStripeBrush" Color="#FFFBF7F1"/>
-    <SolidColorBrush x:Key="TableHeaderBrush" Color="#FFF7F0E3"/>
-    <SolidColorBrush x:Key="{x:Static SystemColors.MenuBrushKey}" Color="#FFFFFFFF"/>
-    <SolidColorBrush x:Key="{x:Static SystemColors.MenuTextBrushKey}" Color="#FF233139"/>
-    <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#FFD9ECE6"/>
-    <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="#FF233139"/>
-    <SolidColorBrush x:Key="{x:Static SystemColors.WindowBrushKey}" Color="#FFFFFFFF"/>
-    <SolidColorBrush x:Key="{x:Static SystemColors.WindowTextBrushKey}" Color="#FF233139"/>
+    <SolidColorBrush x:Key="AppBackgroundBrush" Color="#FF121820"/>
+    <SolidColorBrush x:Key="ShellBackgroundBrush" Color="#FF18202A"/>
+    <SolidColorBrush x:Key="ShellHeroBorderBrush" Color="#FF32404D"/>
+    <SolidColorBrush x:Key="CaptureToolbarBackgroundBrush" Color="#FF17242A"/>
+    <SolidColorBrush x:Key="CaptureToolbarBorderBrush" Color="#FF31474E"/>
+    <SolidColorBrush x:Key="FilterToolbarBackgroundBrush" Color="#FF1A2028"/>
+    <SolidColorBrush x:Key="FilterToolbarBorderBrush" Color="#FF354554"/>
+    <SolidColorBrush x:Key="SurfaceBrush" Color="#FF1B232D"/>
+    <SolidColorBrush x:Key="CardBrush" Color="#FF141A22"/>
+    <SolidColorBrush x:Key="CardAltBrush" Color="#FF1C2430"/>
+    <SolidColorBrush x:Key="BorderBrushSoft" Color="#FF2E3A48"/>
+    <SolidColorBrush x:Key="BorderBrushStrong" Color="#FF4B6176"/>
+    <SolidColorBrush x:Key="AccentBrush" Color="#FF33B7A5"/>
+    <SolidColorBrush x:Key="AccentBrushHover" Color="#FF45C7B5"/>
+    <SolidColorBrush x:Key="AccentBrushPressed" Color="#FF239281"/>
+    <SolidColorBrush x:Key="AccentBrushSoft" Color="#FF183E3B"/>
+    <SolidColorBrush x:Key="HighlightBrush" Color="#FFF2B562"/>
+    <SolidColorBrush x:Key="HighlightSoftBrush" Color="#FF473521"/>
+    <SolidColorBrush x:Key="TextPrimaryBrush" Color="#FFF1F5F8"/>
+    <SolidColorBrush x:Key="TextSecondaryBrush" Color="#FFC1CBD4"/>
+    <SolidColorBrush x:Key="TextMutedBrush" Color="#FF93A1AF"/>
+    <SolidColorBrush x:Key="ProtocolChipTextBrush" Color="#FF223039"/>
+    <SolidColorBrush x:Key="HexOffsetBrush" Color="#FF8C9BAA"/>
+    <SolidColorBrush x:Key="HexSelectionBackgroundBrush" Color="#FF2C8E83"/>
+    <SolidColorBrush x:Key="HexSelectionForegroundBrush" Color="#FFFFFFFF"/>
+    <SolidColorBrush x:Key="SelectionBrush" Color="#FF1E4D49"/>
+    <SolidColorBrush x:Key="SelectionInactiveBrush" Color="#FF20363C"/>
+    <SolidColorBrush x:Key="InputFocusBackgroundBrush" Color="#FF202A35"/>
+    <SolidColorBrush x:Key="ValidationErrorBorderBrush" Color="#FFFF8F8F"/>
+    <SolidColorBrush x:Key="ValidationErrorBackgroundBrush" Color="#FF372425"/>
+    <SolidColorBrush x:Key="MenuHoverBrush" Color="#FF222D38"/>
+    <SolidColorBrush x:Key="MenuPressedBrush" Color="#FF293544"/>
+    <SolidColorBrush x:Key="TableStripeBrush" Color="#FF18202A"/>
+    <SolidColorBrush x:Key="TableHeaderBrush" Color="#FF1F2833"/>
+    <SolidColorBrush x:Key="MenuPopupBackgroundBrush" Color="#FF1C2430"/>
+    <SolidColorBrush x:Key="MenuPopupBorderBrush" Color="#FF3A4B5D"/>
+    <SolidColorBrush x:Key="MenuIconAreaBrush" Color="#FF24313C"/>
+    <SolidColorBrush x:Key="MenuDisabledTextBrush" Color="#FF6C7A88"/>
+    <SolidColorBrush x:Key="MenuCheckGlyphBrush" Color="#FFF1F5F8"/>
+    <SolidColorBrush x:Key="MenuArrowBrush" Color="#FF9FB1C3"/>
+    <SolidColorBrush x:Key="{x:Static SystemColors.MenuBrushKey}" Color="#FF18202A"/>
+    <SolidColorBrush x:Key="{x:Static SystemColors.MenuTextBrushKey}" Color="#FFF1F5F8"/>
+    <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#FF244E59"/>
+    <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="#FFF1F5F8"/>
+    <SolidColorBrush x:Key="{x:Static SystemColors.WindowBrushKey}" Color="#FF1B232D"/>
+    <SolidColorBrush x:Key="{x:Static SystemColors.WindowTextBrushKey}" Color="#FFF1F5F8"/>
 
     <LinearGradientBrush x:Key="WindowBackgroundBrush" StartPoint="0,0" EndPoint="1,1">
-        <GradientStop Color="#FFFEFCF8" Offset="0"/>
-        <GradientStop Color="#FFF5EFE7" Offset="0.58"/>
-        <GradientStop Color="#FFEEE5D8" Offset="1"/>
+        <GradientStop Color="#FF18202A" Offset="0"/>
+        <GradientStop Color="#FF141B24" Offset="0.58"/>
+        <GradientStop Color="#FF0F141B" Offset="1"/>
     </LinearGradientBrush>
 
     <LinearGradientBrush x:Key="ShellHeroBrush" StartPoint="0,0" EndPoint="1,1">
-        <GradientStop Color="#FFFFFCF7" Offset="0"/>
-        <GradientStop Color="#FFF7F2E8" Offset="0.62"/>
-        <GradientStop Color="#FFECE7DD" Offset="1"/>
+        <GradientStop Color="#FF202933" Offset="0"/>
+        <GradientStop Color="#FF1A232C" Offset="0.62"/>
+        <GradientStop Color="#FF141C24" Offset="1"/>
     </LinearGradientBrush>
 
     <LinearGradientBrush x:Key="ButtonBackgroundBrush" StartPoint="0,0" EndPoint="0,1">
-        <GradientStop Color="#FFFFFFFF" Offset="0"/>
-        <GradientStop Color="#FFF8F3EB" Offset="1"/>
+        <GradientStop Color="#FF202A35" Offset="0"/>
+        <GradientStop Color="#FF19222D" Offset="1"/>
     </LinearGradientBrush>
 
     <LinearGradientBrush x:Key="ButtonHoverBrush" StartPoint="0,0" EndPoint="0,1">
-        <GradientStop Color="#FFFBF7F1" Offset="0"/>
-        <GradientStop Color="#FFF2E8D9" Offset="1"/>
+        <GradientStop Color="#FF2A3644" Offset="0"/>
+        <GradientStop Color="#FF212B37" Offset="1"/>
     </LinearGradientBrush>
 
     <Style TargetType="Window">
@@ -318,12 +324,176 @@
         <Setter Property="FontSize" Value="12.5"/>
     </Style>
 
+    <ControlTemplate x:Key="TopLevelMenuItemTemplate" TargetType="MenuItem">
+        <Grid SnapsToDevicePixels="True">
+            <Border x:Name="TopLevelBorder"
+                    Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}"
+                    CornerRadius="0"
+                    Padding="{TemplateBinding Padding}">
+                <ContentPresenter ContentSource="Header"
+                                  RecognizesAccessKey="True"
+                                  HorizontalAlignment="Center"
+                                  VerticalAlignment="Center"/>
+            </Border>
+            <Popup x:Name="SubmenuPopup"
+                   Placement="Bottom"
+                   AllowsTransparency="True"
+                   Focusable="False"
+                   PopupAnimation="Fade"
+                   IsOpen="{Binding IsSubmenuOpen, RelativeSource={RelativeSource TemplatedParent}}">
+                <Border Margin="0,6,0,0"
+                        Background="{StaticResource MenuPopupBackgroundBrush}"
+                        BorderBrush="{StaticResource MenuPopupBorderBrush}"
+                        BorderThickness="1"
+                        CornerRadius="12"
+                        Padding="6">
+                    <StackPanel IsItemsHost="True"
+                                KeyboardNavigation.DirectionalNavigation="Cycle"/>
+                </Border>
+            </Popup>
+        </Grid>
+        <ControlTemplate.Triggers>
+            <Trigger Property="IsHighlighted" Value="True">
+                <Setter TargetName="TopLevelBorder" Property="Background" Value="{StaticResource MenuHoverBrush}"/>
+            </Trigger>
+            <Trigger Property="IsSubmenuOpen" Value="True">
+                <Setter TargetName="TopLevelBorder" Property="Background" Value="{StaticResource MenuPressedBrush}"/>
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Foreground" Value="{StaticResource MenuDisabledTextBrush}"/>
+            </Trigger>
+        </ControlTemplate.Triggers>
+    </ControlTemplate>
+
+    <ControlTemplate x:Key="SubmenuMenuItemTemplate" TargetType="MenuItem">
+        <Grid SnapsToDevicePixels="True">
+            <Border x:Name="SubmenuBorder"
+                    Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}"
+                    CornerRadius="8"
+                    Padding="0">
+                <Grid Margin="2">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="28"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="18"/>
+                    </Grid.ColumnDefinitions>
+
+                    <Border x:Name="CheckHost"
+                            Grid.Column="0"
+                            Margin="2,1,6,1"
+                            CornerRadius="6"
+                            Background="Transparent">
+                        <Path x:Name="CheckGlyph"
+                              Width="10"
+                              Height="10"
+                              Data="M 1 5 L 4 8 L 10 1"
+                              Stroke="{StaticResource MenuCheckGlyphBrush}"
+                              StrokeThickness="2"
+                              StrokeStartLineCap="Round"
+                              StrokeEndLineCap="Round"
+                              StrokeLineJoin="Round"
+                              Stretch="Uniform"
+                              HorizontalAlignment="Center"
+                              VerticalAlignment="Center"
+                              Visibility="Collapsed"/>
+                    </Border>
+
+                    <ContentPresenter Grid.Column="1"
+                                      Margin="4,6,8,6"
+                                      ContentSource="Header"
+                                      RecognizesAccessKey="True"
+                                      VerticalAlignment="Center"/>
+
+                    <TextBlock x:Name="GestureText"
+                               Grid.Column="2"
+                               Margin="8,0,8,0"
+                               Text="{TemplateBinding InputGestureText}"
+                               Foreground="{StaticResource TextMutedBrush}"
+                               VerticalAlignment="Center"/>
+
+                    <Path x:Name="SubmenuArrow"
+                          Grid.Column="3"
+                          Margin="0,0,4,0"
+                          Data="M 0 0 L 4 4 L 0 8"
+                          Stroke="{StaticResource MenuArrowBrush}"
+                          StrokeThickness="1.8"
+                          StrokeStartLineCap="Round"
+                          StrokeEndLineCap="Round"
+                          StrokeLineJoin="Round"
+                          HorizontalAlignment="Center"
+                          VerticalAlignment="Center"
+                          Visibility="Collapsed"/>
+                </Grid>
+            </Border>
+
+            <Popup x:Name="SubmenuPopup"
+                   Placement="Right"
+                   HorizontalOffset="4"
+                   VerticalOffset="-4"
+                   AllowsTransparency="True"
+                   Focusable="False"
+                   PopupAnimation="Fade"
+                   IsOpen="{Binding IsSubmenuOpen, RelativeSource={RelativeSource TemplatedParent}}">
+                <Border Background="{StaticResource MenuPopupBackgroundBrush}"
+                        BorderBrush="{StaticResource MenuPopupBorderBrush}"
+                        BorderThickness="1"
+                        CornerRadius="12"
+                        Padding="6">
+                    <StackPanel IsItemsHost="True"
+                                KeyboardNavigation.DirectionalNavigation="Cycle"/>
+                </Border>
+            </Popup>
+        </Grid>
+        <ControlTemplate.Triggers>
+            <Trigger Property="IsHighlighted" Value="True">
+                <Setter TargetName="SubmenuBorder" Property="Background" Value="{StaticResource MenuHoverBrush}"/>
+            </Trigger>
+            <Trigger Property="IsSubmenuOpen" Value="True">
+                <Setter TargetName="SubmenuBorder" Property="Background" Value="{StaticResource MenuPressedBrush}"/>
+            </Trigger>
+            <Trigger Property="IsCheckable" Value="True">
+                <Setter TargetName="CheckHost" Property="Background" Value="{StaticResource MenuIconAreaBrush}"/>
+            </Trigger>
+            <Trigger Property="IsChecked" Value="True">
+                <Setter TargetName="CheckHost" Property="Background" Value="{StaticResource AccentBrush}"/>
+                <Setter TargetName="CheckGlyph" Property="Visibility" Value="Visible"/>
+            </Trigger>
+            <Trigger Property="HasItems" Value="True">
+                <Setter TargetName="SubmenuArrow" Property="Visibility" Value="Visible"/>
+            </Trigger>
+            <Trigger Property="InputGestureText" Value="">
+                <Setter TargetName="GestureText" Property="Visibility" Value="Collapsed"/>
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Foreground" Value="{StaticResource MenuDisabledTextBrush}"/>
+                <Setter TargetName="GestureText" Property="Foreground" Value="{StaticResource MenuDisabledTextBrush}"/>
+                <Setter TargetName="SubmenuArrow" Property="Stroke" Value="{StaticResource MenuDisabledTextBrush}"/>
+            </Trigger>
+        </ControlTemplate.Triggers>
+    </ControlTemplate>
+
     <Style TargetType="MenuItem">
         <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
         <Setter Property="Background" Value="Transparent"/>
         <Setter Property="Padding" Value="12,6"/>
         <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="BorderBrush" Value="Transparent"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="Template" Value="{StaticResource SubmenuMenuItemTemplate}"/>
         <Style.Triggers>
+            <Trigger Property="Role" Value="TopLevelHeader">
+                <Setter Property="Template" Value="{StaticResource TopLevelMenuItemTemplate}"/>
+                <Setter Property="Padding" Value="12,7"/>
+            </Trigger>
+            <Trigger Property="Role" Value="TopLevelItem">
+                <Setter Property="Template" Value="{StaticResource TopLevelMenuItemTemplate}"/>
+                <Setter Property="Padding" Value="12,7"/>
+            </Trigger>
             <Trigger Property="IsHighlighted" Value="True">
                 <Setter Property="Background" Value="{StaticResource MenuHoverBrush}"/>
             </Trigger>
@@ -428,7 +598,7 @@
         <Setter Property="BorderBrush" Value="{StaticResource BorderBrushSoft}"/>
         <Setter Property="BorderThickness" Value="1"/>
         <Setter Property="GridLinesVisibility" Value="Horizontal"/>
-        <Setter Property="HorizontalGridLinesBrush" Value="#F0E6D9CE"/>
+        <Setter Property="HorizontalGridLinesBrush" Value="#FF273342"/>
         <Setter Property="VerticalGridLinesBrush" Value="#00000000"/>
         <Setter Property="RowBackground" Value="{StaticResource CardBrush}"/>
         <Setter Property="AlternatingRowBackground" Value="{StaticResource TableStripeBrush}"/>

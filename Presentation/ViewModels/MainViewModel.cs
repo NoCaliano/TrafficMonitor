@@ -61,6 +61,7 @@ public sealed class MainViewModel : ViewModelBase
     private readonly DisplayFilterLibraryStore _displayFilterLibraryStore;
     private readonly TrafficHistoryStore _trafficHistoryStore;
     private readonly TrafficControlManager _trafficControlManager;
+    private readonly ThemeManagerService _themeManagerService;
 
     private readonly RelayCommand _followFlowCommand;
     private readonly RelayCommand _followFlowBothDirectionsCommand;
@@ -438,6 +439,8 @@ public sealed class MainViewModel : ViewModelBase
     public ICommand OpenFiltersCommand { get; }
     public ICommand OpenNotificationSettingsCommand { get; }
     public ICommand OpenTrafficControlRulesCommand { get; }
+    public ICommand UseLightThemeCommand { get; }
+    public ICommand UseNightThemeCommand { get; }
     public ICommand ShowFlowsCommand { get; }
     public ICommand ShowEndpointsCommand { get; }
     public ICommand ShowHistoryCommand { get; }
@@ -455,6 +458,8 @@ public sealed class MainViewModel : ViewModelBase
     public ICommand RemoveSavedDisplayFilterCommand { get; }
     public ICommand ClearRecentDisplayFiltersCommand => _clearRecentDisplayFiltersCommand;
     public ICommand CopyHexCommand => _copyHexCommand;
+    public bool IsLightThemeSelected => _themeManagerService.CurrentTheme == AppThemeKind.Light;
+    public bool IsNightThemeSelected => _themeManagerService.CurrentTheme == AppThemeKind.Night;
 
     public StatsViewModel Stats { get; }
     private long _capTotalPackets;
@@ -484,7 +489,8 @@ public sealed class MainViewModel : ViewModelBase
         WindowsShellNotificationService shellNotificationService,
         DisplayFilterLibraryStore displayFilterLibraryStore,
         TrafficHistoryStore trafficHistoryStore,
-        TrafficControlManager trafficControlManager)
+        TrafficControlManager trafficControlManager,
+        ThemeManagerService themeManagerService)
     {
         _deviceService = deviceService;
         _captureService = captureService;
@@ -507,6 +513,8 @@ public sealed class MainViewModel : ViewModelBase
         _displayFilterLibraryStore = displayFilterLibraryStore;
         _trafficHistoryStore = trafficHistoryStore;
         _trafficControlManager = trafficControlManager;
+        _themeManagerService = themeManagerService;
+        _themeManagerService.ThemeChanged += OnThemeChanged;
         _displayFilterRecentCommitTimer = new DispatcherTimer
         {
             Interval = TimeSpan.FromSeconds(1.5)
@@ -532,6 +540,8 @@ public sealed class MainViewModel : ViewModelBase
         OpenFiltersCommand = new RelayCommand(_ => OpenFiltersDialog());
         OpenNotificationSettingsCommand = new RelayCommand(_ => OpenNotificationSettingsDialog());
         OpenTrafficControlRulesCommand = new RelayCommand(_ => OpenTrafficControlRulesDialog());
+        UseLightThemeCommand = new RelayCommand(_ => ApplyTheme(AppThemeKind.Light));
+        UseNightThemeCommand = new RelayCommand(_ => ApplyTheme(AppThemeKind.Night));
         ShowFlowsCommand = new RelayCommand(_ => ShowFlows());
         ShowEndpointsCommand = new RelayCommand(_ => ShowEndpoints());
         ShowHistoryCommand = new RelayCommand(_ => ShowHistory());
@@ -600,6 +610,7 @@ public sealed class MainViewModel : ViewModelBase
             _ => !string.IsNullOrWhiteSpace(HexDump));
 
         LoadDisplayFilterLibrary();
+        RaiseThemeSelectionChanged();
 
         LoadDevices();
         // subscribe to capture controller events
@@ -1370,6 +1381,35 @@ public sealed class MainViewModel : ViewModelBase
         };
 
         win.ShowDialog();
+    }
+
+    private void ApplyTheme(AppThemeKind themeKind)
+    {
+        _themeManagerService.ApplyTheme(themeKind);
+        RaiseThemeSelectionChanged();
+    }
+
+    private void OnThemeChanged(object? sender, EventArgs e)
+    {
+        InvalidateHexDocumentCache();
+        RaiseThemeSelectionChanged();
+    }
+
+    private void RaiseThemeSelectionChanged()
+    {
+        OnPropertyChanged(nameof(IsLightThemeSelected));
+        OnPropertyChanged(nameof(IsNightThemeSelected));
+    }
+
+    private void InvalidateHexDocumentCache()
+    {
+        foreach (var entry in _packetDetailsCache.Values)
+            entry.BaseHexDocument = null;
+
+        if (SelectedPacket is not null)
+            RebuildHexDocument();
+        else
+            HexDocument = CreateStatusFlowDocument(string.Empty);
     }
 
     private void OpenTrafficControlRulesDialog(TrafficControlRule? draftRule = null)

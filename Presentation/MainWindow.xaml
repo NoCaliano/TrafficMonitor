@@ -52,7 +52,7 @@
                 CornerRadius="16">
             <Menu Padding="0">
                 <Menu.Resources>
-                    <Style TargetType="{x:Type MenuItem}">
+                    <Style TargetType="{x:Type MenuItem}" BasedOn="{StaticResource {x:Type MenuItem}}">
                         <Setter Property="Padding" Value="10,5"/>
                         <Setter Property="FontSize" Value="12"/>
                     </Style>
@@ -84,6 +84,17 @@
                     <MenuItem Header="_Statistics" Command="{Binding OpenStatisticsCommand}" />
                 </MenuItem>
                 <MenuItem Header="_Settings">
+                    <MenuItem Header="_Theme">
+                        <MenuItem Header="_Light"
+                                  IsCheckable="True"
+                                  IsChecked="{Binding IsLightThemeSelected, Mode=OneWay}"
+                                  Command="{Binding UseLightThemeCommand}"/>
+                        <MenuItem Header="_Night"
+                                  IsCheckable="True"
+                                  IsChecked="{Binding IsNightThemeSelected, Mode=OneWay}"
+                                  Command="{Binding UseNightThemeCommand}"/>
+                    </MenuItem>
+                    <Separator/>
                     <MenuItem Header="_Notifications..." Command="{Binding OpenNotificationSettingsCommand}" />
                     <MenuItem Header="_Traffic Control..." Command="{Binding OpenTrafficControlRulesCommand}" />
                 </MenuItem>
@@ -118,11 +129,11 @@
                             <Style TargetType="{x:Type Button}" BasedOn="{StaticResource CompactToolbarButtonStyle}">
                                 <Setter Property="Margin" Value="0,0,6,0"/>
                             </Style>
-                            <Style TargetType="{x:Type TextBox}">
+                            <Style TargetType="{x:Type TextBox}" BasedOn="{StaticResource {x:Type TextBox}}">
                                 <Setter Property="Margin" Value="0,0,6,0"/>
                                 <Setter Property="MinHeight" Value="30"/>
                             </Style>
-                            <Style TargetType="{x:Type ComboBox}">
+                            <Style TargetType="{x:Type ComboBox}" BasedOn="{StaticResource {x:Type ComboBox}}">
                                 <Setter Property="Margin" Value="0,0,6,0"/>
                                 <Setter Property="MinWidth" Value="220"/>
                                 <Setter Property="MinHeight" Value="30"/>
