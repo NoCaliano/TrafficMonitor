@@ -52,7 +52,7 @@
             <Setter Property="Height" Value="4"/>
             <Setter Property="Margin" Value="0,5,0,0"/>
             <Setter Property="Maximum" Value="100"/>
-            <Setter Property="Foreground" Value="#FFF2B400"/>
+            <Setter Property="Foreground" Value="{StaticResource HighlightBrush}"/>
             <Setter Property="Background" Value="{StaticResource AccentBrushSoft}"/>
         </Style>
     </UserControl.Resources>
