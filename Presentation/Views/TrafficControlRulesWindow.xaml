@@ -3,9 +3,9 @@
         xmlns:helpers="clr-namespace:Presentation.Helpers"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Traffic Control Rules"
-        Width="1080"
+        Width="1320"
         Height="760"
-        MinWidth="960"
+        MinWidth="1120"
         MinHeight="680"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False">
@@ -34,7 +34,7 @@
 
             <Grid Grid.Row="2">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="420"/>
+                    <ColumnDefinition Width="620"/>
                     <ColumnDefinition Width="18"/>
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
@@ -81,13 +81,13 @@
                                                         Width="48"/>
                                 <DataGridTextColumn Header="Name"
                                                     Binding="{Binding Name}"
-                                                    Width="160"/>
+                                                    Width="150"/>
                                 <DataGridTextColumn Header="Target"
                                                     Binding="{Binding TargetSummary}"
-                                                    Width="*"/>
+                                                    Width="130"/>
                                 <DataGridTextColumn Header="Control"
                                                     Binding="{Binding ControlSummary}"
-                                                    Width="190"/>
+                                                    Width="240"/>
                             </DataGrid.Columns>
                         </DataGrid>
 

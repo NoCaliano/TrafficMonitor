@@ -122,6 +122,115 @@
 
         <DataTemplate x:Key="ProcessTimelineDetailsTemplate" DataType="{x:Type models:ProcessStatRow}">
             <StackPanel>
+                <Grid Margin="0,0,0,14">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <Button Grid.Row="0"
+                            Grid.Column="0"
+                            Content="Open folder"
+                            Command="{Binding DataContext.LocateProcessCommand, ElementName=ProcessPacketsLayout}"
+                            CommandParameter="{Binding}"
+                            Style="{StaticResource ProcessActionButtonStyle}"/>
+
+                    <Grid Grid.Row="0"
+                          Grid.Column="1"
+                          x:Name="BlockActionsAnchor"
+                          Margin="0,0,6,6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <Button Grid.Column="0"
+                                Content="Block network"
+                                Command="{Binding DataContext.BlockProcessFirewallCommand, ElementName=ProcessPacketsLayout}"
+                                CommandParameter="{Binding}"
+                                Style="{StaticResource ProcessActionButtonStyle}"
+                                Margin="0"/>
+
+                        <ToggleButton Grid.Column="1"
+                                      Content="▾"
+                                      IsChecked="{Binding DataContext.IsBlockPresetMenuOpen, ElementName=ProcessPacketsLayout, Mode=TwoWay}"
+                                      Style="{StaticResource ProcessActionArrowToggleStyle}"
+                                      Margin="0"/>
+
+                        <Popup PlacementTarget="{Binding ElementName=BlockActionsAnchor}"
+                               Placement="Bottom"
+                               HorizontalOffset="0"
+                               VerticalOffset="6"
+                               AllowsTransparency="True"
+                               PopupAnimation="Fade"
+                               StaysOpen="False"
+                               IsOpen="{Binding DataContext.IsBlockPresetMenuOpen, ElementName=ProcessPacketsLayout, Mode=TwoWay}">
+                            <Border Width="220"
+                                    Padding="8"
+                                    Background="{StaticResource CardBrush}"
+                                    BorderBrush="{StaticResource BorderBrushSoft}"
+                                    BorderThickness="1"
+                                    CornerRadius="10"
+                                    SnapsToDevicePixels="True">
+                                <StackPanel>
+                                    <Button Content="Block permanently"
+                                            Command="{Binding DataContext.BlockProcessFirewallCommand, ElementName=ProcessPacketsLayout}"
+                                            CommandParameter="{Binding}"
+                                            Style="{StaticResource ProcessPopupActionButtonStyle}"/>
+                                    <Button Content="Block for 15 min"
+                                            Command="{Binding DataContext.BlockProcessFirewallFor15MinutesCommand, ElementName=ProcessPacketsLayout}"
+                                            CommandParameter="{Binding}"
+                                            Style="{StaticResource ProcessPopupActionButtonStyle}"/>
+                                    <Button Content="Block for 1 hour"
+                                            Command="{Binding DataContext.BlockProcessFirewallFor1HourCommand, ElementName=ProcessPacketsLayout}"
+                                            CommandParameter="{Binding}"
+                                            Style="{StaticResource ProcessPopupActionButtonStyle}"/>
+                                    <Button Content="Block until app exit"
+                                            Command="{Binding DataContext.BlockProcessFirewallUntilAppExitCommand, ElementName=ProcessPacketsLayout}"
+                                            CommandParameter="{Binding}"
+                                            Style="{StaticResource ProcessPopupActionButtonStyle}"
+                                            Margin="0"/>
+                                </StackPanel>
+                            </Border>
+                        </Popup>
+                    </Grid>
+
+                    <Button Grid.Row="0"
+                            Grid.Column="2"
+                            Content="Restore network"
+                            Command="{Binding DataContext.UnblockProcessFirewallCommand, ElementName=ProcessPacketsLayout}"
+                            CommandParameter="{Binding}"
+                            Style="{StaticResource ProcessActionButtonStyle}"
+                            Margin="0,0,0,6"/>
+
+                    <Button Grid.Row="1"
+                            Grid.Column="0"
+                            Content="End process"
+                            Command="{Binding DataContext.KillProcessCommand, ElementName=ProcessPacketsLayout}"
+                            CommandParameter="{Binding}"
+                            Style="{StaticResource ProcessActionButtonStyle}"
+                            Margin="0,0,6,0"/>
+                    <Button Grid.Row="1"
+                            Grid.Column="1"
+                            Content="Show packets"
+                            Command="{Binding DataContext.ShowPacketsForPidCommand, ElementName=ProcessPacketsLayout}"
+                            CommandParameter="{Binding}"
+                            Style="{StaticResource ProcessActionButtonStyle}"
+                            Margin="0,0,6,0"/>
+                    <Button Grid.Row="1"
+                            Grid.Column="2"
+                            Content="Export report"
+                            Command="{Binding DataContext.ExportIncidentReportCommand, ElementName=ProcessPacketsLayout}"
+                            CommandParameter="{Binding}"
+                            Style="{StaticResource ProcessActionButtonStyle}"
+                            Margin="0"/>
+                </Grid>
+
                 <TextBlock Margin="0,4,0,0"
                            Text="{Binding DetectionScenariosTitle}"
                            FontWeight="SemiBold"
@@ -531,7 +640,7 @@
                                                         <TextBlock Margin="0,4,0,0"
                                                                    Text="{Binding Title}"
                                                                    FontWeight="SemiBold"
-                                                                   Foreground="{StaticResource TextPrimaryBrush}"
+                                                                   Foreground="{Binding BorderBrush}"
                                                                    TextWrapping="Wrap"
                                                                    TextTrimming="CharacterEllipsis"
                                                                    MaxHeight="34"/>
@@ -1203,7 +1312,8 @@
                                 HorizontalAlignment="Right"/>
                     </Grid>
 
-                    <Grid Margin="0,14,0,0">
+                    <Grid Margin="0,14,0,0"
+                          Visibility="Collapsed">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="*"/>

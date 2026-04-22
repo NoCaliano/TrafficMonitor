@@ -133,7 +133,9 @@
                                 <Setter Property="Margin" Value="0,0,6,0"/>
                                 <Setter Property="MinHeight" Value="30"/>
                             </Style>
-                            <Style TargetType="{x:Type ComboBox}" BasedOn="{StaticResource {x:Type ComboBox}}">
+                            <Style x:Key="{x:Static ToolBar.ComboBoxStyleKey}"
+                                   TargetType="{x:Type ComboBox}"
+                                   BasedOn="{StaticResource {x:Type ComboBox}}">
                                 <Setter Property="Margin" Value="0,0,6,0"/>
                                 <Setter Property="MinWidth" Value="220"/>
                                 <Setter Property="MinHeight" Value="30"/>
@@ -146,7 +148,6 @@
                         </ToolBar.Resources>
 
                         <ComboBox Width="Auto"
-                                  Padding="0,0,26,0"
                                   HorizontalContentAlignment="Left"
                                   ItemsSource="{Binding Devices}"
                                   SelectedItem="{Binding SelectedDevice}"
@@ -154,7 +155,7 @@
 
                         <Separator/>
 
-                        <Button Content="Start" Command="{Binding StartCommand}" Style="{StaticResource CompactPrimaryToolbarButtonStyle}"/>
+                        <Button Content="Start" Command="{Binding StartCommand}" Style="{StaticResource CompactToolbarButtonStyle}"/>
                         <Button Content="Stop" Command="{Binding StopCommand}" Style="{StaticResource CompactToolbarButtonStyle}" />
                         <Button Content="Unfollow"
                                 Command="{Binding ClearFlowFilterCommand}"
