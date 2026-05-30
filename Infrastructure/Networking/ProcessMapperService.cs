@@ -1,6 +1,8 @@
 ﻿using System.Diagnostics;
+using System.IO;
 using System.Net;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 
 namespace Infrastructure.Networking;
@@ -10,6 +12,12 @@ public sealed class ProcessMapperService : IDisposable
     // Cache for PID -> process name to avoid frequent Process.GetProcessById calls
     private readonly System.Collections.Concurrent.ConcurrentDictionary<int, (string Name, DateTime Expires)> _nameCache = new();
     private readonly TimeSpan _nameCacheTtl = TimeSpan.FromSeconds(5);
+
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<int, (ProcessDetails Details, DateTime Expires)> _detailsCache = new();
+    private readonly TimeSpan _detailsCacheTtl = TimeSpan.FromSeconds(30);
+
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<int, (ProcessLivenessInfo Info, DateTime Expires)> _livenessCache = new();
+    private readonly TimeSpan _livenessCacheTtl = TimeSpan.FromSeconds(2);
 
     // These dictionaries are treated as immutable snapshots:
     // Refresh() builds new instances and atomically swaps the references.
@@ -115,6 +123,150 @@ public sealed class ProcessMapperService : IDisposable
         var name = TryGetProcessName(pid);
         _nameCache[pid] = (name, now.Add(_nameCacheTtl));
         return name;
+    }
+
+    public readonly record struct ProcessDetails(
+        int Pid,
+        string Name,
+        string ExePath,
+        int ParentPid,
+        string Publisher,
+        bool IsSigned,
+        string SignerSubject);
+
+    public readonly record struct ProcessLivenessInfo(bool IsAlive, string ExePath);
+
+    public ProcessLivenessInfo GetProcessLivenessCached(int pid)
+    {
+        if (pid <= 0)
+            return default;
+
+        var now = DateTime.UtcNow;
+        if (_livenessCache.TryGetValue(pid, out var entry) && entry.Expires > now)
+            return entry.Info;
+
+        var info = BuildProcessLivenessInfo(pid);
+        _livenessCache[pid] = (info, now.Add(_livenessCacheTtl));
+        return info;
+    }
+
+    private static ProcessLivenessInfo BuildProcessLivenessInfo(int pid)
+    {
+        try
+        {
+            using var proc = Process.GetProcessById(pid);
+            if (proc.HasExited)
+                return new ProcessLivenessInfo(IsAlive: false, ExePath: "");
+
+            string exePath = "";
+            try
+            {
+                exePath = proc.MainModule?.FileName ?? "";
+            }
+            catch
+            {
+                // ignore
+            }
+
+            return new ProcessLivenessInfo(IsAlive: true, ExePath: exePath);
+        }
+        catch
+        {
+            return new ProcessLivenessInfo(IsAlive: false, ExePath: "");
+        }
+    }
+
+    public ProcessDetails GetProcessDetailsCached(int pid)
+    {
+        if (pid <= 0)
+            return default;
+
+        var now = DateTime.UtcNow;
+        if (_detailsCache.TryGetValue(pid, out var entry) && entry.Expires > now)
+            return entry.Details;
+
+        var details = BuildProcessDetails(pid);
+        _detailsCache[pid] = (details, now.Add(_detailsCacheTtl));
+        return details;
+    }
+
+    private ProcessDetails BuildProcessDetails(int pid)
+    {
+        string name = "";
+        string exePath = "";
+        int parentPid = 0;
+        string publisher = "";
+        bool isSigned = false;
+        string signerSubject = "";
+
+        try
+        {
+            using var proc = Process.GetProcessById(pid);
+            name = proc.ProcessName ?? "";
+
+            try
+            {
+                exePath = proc.MainModule?.FileName ?? "";
+            }
+            catch
+            {
+                // access denied / 32-64 bit mismatch etc.
+            }
+
+            try
+            {
+                if (TryGetParentPid(proc.Handle, out var pp))
+                    parentPid = pp;
+            }
+            catch
+            {
+                // ignore
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        if (!string.IsNullOrWhiteSpace(exePath) && File.Exists(exePath))
+        {
+            try
+            {
+                var fvi = FileVersionInfo.GetVersionInfo(exePath);
+                publisher = fvi.CompanyName ?? "";
+            }
+            catch
+            {
+                // ignore
+            }
+
+            try
+            {
+                using var cert = new X509Certificate2(X509Certificate.CreateFromSignedFile(exePath));
+                isSigned = true;
+                signerSubject = cert.Subject ?? "";
+
+                var simpleName = cert.GetNameInfo(X509NameType.SimpleName, forIssuer: false);
+                if (!string.IsNullOrWhiteSpace(simpleName))
+                    publisher = simpleName;
+            }
+            catch
+            {
+                // not signed or cannot read cert
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(name))
+            name = GetProcessNameCached(pid);
+
+        return new ProcessDetails(
+            Pid: pid,
+            Name: name,
+            ExePath: exePath,
+            ParentPid: parentPid,
+            Publisher: publisher,
+            IsSigned: isSigned,
+            SignerSubject: signerSubject);
     }
 
     private void RefreshSafe()
@@ -314,6 +466,46 @@ public sealed class ProcessMapperService : IDisposable
 
     private readonly record struct TcpKey(IPAddress LocalIp, int LocalPort, IPAddress RemoteIp, int RemotePort);
     private readonly record struct UdpKey(IPAddress LocalIp, int LocalPort);
+
+    // ---------------- Process parent PID ----------------
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct PROCESS_BASIC_INFORMATION
+    {
+        public IntPtr Reserved1;
+        public IntPtr PebBaseAddress;
+        public IntPtr Reserved2_0;
+        public IntPtr Reserved2_1;
+        public IntPtr UniqueProcessId;
+        public IntPtr InheritedFromUniqueProcessId;
+    }
+
+    [DllImport("ntdll.dll")]
+    private static extern int NtQueryInformationProcess(
+        IntPtr processHandle,
+        int processInformationClass,
+        ref PROCESS_BASIC_INFORMATION processInformation,
+        int processInformationLength,
+        out int returnLength);
+
+    private static bool TryGetParentPid(IntPtr processHandle, out int parentPid)
+    {
+        parentPid = 0;
+        try
+        {
+            PROCESS_BASIC_INFORMATION pbi = default;
+            int ret = NtQueryInformationProcess(processHandle, processInformationClass: 0, ref pbi, Marshal.SizeOf<PROCESS_BASIC_INFORMATION>(), out _);
+            if (ret != 0)
+                return false;
+
+            parentPid = pbi.InheritedFromUniqueProcessId.ToInt32();
+            return parentPid > 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
 
     // ---------------- P/Invoke ----------------
 

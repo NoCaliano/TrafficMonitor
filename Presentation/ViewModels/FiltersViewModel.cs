@@ -2,6 +2,7 @@
 using System.Globalization;
 using System.Windows;
 using System.Windows.Input;
+using Application.Filtering;
 
 namespace Presentation.ViewModels;
 

@@ -1,11 +1,17 @@
 ﻿// Відповідає за: прийом raw пакетів, парсинг через IPacketParser, батчинг і показ у DataGrid.
 using Application.Abstractions;
+using Application.Capture;
+using Application.Filtering;
+using Application.Networking;
 using Domain.Models;
+using Infrastructure.Capture;
+using Infrastructure.Networking;
 using Microsoft.Win32;
 using PacketDotNet;
+using Presentation.Abstractions;
 using Presentation.Helpers;
-using Presentation.Services;
 using Presentation.Models;
+using Presentation.Services;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -20,48 +26,133 @@ using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Collections.Generic;
+using System.Windows.Threading;
 
 namespace Presentation.ViewModels;
 
 public sealed class MainViewModel : ViewModelBase
 {
+    private const int PacketsTabIndex = 0;
+    private const int FlowsTabIndex = 1;
+    private const int EndpointsTabIndex = 2;
+    private const int HistoryTabIndex = 3;
+    private const int ProcessPacketsTabIndex = 4;
+    private const int StatisticsTabIndex = 5;
+    private const int PacketProtocolDetailsTabIndex = 0;
+    private const int PacketHexDetailsTabIndex = 1;
+    private const int PacketDetailsCacheCapacity = 24;
+
     private readonly ICaptureDeviceService _deviceService;
     private readonly IPacketCaptureService _captureService;
     private readonly IPacketParser _parser;
 
     // Відповідає за агрегатор потоків.
     private readonly IFlowAggregator _flowAggregator;
+    private readonly HostResolutionService _hostResolutionService;
     private readonly IHexDumpService _hexDumpService;
     private readonly IPacketFilterService _packetFilterService;
     private readonly IFlowFilterService _flowFilterService;
     private readonly ICaptureController _captureController;
     private readonly Func<Func<bool>, Action, FlowsViewModel> _flowsFactory;
     private readonly Func<PacketFilterModel, FiltersViewModel> _filtersFactory;
+    private readonly Func<NotificationSettingsViewModel> _notificationSettingsFactory;
+    private readonly Func<TrafficControlRulesViewModel> _trafficControlRulesFactory;
+    private readonly WindowsShellNotificationService _shellNotificationService;
+    private readonly DisplayFilterLibraryStore _displayFilterLibraryStore;
+    private readonly TrafficHistoryStore _trafficHistoryStore;
+    private readonly TrafficControlManager _trafficControlManager;
+    private readonly ThemeManagerService _themeManagerService;
 
     private readonly RelayCommand _followFlowCommand;
     private readonly RelayCommand _followFlowBothDirectionsCommand;
     private readonly RelayCommand _clearFlowFilterCommand;
+    private readonly RelayCommand _copyHexCommand;
+    private readonly RelayCommand _saveCurrentDisplayFilterCommand;
+    private readonly RelayCommand _clearRecentDisplayFiltersCommand;
+    private readonly AsyncRelayCommand _startCommand;
+    private readonly AsyncRelayCommand _stopCommand;
 
     // --- UI batching for incoming packets to avoid flooding the UI thread ---
     private readonly object _pendingLock = new();
-    private readonly List<PacketInfo> _pendingPackets = new();
+    private readonly Queue<PacketInfo> _pendingPackets = new();
     private readonly System.Threading.Timer _flushTimer;
     private const int _flushIntervalMs = 200; // flush UI every 200ms
     private const int _maxPendingPackets = 50_000; // cap pending to avoid OOM
-    private const int _maxUiAppendPerFlush = 2_000; // limit UI work per tick under heavy load
+    private const int _maxUiAppendPerFlush = 750; // limit UI work per tick under heavy load
+    private const int _collectionResetThreshold = 256; // large batches are cheaper as a single Reset than thousands of Add events
     private long _uiPacketsDropped;
-    private readonly HashSet<int> _knownProcessIds = new();
-    private readonly Dictionary<int, ProcessStatRow> _processStatsMap = new();
-    private readonly Dictionary<int, int> _processPacketsSinceLastSample = new();
 
     private bool _uiFilterIsEmpty = true;
     private bool _packetsViewHasFilter;
+    private readonly Dictionary<long, int> _packetStorageIndexByNo = new();
+    private readonly Dictionary<int, PidPacketIndex> _packetsByPid = new();
+    private readonly Dictionary<long, PacketDetailsCacheEntry> _packetDetailsCache = new();
+    private readonly DispatcherTimer _displayFilterRecentCommitTimer;
+    private CancellationTokenSource? _packetProtocolLoadCts;
+    private CancellationTokenSource? _packetHexLoadCts;
+    private string _pendingRecentDisplayFilterText = "";
 
     private double _packetsTableFontSize = 12.0;
     public double PacketsTableFontSize
     {
         get => _packetsTableFontSize;
         set => Set(ref _packetsTableFontSize, value);
+    }
+    public HistoryViewModel History { get; }
+    public EndpointsViewModel Endpoints { get; }
+    public ProcessPacketsViewModel ProcessPackets { get; }
+
+    private sealed class PidPacketIndex
+    {
+        private readonly List<PacketInfo> _packets = new();
+        private readonly Dictionary<string, PacketInfo> _firstPacketsByDomain = new(StringComparer.OrdinalIgnoreCase);
+        private bool _isSorted = true;
+
+        public void Add(PacketInfo packet)
+        {
+            if (_packets.Count > 0 && ComparePacketsByTimestampAndNo(_packets[^1], packet) > 0)
+                _isSorted = false;
+
+            _packets.Add(packet);
+
+            string? domain = NormalizeTimelineDomainKey(TryExtractTimelineDomain(packet));
+            if (domain is null)
+                return;
+
+            if (!_firstPacketsByDomain.TryGetValue(domain, out var existing)
+                || ComparePacketsByTimestampAndNo(packet, existing) < 0)
+            {
+                _firstPacketsByDomain[domain] = packet;
+            }
+        }
+
+        public IReadOnlyList<PacketInfo> GetOrderedPackets()
+        {
+            if (!_isSorted)
+            {
+                _packets.Sort(ComparePacketsByTimestampAndNo);
+                _isSorted = true;
+            }
+
+            return _packets;
+        }
+
+        public PacketInfo? GetFirstPacketForDomain(string? domain)
+        {
+            string? normalized = NormalizeTimelineDomainKey(domain);
+            return normalized is not null && _firstPacketsByDomain.TryGetValue(normalized, out var packet)
+                ? packet
+                : null;
+        }
+    }
+
+    private sealed class PacketDetailsCacheEntry
+    {
+        public required long PacketNo { get; init; }
+        public DateTime LastAccessUtc { get; set; }
+        public string? HexDump { get; set; }
+        public FlowDocument? BaseHexDocument { get; set; }
+        public ProtocolNode? ProtocolRoot { get; set; }
     }
 
 
@@ -155,7 +246,13 @@ public sealed class MainViewModel : ViewModelBase
     public string HexDump
     {
         get => _hexDump;
-        set => Set(ref _hexDump, value);
+        set
+        {
+            if (!Set(ref _hexDump, value))
+                return;
+
+            _copyHexCommand.RaiseCanExecuteChanged();
+        }
     }
 
     private FlowDocument _hexDocument = new();
@@ -165,17 +262,25 @@ public sealed class MainViewModel : ViewModelBase
         private set => Set(ref _hexDocument, value);
     }
 
+    private int _packetDetailsTabIndex;
+    public int PacketDetailsTabIndex
+    {
+        get => _packetDetailsTabIndex;
+        set
+        {
+            if (!Set(ref _packetDetailsTabIndex, value))
+                return;
+
+            CancelPendingPacketDetailsLoad();
+            EnsureSelectedPacketDetailsLoaded(rebuildHexDocumentForCurrentRange: value == PacketHexDetailsTabIndex);
+        }
+    }
+
     private (int start, int length)? _selectedRange;
     public (int start, int length)? SelectedRange
     {
         get => _selectedRange;
-        set
-        {
-            if (!Set(ref _selectedRange, value)) return;
-
-            // при виборі вузла дерева — підсвічуємо hex
-            RebuildHexDocument();
-        }
+        set => SetSelectedRange(value, refreshHexDocument: true);
     }
 
     // Відповідає за кореневий вузол дерева протоколів для вибраного пакета.
@@ -204,7 +309,13 @@ public sealed class MainViewModel : ViewModelBase
     public CaptureDeviceInfo? SelectedDevice
     {
         get => _selectedDevice;
-        set => Set(ref _selectedDevice, value);
+        set
+        {
+            if (!Set(ref _selectedDevice, value))
+                return;
+
+            RefreshCaptureCommandStates();
+        }
     }
 
     private string? _bpfFilter;
@@ -212,6 +323,60 @@ public sealed class MainViewModel : ViewModelBase
     {
         get => _bpfFilter;
         set => Set(ref _bpfFilter, value);
+    }
+
+    private string _displayFilterText = "";
+    public string DisplayFilterText
+    {
+        get => _displayFilterText;
+        set
+        {
+            if (!Set(ref _displayFilterText, value))
+                return;
+
+            ApplyDisplayFilterText();
+        }
+    }
+
+    private string _displayFilterError = "";
+    public string DisplayFilterError
+    {
+        get => _displayFilterError;
+        private set
+        {
+            if (!Set(ref _displayFilterError, value))
+                return;
+
+            OnPropertyChanged(nameof(HasDisplayFilterError));
+            OnPropertyChanged(nameof(DisplayFilterHint));
+        }
+    }
+
+    public bool HasDisplayFilterError => !string.IsNullOrWhiteSpace(DisplayFilterError);
+
+    public string DisplayFilterHint => HasDisplayFilterError
+        ? DisplayFilterError
+        : "Examples: arp, dns, tcp && ip.addr == 1.1.1.1, tcp.port == 443, process contains chrome";
+
+    public IReadOnlyList<string> DisplayFilterExamples { get; } =
+    [
+        "arp",
+        "dns",
+        "tcp && ip.addr == 1.1.1.1",
+        "tcp.port == 443",
+        "process contains chrome",
+        "frame.len > 512 && not arp"
+    ];
+    public ObservableCollection<string> SavedDisplayFilters { get; } = new();
+    public ObservableCollection<string> RecentDisplayFilters { get; } = new();
+    public bool HasSavedDisplayFilters => SavedDisplayFilters.Count > 0;
+    public bool HasRecentDisplayFilters => RecentDisplayFilters.Count > 0;
+
+    private bool _isDisplayFilterExamplesOpen;
+    public bool IsDisplayFilterExamplesOpen
+    {
+        get => _isDisplayFilterExamplesOpen;
+        set => Set(ref _isDisplayFilterExamplesOpen, value);
     }
 
     private string _statusText = "Idle";
@@ -226,15 +391,22 @@ public sealed class MainViewModel : ViewModelBase
     public ICommand ApplyBpfCommand { get; }
     public ICommand SaveCaptureCommand { get; }
     public ICommand OpenCaptureCommand { get; }
+    public ICommand QuitApplicationCommand { get; }
 
     // ===================== LEFT TABS =====================
 
-    // Відповідає за вибрану вкладку зліва (0 = Packets, 1 = Flows, 2 = Stats...).
+    // Відповідає за вибрану вкладку основного контенту.
     private int _leftTabIndex;
     public int LeftTabIndex
     {
         get => _leftTabIndex;
-        set => Set(ref _leftTabIndex, value);
+        set
+        {
+            if (!Set(ref _leftTabIndex, value))
+                return;
+
+            Stats.IsViewActive = value == StatisticsTabIndex;
+        }
     }
 
     // ===================== FILTERS (FLOW + UI) =====================
@@ -242,6 +414,9 @@ public sealed class MainViewModel : ViewModelBase
     // Flow filter is handled by FlowFilterService
 
     private PacketFilterModel _uiFilter = new();
+    private Func<PacketInfo, bool>? _uiFilterPredicate;
+    private Func<PacketInfo, bool>? _displayFilterPredicate;
+    private bool _hasValidDisplayFilter;
 
     // Відповідає за текст активних фільтрів у UI (Flow + UI).
     private string _filtersText = "";
@@ -262,35 +437,29 @@ public sealed class MainViewModel : ViewModelBase
     public ICommand ClearFlowFilterCommand => _clearFlowFilterCommand;
     public ICommand ShowPacketsCommand { get; }
     public ICommand OpenFiltersCommand { get; }
+    public ICommand OpenNotificationSettingsCommand { get; }
+    public ICommand OpenTrafficControlRulesCommand { get; }
+    public ICommand UseLightThemeCommand { get; }
+    public ICommand UseNightThemeCommand { get; }
     public ICommand ShowFlowsCommand { get; }
+    public ICommand ShowEndpointsCommand { get; }
+    public ICommand ShowHistoryCommand { get; }
     public ICommand OpenStatisticsCommand { get; }
     public ICommand ShowProcessPacketsCommand { get; }
-    public ICommand ShowPacketsForPidCommand { get; }
-    public ICommand FocusOnPidCommand { get; }
     public ICommand SelectPreviousPacketCommand { get; }
     public ICommand SelectNextPacketCommand { get; }
     public ICommand SelectFirstPacketCommand { get; }
     public ICommand SelectLastPacketCommand { get; }
     public ICommand ZoomInPacketsCommand { get; }
     public ICommand ZoomOutPacketsCommand { get; }
-    // ===================== STATS =====================
-    public ICollectionView ProcessPacketsView { get; }
-    public ObservableCollection<ProcessFilterOption> ProcessFilters { get; } = new();
-    public ObservableCollection<ProcessStatRow> ProcessStats { get; } = new();
-    public ICollectionView ProcessStatsView { get; }
-
-    private ProcessFilterOption? _selectedProcessFilter;
-    public ProcessFilterOption? SelectedProcessFilter
-    {
-        get => _selectedProcessFilter;
-        set
-        {
-            if (!Set(ref _selectedProcessFilter, value))
-                return;
-
-            ProcessPacketsView.Refresh();
-        }
-    }
+    public ICommand ToggleDisplayFilterExamplesCommand { get; }
+    public ICommand SaveCurrentDisplayFilterCommand => _saveCurrentDisplayFilterCommand;
+    public ICommand ApplyDisplayFilterSuggestionCommand { get; }
+    public ICommand RemoveSavedDisplayFilterCommand { get; }
+    public ICommand ClearRecentDisplayFiltersCommand => _clearRecentDisplayFiltersCommand;
+    public ICommand CopyHexCommand => _copyHexCommand;
+    public bool IsLightThemeSelected => _themeManagerService.CurrentTheme == AppThemeKind.Light;
+    public bool IsNightThemeSelected => _themeManagerService.CurrentTheme == AppThemeKind.Night;
 
     public StatsViewModel Stats { get; }
     private long _capTotalPackets;
@@ -303,19 +472,34 @@ public sealed class MainViewModel : ViewModelBase
         ICaptureDeviceService deviceService,
         IPacketCaptureService captureService,
         IPacketParser parser,
+        HistoryViewModel history,
+        EndpointsViewModel endpoints,
+        ProcessPacketsViewModel processPackets,
         IFlowAggregator flowAggregator,
+        HostResolutionService hostResolutionService,
         IHexDumpService hexDumpService,
         IPacketFilterService packetFilterService,
         IFlowFilterService flowFilterService,
         ICaptureController captureController,
         StatsViewModel stats,
         Func<Func<bool>, Action, FlowsViewModel> flowsFactory,
-        Func<PacketFilterModel, FiltersViewModel> filtersFactory)
+        Func<PacketFilterModel, FiltersViewModel> filtersFactory,
+        Func<NotificationSettingsViewModel> notificationSettingsFactory,
+        Func<TrafficControlRulesViewModel> trafficControlRulesFactory,
+        WindowsShellNotificationService shellNotificationService,
+        DisplayFilterLibraryStore displayFilterLibraryStore,
+        TrafficHistoryStore trafficHistoryStore,
+        TrafficControlManager trafficControlManager,
+        ThemeManagerService themeManagerService)
     {
         _deviceService = deviceService;
         _captureService = captureService;
         _flowAggregator = flowAggregator;
+        _hostResolutionService = hostResolutionService;
         _parser = parser;
+        History = history;
+        Endpoints = endpoints;
+        ProcessPackets = processPackets;
         _hexDumpService = hexDumpService;
         _packetFilterService = packetFilterService;
         _flowFilterService = flowFilterService;
@@ -323,28 +507,74 @@ public sealed class MainViewModel : ViewModelBase
         Stats = stats;
         _flowsFactory = flowsFactory;
         _filtersFactory = filtersFactory;
+        _notificationSettingsFactory = notificationSettingsFactory;
+        _trafficControlRulesFactory = trafficControlRulesFactory;
+        _shellNotificationService = shellNotificationService;
+        _displayFilterLibraryStore = displayFilterLibraryStore;
+        _trafficHistoryStore = trafficHistoryStore;
+        _trafficControlManager = trafficControlManager;
+        _themeManagerService = themeManagerService;
+        _themeManagerService.ThemeChanged += OnThemeChanged;
+        _displayFilterRecentCommitTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromSeconds(1.5)
+        };
+        _displayFilterRecentCommitTimer.Tick += (_, _) => CommitPendingRecentDisplayFilter();
 
 
-        StartCommand = new AsyncRelayCommand(StartAsync);
-        StopCommand = new AsyncRelayCommand(StopAsync);
+        _startCommand = new AsyncRelayCommand(StartAsync, CanStartCapture);
+        _stopCommand = new AsyncRelayCommand(StopAsync, CanStopCapture);
+        StartCommand = _startCommand;
+        StopCommand = _stopCommand;
         ApplyBpfCommand = new AsyncRelayCommand(ApplyBpfAsync);
         SaveCaptureCommand = new AsyncRelayCommand(SaveCaptureAsync);
         OpenCaptureCommand = new AsyncRelayCommand(OpenCaptureAsync);
+        QuitApplicationCommand = new AsyncRelayCommand(QuitApplicationAsync);
+        _shellNotificationService.ConfigureMenu(
+            isCapturing: () => _captureService.IsRunning,
+            startCommand: StartCommand,
+            stopCommand: StopCommand,
+            quitCommand: QuitApplicationCommand);
 
         // Відповідає за команду відкриття вікна Filters (модально по центру).
         OpenFiltersCommand = new RelayCommand(_ => OpenFiltersDialog());
+        OpenNotificationSettingsCommand = new RelayCommand(_ => OpenNotificationSettingsDialog());
+        OpenTrafficControlRulesCommand = new RelayCommand(_ => OpenTrafficControlRulesDialog());
+        UseLightThemeCommand = new RelayCommand(_ => ApplyTheme(AppThemeKind.Light));
+        UseNightThemeCommand = new RelayCommand(_ => ApplyTheme(AppThemeKind.Night));
         ShowFlowsCommand = new RelayCommand(_ => ShowFlows());
-        OpenStatisticsCommand = new RelayCommand(_ => OpenStatisticsWindow());
+        ShowEndpointsCommand = new RelayCommand(_ => ShowEndpoints());
+        ShowHistoryCommand = new RelayCommand(_ => ShowHistory());
+        OpenStatisticsCommand = new RelayCommand(_ => ShowStatistics());
         ShowPacketsCommand = new RelayCommand(_ => ShowPackets());
         ShowProcessPacketsCommand = new RelayCommand(_ => ShowProcessPackets());
-        ShowPacketsForPidCommand = new RelayCommand(p => ShowPacketsForPid(p));
-        FocusOnPidCommand = new RelayCommand(p => FocusOnPid(p));
         SelectPreviousPacketCommand = new RelayCommand(_ => SelectPacketByOffset(-1));
         SelectNextPacketCommand = new RelayCommand(_ => SelectPacketByOffset(1));
         SelectFirstPacketCommand = new RelayCommand(_ => SelectFirstPacket());
         SelectLastPacketCommand = new RelayCommand(_ => SelectLastPacket());
         ZoomInPacketsCommand = new RelayCommand(_ => ZoomPackets(+1));
         ZoomOutPacketsCommand = new RelayCommand(_ => ZoomPackets(-1));
+        ToggleDisplayFilterExamplesCommand = new RelayCommand(_ => ToggleDisplayFilterExamples());
+        _saveCurrentDisplayFilterCommand = new RelayCommand(
+            _ => SaveCurrentDisplayFilter(),
+            _ => CanSaveCurrentDisplayFilter());
+        ApplyDisplayFilterSuggestionCommand = new RelayCommand(parameter => ApplyDisplayFilterSuggestion(parameter as string));
+        RemoveSavedDisplayFilterCommand = new RelayCommand(parameter => RemoveSavedDisplayFilter(parameter as string));
+        _clearRecentDisplayFiltersCommand = new RelayCommand(
+            _ => ClearRecentDisplayFilters(),
+            _ => RecentDisplayFilters.Count > 0);
+        ProcessPackets.ConfigureActions(
+            ApplyProcessPacketFilter,
+            FocusPacketForTimelineEvent,
+            ShowPacketsForConversation,
+            ShowPacketsForSessionCluster,
+            message => StatusText = message);
+        Endpoints.ConfigureActions(
+            ShowPacketsForHost,
+            BlockHost,
+            BlockHostFor15Minutes,
+            ThrottleHost,
+            CreateRuleFromHost);
 
         // FlowsViewModel will manage flow selection and flow commands
         _flowsVm = _flowsFactory(() => !_uiFilterIsEmpty, () => RefreshPacketsFilteringUi());
@@ -375,6 +605,12 @@ public sealed class MainViewModel : ViewModelBase
             },
             _ => _flowFilterService.IsActive);
 
+        _copyHexCommand = new RelayCommand(
+            _ => CopyHexToClipboard(),
+            _ => !string.IsNullOrWhiteSpace(HexDump));
+
+        LoadDisplayFilterLibrary();
+        RaiseThemeSelectionChanged();
 
         LoadDevices();
         // subscribe to capture controller events
@@ -385,12 +621,21 @@ public sealed class MainViewModel : ViewModelBase
             {
                 // avoid growing beyond cap
                 int canAdd = Math.Max(0, _maxPendingPackets - _pendingPackets.Count);
-                if (canAdd <= 0) return;
-                foreach (var p in parsed)
+                if (canAdd <= 0)
                 {
-                    _pendingPackets.Add(p);
-                    if (--canAdd <= 0) break;
+                    Interlocked.Add(ref _uiPacketsDropped, parsed.Count);
+                    return;
                 }
+
+                int accepted = Math.Min(parsed.Count, canAdd);
+                for (int i = 0; i < accepted; i++)
+                {
+                    _pendingPackets.Enqueue(parsed[i]);
+                }
+
+                int dropped = parsed.Count - accepted;
+                if (dropped > 0)
+                    Interlocked.Add(ref _uiPacketsDropped, dropped);
             }
         };
 
@@ -411,26 +656,9 @@ public sealed class MainViewModel : ViewModelBase
         // Відповідає за створення view для фільтрації пакетів.
         // Важливо: не тримаємо активний Filter коли фільтрів немає (це дуже дорого на великій колекції).
         PacketsView = CollectionViewSource.GetDefaultView(Packets);
-        ProcessPacketsView = new ListCollectionView(Packets)
-        {
-            Filter = obj =>
-            {
-                if (obj is not PacketInfo p) return false;
-                if (p.Pid is null || string.IsNullOrWhiteSpace(p.ProcessName)) return false;
-
-                if (SelectedProcessFilter?.Pid is int pid)
-                    return p.Pid == pid;
-
-                return true;
-            }
-        };
-
-        ProcessFilters.Add(ProcessFilterOption.All);
-        SelectedProcessFilter = ProcessFilterOption.All;
-
-        ProcessStatsView = CollectionViewSource.GetDefaultView(ProcessStats);
 
         RefreshPacketsFilteringUi();
+        RefreshCaptureCommandStates();
     }
 
     private async Task SaveCaptureAsync(CancellationToken ct)
@@ -446,7 +674,7 @@ public sealed class MainViewModel : ViewModelBase
         var dlg = new SaveFileDialog
         {
             Title = "Save capture",
-            Filter = "pcap (*.pcap)|*.pcap|All files (*.*)|*.*",
+            Filter = "Classic pcap (*.pcap)|*.pcap|All files (*.*)|*.*",
             DefaultExt = ".pcap",
             AddExtension = true,
             FileName = $"capture_{DateTime.Now:yyyyMMdd_HHmmss}.pcap"
@@ -485,7 +713,7 @@ public sealed class MainViewModel : ViewModelBase
         var dlg = new OpenFileDialog
         {
             Title = "Open capture",
-            Filter = "pcap (*.pcap)|*.pcap|All files (*.*)|*.*",
+            Filter = "Capture files (*.pcap;*.pcapng)|*.pcap;*.pcapng|pcap (*.pcap)|*.pcap|pcapng (*.pcapng)|*.pcapng|All files (*.*)|*.*",
             DefaultExt = ".pcap",
             Multiselect = false
         };
@@ -502,27 +730,31 @@ public sealed class MainViewModel : ViewModelBase
 
             StatusText = "Opening...";
 
+            ProcessPackets.FinalizeCurrentSession();
+
             // Reset UI/state (similar to StartAsync, but without starting capture)
             _packetNo = 0;
+            _captureController.ResetSessionState();
             RawBytesStore.Clear();
             Packets.Clear();
-            ProcessFilters.Clear();
-            _knownProcessIds.Clear();
-            _processStatsMap.Clear();
-            _processPacketsSinceLastSample.Clear();
-            ProcessStats.Clear();
-            ProcessFilters.Add(ProcessFilterOption.All);
-            SelectedProcessFilter = ProcessFilterOption.All;
+            ResetPacketIndices();
+            ClearPacketDetailsCache();
+            ProcessPackets.BeginCaptureSession(emitNotifications: false);
+            ProcessPackets.Reset();
+            Endpoints.Reset();
             _flowsVm.Flows.Clear();
             _flowAggregator.Reset();
             Stats.Reset();
 
             _flowFilterService.Clear();
             _uiFilter = new PacketFilterModel();
+            DisplayFilterText = "";
             RefreshPacketsFilteringUi();
 
             _uiPacketsDropped = 0;
             _capSw.Reset();
+            lock (_pendingLock)
+                _pendingPackets.Clear();
 
             SelectedPacket = null;
             ProtocolRoot = null;
@@ -543,7 +775,7 @@ public sealed class MainViewModel : ViewModelBase
                 {
                     ct.ThrowIfCancellationRequested();
 
-                    var info = _parser.Parse(pkt.TimestampUtc, pkt.Data.Length, new RawPacketData(pkt.Data, pkt.LinkLayerType));
+                    var info = _parser.Parse(pkt.TimestampUtc, pkt.Data.Length, new RawPacketData(pkt.Data, pkt.LinkLayerType), PacketParseProfile.Full);
                     info.No = Interlocked.Increment(ref _packetNo);
 
                     parsed.Add(info);
@@ -553,11 +785,13 @@ public sealed class MainViewModel : ViewModelBase
                     last = last is null || info.Timestamp > last ? info.Timestamp : last;
 
                     _flowAggregator.Add(info);
+                    _hostResolutionService.Observe(info);
                 }
 
                 return (parsed, totalBytes, first, last);
             }, ct);
 
+            IndexPackets(loaded.parsed, 0);
             Packets.ReplaceAll(loaded.parsed);
 
             var pidAgg = loaded.parsed
@@ -568,14 +802,9 @@ public sealed class MainViewModel : ViewModelBase
                 .ToList();
 
             foreach (var a in pidAgg)
-            {
-                _knownProcessIds.Add(a.Pid);
-                ProcessFilters.Add(new ProcessFilterOption(a.Pid, a.ProcessName));
+                ProcessPackets.SeedProcessSummary(a.Pid, a.ProcessName, a.Count, a.Bytes);
 
-                var row = new ProcessStatRow(a.Pid, a.ProcessName, a.Count, a.Bytes);
-                _processStatsMap[a.Pid] = row;
-                ProcessStats.Add(row);
-            }
+            Endpoints.ObservePackets(loaded.parsed);
 
             var top = _flowAggregator.SnapshotTop(take: 500);
             _flowsVm.UpdateFlows(top);
@@ -584,7 +813,7 @@ public sealed class MainViewModel : ViewModelBase
                 ? (loaded.last.Value - loaded.first.Value)
                 : TimeSpan.Zero;
 
-            Stats.Update(top, new Presentation.Models.CaptureStats
+            Stats.Update(top, new CaptureStats
             {
                 TotalPackets = loaded.parsed.Count,
                 TotalBytes = loaded.totalBytes,
@@ -617,6 +846,39 @@ public sealed class MainViewModel : ViewModelBase
         SelectedDevice = Devices.FirstOrDefault();
     }
 
+    private bool CanStartCapture() => SelectedDevice is not null && !_captureService.IsRunning;
+
+    private bool CanStopCapture() => _captureService.IsRunning;
+
+    private void RefreshCaptureCommandStates()
+    {
+        _startCommand.RaiseCanExecuteChanged();
+        _stopCommand.RaiseCanExecuteChanged();
+    }
+
+    private async Task QuitApplicationAsync(CancellationToken ct)
+    {
+        try
+        {
+            if (_captureService.IsRunning)
+            {
+                StatusText = "Stopping capture before exit...";
+                await StopAsync(ct);
+            }
+
+            System.Windows.Application.Current.Shutdown();
+        }
+        catch (OperationCanceledException)
+        {
+            StatusText = "Quit canceled.";
+        }
+        catch (Exception ex)
+        {
+            StatusText = "Quit failed";
+            MessageBox.Show(ex.Message, "Quit failed", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
     // ===================== START/STOP =====================
 
     // Відповідає за запуск захоплення: reset UI, reset flows/stats, запуск reader task і старт capture.
@@ -625,62 +887,82 @@ public sealed class MainViewModel : ViewModelBase
         if (SelectedDevice is null) return;
         if (_captureService.IsRunning) return;
 
-        StatusText = "Starting...";
+        try
+        {
+            StatusText = "Starting...";
 
-        // Відповідає за повний reset перед новим захопленням
-        _packetNo = 0;
-        RawBytesStore.Clear();
-        Packets.Clear();
-        ProcessFilters.Clear();
-        _knownProcessIds.Clear();
-        ProcessStats.Clear();
-        ProcessFilters.Add(ProcessFilterOption.All);
-        SelectedProcessFilter = ProcessFilterOption.All;
-        _flowsVm.Flows.Clear();
-        _flowAggregator.Reset();
-        Stats.Reset();
+            ProcessPackets.FinalizeCurrentSession();
 
-        // Скидаємо фільтри
-        _flowFilterService.Clear();
-        _uiFilter = new PacketFilterModel();
-        RefreshPacketsFilteringUi();
+            // Відповідає за повний reset перед новим захопленням
+            _packetNo = 0;
+            _captureController.ResetSessionState();
+            RawBytesStore.Clear();
+            Packets.Clear();
+            ResetPacketIndices();
+            ClearPacketDetailsCache();
+            ProcessPackets.BeginCaptureSession(emitNotifications: true);
+            ProcessPackets.Reset();
+            Endpoints.Reset();
+            _flowsVm.Flows.Clear();
+            _flowAggregator.Reset();
+            Stats.Reset();
+
+            // Скидаємо фільтри
+            _flowFilterService.Clear();
+            _uiFilter = new PacketFilterModel();
+            DisplayFilterText = "";
+            RefreshPacketsFilteringUi();
 
 
-        _capTotalPackets = 0;
-        _capTotalBytes = 0;
-        _capFirstSeen = null;
-        _capLastSeen = null;
-        _uiPacketsDropped = 0;
-        _capSw.Restart();
+            _capTotalPackets = 0;
+            _capTotalBytes = 0;
+            _capFirstSeen = null;
+            _capLastSeen = null;
+            _uiPacketsDropped = 0;
+            _capSw.Restart();
+            lock (_pendingLock)
+                _pendingPackets.Clear();
 
-        // Скидаємо деталі
-        SelectedPacket = null;
-        ProtocolRoot = null;
-        HexDump = "";
+            // Скидаємо деталі
+            SelectedPacket = null;
+            ProtocolRoot = null;
+            HexDump = "";
 
-        await _captureController.StartAsync(SelectedDevice.Id, BpfFilter, ct);
+            await _captureController.StartAsync(SelectedDevice.Id, BpfFilter, ct);
 
-        // start periodic flush timer
-        _flushTimer.Change(_flushIntervalMs, _flushIntervalMs);
+            // start periodic flush timer
+            _flushTimer.Change(_flushIntervalMs, _flushIntervalMs);
 
-        StatusText = "Capturing";
+            StatusText = "Capturing";
+        }
+        finally
+        {
+            RefreshCaptureCommandStates();
+        }
     }
 
     private async Task StopAsync(CancellationToken ct)
     {
         if (!_captureService.IsRunning) return;
 
+        try
+        {
+            StatusText = "Stopping...";
+            _capSw.Stop();
+            await _captureController.StopAsync(ct);
 
+            // stop flush timer and flush remaining
+            _flushTimer.Change(System.Threading.Timeout.Infinite, System.Threading.Timeout.Infinite);
+            FlushPending(drainAll: true);
+            ProcessPackets.FinalizeCurrentSession();
+            PersistCurrentSessionHistory();
 
-        StatusText = "Stopping...";
-        _capSw.Stop();
-        await _captureController.StopAsync(ct);
-
-        // stop flush timer and flush remaining
-        _flushTimer.Change(System.Threading.Timeout.Infinite, System.Threading.Timeout.Infinite);
-        FlushPending();
-
-        StatusText = "Idle";
+            StatusText = "Idle";
+        }
+        finally
+        {
+            RefreshCaptureCommandStates();
+        }
     }
 
     private async Task ApplyBpfAsync(CancellationToken ct)
@@ -707,58 +989,70 @@ public sealed class MainViewModel : ViewModelBase
         }
     }
 
-    private void FlushPending()
+    private void FlushPending(bool drainAll = false)
     {
-        // take snapshot of pending
         List<PacketInfo> toFlush;
+        int pendingAfterDequeue;
         lock (_pendingLock)
         {
             if (_pendingPackets.Count == 0) return;
-            toFlush = new List<PacketInfo>(_pendingPackets);
-            _pendingPackets.Clear();
+
+            int take = drainAll ? _pendingPackets.Count : Math.Min(_pendingPackets.Count, _maxUiAppendPerFlush);
+            toFlush = new List<PacketInfo>(take);
+            for (int i = 0; i < take; i++)
+                toFlush.Add(_pendingPackets.Dequeue());
+
+            pendingAfterDequeue = _pendingPackets.Count;
         }
 
-        System.Windows.Application.Current.Dispatcher.BeginInvoke(new Action(() =>
+        void flushAction()
         {
+            ProcessPackets.PrepareForFlush();
 
-            _processPacketsSinceLastSample.Clear();
+            // Process analytics on the full batch first. Risk/timeline data should not depend
+            // on whether a row survives UI throttling.
+            for (int i = 0; i < toFlush.Count; i++)
+                ProcessPackets.ObservePacket(toFlush[i]);
 
-            // add to UI collection in one shot
-            int startIndex = 0;
-            if (toFlush.Count > _maxUiAppendPerFlush)
+            Endpoints.ObservePackets(toFlush);
+
+            if (toFlush.Count > 0)
             {
-                startIndex = toFlush.Count - _maxUiAppendPerFlush;
-                Interlocked.Add(ref _uiPacketsDropped, startIndex);
+                int startStorageIndex = Packets.Count;
+                IndexPackets(toFlush, startStorageIndex);
+                bool useReset = !_packetsViewHasFilter && toFlush.Count >= _collectionResetThreshold;
+                Packets.AddRange(toFlush, useReset: useReset);
             }
-
-            var toAdd = new List<PacketInfo>(Math.Max(0, toFlush.Count - startIndex));
-
-            // Add a bounded amount of rows to keep UI responsive at very high pps.
-            // We still update stats per packet, but append to the UI collection in one batch.
-            for (int i = startIndex; i < toFlush.Count; i++)
-            {
-                var p = toFlush[i];
-                toAdd.Add(p);
-                TryAddProcessFilter(p);
-                UpdateProcessStats(p);
-            }
-
-            Packets.AddRange(toAdd);
 
 
             // Add sparkline samples once per flush interval per PID (instead of per packet)
-            foreach (var kvp in _processPacketsSinceLastSample)
-            {
-                if (_processStatsMap.TryGetValue(kvp.Key, out var row))
-                    row.AddSample(kvp.Value);
-            }
+            ProcessPackets.CompleteSamplingWindow();
+
+            if (!_captureService.IsRunning)
+                return;
 
             var dropped = Interlocked.Read(ref _uiPacketsDropped);
             if (dropped > 0)
-                StatusText = $"Capturing (UI throttled, skipped {dropped:N0} packets)";
+                StatusText = pendingAfterDequeue > 0
+                    ? $"Capturing (render queue {pendingAfterDequeue:N0}, overflow skipped {dropped:N0})"
+                    : $"Capturing (overflow skipped {dropped:N0})";
             else if (_captureService.IsRunning)
-                StatusText = "Capturing";
-        }));
+                StatusText = pendingAfterDequeue > 0
+                    ? $"Capturing (render queue {pendingAfterDequeue:N0})"
+                    : "Capturing";
+        }
+
+        var dispatcher = System.Windows.Application.Current.Dispatcher;
+        if (drainAll)
+        {
+            if (dispatcher.CheckAccess())
+                flushAction();
+            else
+                dispatcher.Invoke(flushAction);
+            return;
+        }
+
+        dispatcher.BeginInvoke(new Action(flushAction));
     }
 
 
@@ -769,53 +1063,248 @@ public sealed class MainViewModel : ViewModelBase
 
     private void UpdateDetails(PacketInfo? p)
     {
+        CancelPendingPacketDetailsLoad();
         ProtocolRoot = null;
         HexDump = "";
-        HexDocument = new FlowDocument();
+        HexDocument = CreateStatusFlowDocument(string.Empty);
+        SetSelectedRange(null, refreshHexDocument: false);
+
         if (p is null)
             return;
 
-        var bytes = p.RawBytes ?? (p.RawBytesId is null ? null : RawBytesStore.Get(p.RawBytesId));
-        if (bytes == null || bytes.Length == 0) return;
-
-        HexDump = _hexDumpService.BuildHexDump(bytes, 16);
-
-        // скидаємо виділення
-        _selectedRange = null;
-        OnPropertyChanged(nameof(SelectedRange));
-
-        // будуємо документ (без підсвітки)
-        HexDocument = _hexDumpService.BuildHexDocument(bytes, 16, null);
-
-        try
-        {
-            var link = (LinkLayers)p.LinkLayerType;
-            var parsedPacket = Packet.ParsePacket(link, bytes);
-            ProtocolRoot = PacketTreeBuilder.Build(parsedPacket, p);
-        }
-        catch (Exception ex)
-        {
-            var node = new Presentation.Helpers.ProtocolNode { Header = $"Parse error: {ex.Message}" };
-            ProtocolRoot = node;
-        }
+        EnsureSelectedPacketDetailsLoaded(rebuildHexDocumentForCurrentRange: true);
     }
 
     private void RebuildHexDocument()
     {
         if (SelectedPacket is null)
+            return;
+
+        EnsureSelectedPacketHexDetailsLoaded(SelectedPacket, rebuildHexDocumentForCurrentRange: true);
+    }
+
+    private void EnsureSelectedPacketDetailsLoaded(bool rebuildHexDocumentForCurrentRange = false)
+    {
+        if (SelectedPacket is null)
+            return;
+
+        EnsureSelectedPacketProtocolDetailsLoaded(SelectedPacket);
+        EnsureSelectedPacketHexDetailsLoaded(SelectedPacket, rebuildHexDocumentForCurrentRange);
+    }
+
+    private async void EnsureSelectedPacketProtocolDetailsLoaded(PacketInfo packet)
+    {
+        var entry = GetOrCreatePacketDetailsCacheEntry(packet);
+        if (entry.ProtocolRoot is not null)
         {
-            HexDocument = new FlowDocument(new Paragraph(new Run("")));
+            if (IsSelectedPacket(packet))
+                ProtocolRoot = entry.ProtocolRoot;
+
             return;
         }
 
-        var bytes = SelectedPacket.RawBytes ?? (SelectedPacket.RawBytesId is null ? null : RawBytesStore.Get(SelectedPacket.RawBytesId));
-        if (bytes is null || bytes.Length == 0)
+        if (!TryGetPacketBytes(packet, out var bytes))
         {
-            HexDocument = new FlowDocument(new Paragraph(new Run("")));
+            var noDataNode = CreateStatusProtocolNode("No packet data.");
+            entry.ProtocolRoot = noDataNode;
+            if (IsSelectedPacket(packet))
+                ProtocolRoot = noDataNode;
+
             return;
         }
 
-        HexDocument = _hexDumpService.BuildHexDocumentHighlighted(bytes, 16, SelectedRange);
+        if (IsSelectedPacket(packet))
+            ProtocolRoot = CreateStatusProtocolNode("Loading packet structure...");
+
+        var token = ResetPacketProtocolLoadToken();
+        try
+        {
+            var protocolRoot = await Task.Run(() => BuildProtocolRoot(packet, bytes), token);
+            if (token.IsCancellationRequested)
+                return;
+
+            entry.ProtocolRoot = protocolRoot;
+            TouchPacketDetailsCacheEntry(entry);
+
+            if (IsSelectedPacket(packet))
+                ProtocolRoot = protocolRoot;
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    private async void EnsureSelectedPacketHexDetailsLoaded(PacketInfo packet, bool rebuildHexDocumentForCurrentRange)
+    {
+        var entry = GetOrCreatePacketDetailsCacheEntry(packet);
+        if (!TryGetPacketBytes(packet, out var bytes))
+        {
+            HexDump = "";
+            HexDocument = CreateStatusFlowDocument("No packet data.");
+            return;
+        }
+
+        if (entry.HexDump is null)
+        {
+            if (IsSelectedPacket(packet))
+            {
+                HexDump = "";
+                HexDocument = CreateStatusFlowDocument("Loading hex dump...");
+            }
+
+            var token = ResetPacketHexLoadToken();
+            try
+            {
+                entry.HexDump = await Task.Run(() => _hexDumpService.BuildHexDump(bytes, 16), token);
+                if (token.IsCancellationRequested)
+                    return;
+
+                TouchPacketDetailsCacheEntry(entry);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+        }
+
+        if (!IsSelectedPacket(packet))
+            return;
+
+        HexDump = entry.HexDump ?? string.Empty;
+        HexDocument = BuildHexDocument(packet, entry, bytes, rebuildHexDocumentForCurrentRange);
+    }
+
+    private FlowDocument BuildHexDocument(PacketInfo packet, PacketDetailsCacheEntry entry, byte[] bytes, bool rebuildHexDocumentForCurrentRange)
+    {
+        TouchPacketDetailsCacheEntry(entry);
+
+        if (SelectedRange is { } range)
+            return _hexDumpService.BuildHexDocumentHighlighted(bytes, 16, range);
+
+        if (rebuildHexDocumentForCurrentRange || entry.BaseHexDocument is null)
+            entry.BaseHexDocument = _hexDumpService.BuildHexDocument(bytes, 16, null);
+
+        return entry.BaseHexDocument;
+    }
+
+    private static ProtocolNode BuildProtocolRoot(PacketInfo packet, byte[] bytes)
+    {
+        try
+        {
+            var link = (LinkLayers)packet.LinkLayerType;
+            var parsedPacket = Packet.ParsePacket(link, bytes);
+            return PacketTreeBuilder.Build(parsedPacket, packet, bytes);
+        }
+        catch (Exception ex)
+        {
+            return CreateStatusProtocolNode($"Parse error: {ex.Message}");
+        }
+    }
+
+    private static FlowDocument CreateStatusFlowDocument(string message)
+        => new(new Paragraph(new Run(message ?? string.Empty)));
+
+    private static ProtocolNode CreateStatusProtocolNode(string message)
+        => new() { Header = message ?? string.Empty, IsExpanded = true };
+
+    private void SetSelectedRange((int start, int length)? range, bool refreshHexDocument)
+    {
+        if (!Set(ref _selectedRange, range))
+            return;
+
+        if (refreshHexDocument)
+            RebuildHexDocument();
+    }
+
+    private static bool TryGetPacketBytes(PacketInfo packet, out byte[] bytes)
+    {
+        bytes = packet.RawBytes ?? (packet.RawBytesId is null ? Array.Empty<byte>() : RawBytesStore.Get(packet.RawBytesId) ?? Array.Empty<byte>());
+        return bytes.Length > 0;
+    }
+
+    private bool IsSelectedPacket(PacketInfo packet)
+        => SelectedPacket?.No == packet.No;
+
+    private PacketDetailsCacheEntry GetOrCreatePacketDetailsCacheEntry(PacketInfo packet)
+    {
+        if (!_packetDetailsCache.TryGetValue(packet.No, out var entry))
+        {
+            entry = new PacketDetailsCacheEntry
+            {
+                PacketNo = packet.No,
+                LastAccessUtc = DateTime.UtcNow
+            };
+            _packetDetailsCache[packet.No] = entry;
+            TrimPacketDetailsCacheIfNeeded();
+            return entry;
+        }
+
+        TouchPacketDetailsCacheEntry(entry);
+        return entry;
+    }
+
+    private void TouchPacketDetailsCacheEntry(PacketDetailsCacheEntry entry)
+        => entry.LastAccessUtc = DateTime.UtcNow;
+
+    private void TrimPacketDetailsCacheIfNeeded()
+    {
+        while (_packetDetailsCache.Count > PacketDetailsCacheCapacity)
+        {
+            var oldest = _packetDetailsCache.Values
+                .OrderBy(candidate => candidate.LastAccessUtc)
+                .FirstOrDefault();
+
+            if (oldest is null)
+                break;
+
+            _packetDetailsCache.Remove(oldest.PacketNo);
+        }
+    }
+
+    private void ClearPacketDetailsCache()
+    {
+        CancelPendingPacketDetailsLoad();
+        _packetDetailsCache.Clear();
+    }
+
+    private CancellationToken ResetPacketProtocolLoadToken()
+    {
+        CancelPendingPacketProtocolLoad();
+        _packetProtocolLoadCts = new CancellationTokenSource();
+        return _packetProtocolLoadCts.Token;
+    }
+
+    private CancellationToken ResetPacketHexLoadToken()
+    {
+        CancelPendingPacketHexLoad();
+        _packetHexLoadCts = new CancellationTokenSource();
+        return _packetHexLoadCts.Token;
+    }
+
+    private void CancelPendingPacketDetailsLoad()
+    {
+        CancelPendingPacketProtocolLoad();
+        CancelPendingPacketHexLoad();
+    }
+
+    private void CancelPendingPacketProtocolLoad()
+    {
+        if (_packetProtocolLoadCts is null)
+            return;
+
+        _packetProtocolLoadCts.Cancel();
+        _packetProtocolLoadCts.Dispose();
+        _packetProtocolLoadCts = null;
+    }
+
+    private void CancelPendingPacketHexLoad()
+    {
+        if (_packetHexLoadCts is null)
+            return;
+
+        _packetHexLoadCts.Cancel();
+        _packetHexLoadCts.Dispose();
+        _packetHexLoadCts = null;
     }
 
 
@@ -857,18 +1346,103 @@ public sealed class MainViewModel : ViewModelBase
         (ClearFlowFilterCommand as RelayCommand)?.RaiseCanExecuteChanged();
     }
 
+    private void PersistCurrentSessionHistory()
+    {
+        try
+        {
+            _trafficHistoryStore.AppendLiveSession(
+                new CaptureStats
+                {
+                    TotalPackets = Stats.SummaryTotalPackets,
+                    TotalBytes = Stats.SummaryTotalBytes,
+                    FirstSeen = Stats.SummaryFirstSeen,
+                    LastSeen = Stats.SummaryLastSeen,
+                    Elapsed = Stats.SummaryDuration
+                },
+                SelectedDevice?.Name,
+                BpfFilter,
+                ProcessPackets.ProcessStats.ToArray(),
+                Endpoints.Hosts.ToArray());
+        }
+        catch
+        {
+            // keep stopping capture resilient even if history persistence fails
+        }
+    }
+
+    private void OpenNotificationSettingsDialog()
+    {
+        var vm = _notificationSettingsFactory();
+
+        var win = new Presentation.Views.NotificationSettingsWindow
+        {
+            Owner = System.Windows.Application.Current.MainWindow,
+            DataContext = vm
+        };
+
+        win.ShowDialog();
+    }
+
+    private void ApplyTheme(AppThemeKind themeKind)
+    {
+        _themeManagerService.ApplyTheme(themeKind);
+        RaiseThemeSelectionChanged();
+    }
+
+    private void OnThemeChanged(object? sender, EventArgs e)
+    {
+        InvalidateHexDocumentCache();
+        RaiseThemeSelectionChanged();
+    }
+
+    private void RaiseThemeSelectionChanged()
+    {
+        OnPropertyChanged(nameof(IsLightThemeSelected));
+        OnPropertyChanged(nameof(IsNightThemeSelected));
+    }
+
+    private void InvalidateHexDocumentCache()
+    {
+        foreach (var entry in _packetDetailsCache.Values)
+            entry.BaseHexDocument = null;
+
+        if (SelectedPacket is not null)
+            RebuildHexDocument();
+        else
+            HexDocument = CreateStatusFlowDocument(string.Empty);
+    }
+
+    private void OpenTrafficControlRulesDialog(TrafficControlRule? draftRule = null)
+    {
+        var vm = _trafficControlRulesFactory();
+        if (draftRule is not null)
+            vm.AppendDraftRule(draftRule);
+
+        var win = new Presentation.Views.TrafficControlRulesWindow
+        {
+            Owner = System.Windows.Application.Current.MainWindow,
+            DataContext = vm
+        };
+
+        win.ShowDialog();
+    }
+
     private bool PassesCombinedFilters(PacketInfo p)
     {
         // 1) Flow filter
         if (_flowFilterService.IsActive && !_flowFilterService.Matches(p))
             return false;
 
-        // 2) UI filter
-        if (!_uiFilterIsEmpty)
+        // 2) Advanced UI filter
+        if (_uiFilterPredicate is not null)
         {
-            if (!_packetFilterService.MatchesUiFilter(p, _uiFilter))
+            if (!_uiFilterPredicate(p))
                 return false;
         }
+
+        // 3) Quick display filter
+        if (_hasValidDisplayFilter && _displayFilterPredicate is not null && !_displayFilterPredicate(p))
+            return false;
 
         return true;
     }
@@ -877,8 +1451,10 @@ public sealed class MainViewModel : ViewModelBase
     private void RefreshPacketsFilteringUi()
     {
         _uiFilterIsEmpty = _uiFilter.IsEmpty;
+        _uiFilterPredicate = _uiFilterIsEmpty ? null : _packetFilterService.CompileUiFilter(_uiFilter);
+        bool hasDisplayFilter = _hasValidDisplayFilter && !string.IsNullOrWhiteSpace(DisplayFilterText);
 
-        bool needFilter = _flowFilterService.IsActive || !_uiFilterIsEmpty;
+        bool needFilter = _flowFilterService.IsActive || !_uiFilterIsEmpty || hasDisplayFilter;
         if (needFilter)
         {
             PacketsView.Filter = obj => obj is PacketInfo p && PassesCombinedFilters(p);
@@ -896,6 +1472,9 @@ public sealed class MainViewModel : ViewModelBase
         if (!_uiFilter.IsEmpty)
             parts.Add("UI Filter: active");
 
+        if (!string.IsNullOrWhiteSpace(DisplayFilterText))
+            parts.Add(hasDisplayFilter ? $"Display: {DisplayFilterText}" : "Display: invalid");
+
         FiltersText = parts.Count == 0 ? "" : string.Join(" | ", parts);
 
         // Refreshing a large CollectionView is expensive; only do it when we actually have a filter.
@@ -909,134 +1488,701 @@ public sealed class MainViewModel : ViewModelBase
         _clearFlowFilterCommand.RaiseCanExecuteChanged();
     }
 
+    private void ResetPacketIndices()
+    {
+        _packetStorageIndexByNo.Clear();
+        _packetsByPid.Clear();
+    }
+
+    private void IndexPackets(IReadOnlyList<PacketInfo> packets, int startStorageIndex)
+    {
+        for (int i = 0; i < packets.Count; i++)
+        {
+            var packet = packets[i];
+            _packetStorageIndexByNo[packet.No] = startStorageIndex + i;
+
+            if (packet.Pid is not int pid || pid <= 0)
+                continue;
+
+            if (!_packetsByPid.TryGetValue(pid, out var index))
+            {
+                index = new PidPacketIndex();
+                _packetsByPid[pid] = index;
+            }
+
+            index.Add(packet);
+        }
+    }
+
+    private bool TryGetPacketStorageIndex(PacketInfo packet, out int storageIndex)
+        => _packetStorageIndexByNo.TryGetValue(packet.No, out storageIndex);
+
+    private bool IsPacketVisibleInView(PacketInfo packet)
+        => !_packetsViewHasFilter || PassesCombinedFilters(packet);
+
+    private static int ComparePacketsByTimestampAndNo(PacketInfo left, PacketInfo right)
+    {
+        int timestampComparison = left.Timestamp.CompareTo(right.Timestamp);
+        return timestampComparison != 0
+            ? timestampComparison
+            : left.No.CompareTo(right.No);
+    }
+
+    private static string? NormalizeTimelineDomainKey(string? domain)
+        => string.IsNullOrWhiteSpace(domain) ? null : domain.Trim();
+
+    private bool TryGetOrderedPacketsForPid(int pid, out IReadOnlyList<PacketInfo> packets)
+    {
+        if (_packetsByPid.TryGetValue(pid, out var index))
+        {
+            packets = index.GetOrderedPackets();
+            return true;
+        }
+
+        packets = Array.Empty<PacketInfo>();
+        return false;
+    }
+
+    private void LoadDisplayFilterLibrary()
+    {
+        var library = _displayFilterLibraryStore.Load();
+        ReplaceDisplayFilterCollection(SavedDisplayFilters, library.SavedFilters);
+        ReplaceDisplayFilterCollection(RecentDisplayFilters, library.RecentFilters);
+        RaiseDisplayFilterLibraryChanged();
+    }
+
+    private void PersistDisplayFilterLibrary()
+    {
+        var library = DisplayFilterLibrary.CreateNormalized(new DisplayFilterLibrary
+        {
+            SavedFilters = [.. SavedDisplayFilters],
+            RecentFilters = [.. RecentDisplayFilters]
+        });
+
+        ReplaceDisplayFilterCollection(SavedDisplayFilters, library.SavedFilters);
+        ReplaceDisplayFilterCollection(RecentDisplayFilters, library.RecentFilters);
+        _displayFilterLibraryStore.Save(library);
+        RaiseDisplayFilterLibraryChanged();
+    }
+
+    private static void ReplaceDisplayFilterCollection(ObservableCollection<string> target, IReadOnlyList<string> source)
+    {
+        target.Clear();
+        for (int i = 0; i < source.Count; i++)
+            target.Add(source[i]);
+    }
+
+    private void RaiseDisplayFilterLibraryChanged()
+    {
+        OnPropertyChanged(nameof(HasSavedDisplayFilters));
+        OnPropertyChanged(nameof(HasRecentDisplayFilters));
+        _saveCurrentDisplayFilterCommand.RaiseCanExecuteChanged();
+        _clearRecentDisplayFiltersCommand.RaiseCanExecuteChanged();
+    }
+
+    private static string NormalizeDisplayFilterValue(string? value)
+        => (value ?? string.Empty).Trim();
+
+    private static int IndexOfDisplayFilter(IReadOnlyList<string> filters, string value)
+    {
+        for (int i = 0; i < filters.Count; i++)
+        {
+            if (string.Equals(filters[i], value, StringComparison.OrdinalIgnoreCase))
+                return i;
+        }
+
+        return -1;
+    }
+
+    private bool CanSaveCurrentDisplayFilter()
+    {
+        string current = NormalizeDisplayFilterValue(DisplayFilterText);
+        return _hasValidDisplayFilter
+            && !string.IsNullOrWhiteSpace(current)
+            && IndexOfDisplayFilter(SavedDisplayFilters, current) < 0;
+    }
+
+    private void SaveCurrentDisplayFilter()
+    {
+        string current = NormalizeDisplayFilterValue(DisplayFilterText);
+        if (string.IsNullOrWhiteSpace(current) || !_hasValidDisplayFilter)
+            return;
+
+        if (IndexOfDisplayFilter(SavedDisplayFilters, current) >= 0)
+            return;
+
+        SavedDisplayFilters.Insert(0, current);
+        PersistDisplayFilterLibrary();
+        StatusText = "Display filter saved.";
+    }
+
+    private void ApplyDisplayFilterSuggestion(string? filterText)
+    {
+        string normalized = NormalizeDisplayFilterValue(filterText);
+        if (string.IsNullOrWhiteSpace(normalized))
+            return;
+
+        DisplayFilterText = normalized;
+        StopPendingRecentDisplayFilterCommit();
+        if (_hasValidDisplayFilter)
+            RememberDisplayFilterUsage(normalized);
+        IsDisplayFilterExamplesOpen = false;
+    }
+
+    private void RemoveSavedDisplayFilter(string? filterText)
+    {
+        string normalized = NormalizeDisplayFilterValue(filterText);
+        if (string.IsNullOrWhiteSpace(normalized))
+            return;
+
+        int index = IndexOfDisplayFilter(SavedDisplayFilters, normalized);
+        if (index < 0)
+            return;
+
+        SavedDisplayFilters.RemoveAt(index);
+        PersistDisplayFilterLibrary();
+        StatusText = "Saved display filter removed.";
+    }
+
+    private void ClearRecentDisplayFilters()
+    {
+        if (RecentDisplayFilters.Count == 0)
+            return;
+
+        RecentDisplayFilters.Clear();
+        PersistDisplayFilterLibrary();
+        StatusText = "Recent display filters cleared.";
+    }
+
+    private void RememberDisplayFilterUsage(string filterText)
+    {
+        string normalized = NormalizeDisplayFilterValue(filterText);
+        if (string.IsNullOrWhiteSpace(normalized))
+            return;
+
+        int existingIndex = IndexOfDisplayFilter(RecentDisplayFilters, normalized);
+        if (existingIndex == 0)
+            return;
+
+        if (existingIndex > 0)
+            RecentDisplayFilters.RemoveAt(existingIndex);
+
+        RecentDisplayFilters.Insert(0, normalized);
+        PersistDisplayFilterLibrary();
+    }
+
+    private void QueuePendingRecentDisplayFilter(string filterText)
+    {
+        _pendingRecentDisplayFilterText = filterText;
+        _displayFilterRecentCommitTimer.Stop();
+        _displayFilterRecentCommitTimer.Start();
+    }
+
+    private void StopPendingRecentDisplayFilterCommit()
+    {
+        _pendingRecentDisplayFilterText = "";
+        _displayFilterRecentCommitTimer.Stop();
+    }
+
+    private void CommitPendingRecentDisplayFilter()
+    {
+        _displayFilterRecentCommitTimer.Stop();
+
+        string pending = NormalizeDisplayFilterValue(_pendingRecentDisplayFilterText);
+        _pendingRecentDisplayFilterText = "";
+
+        if (string.IsNullOrWhiteSpace(pending) || !_hasValidDisplayFilter)
+            return;
+
+        string current = NormalizeDisplayFilterValue(DisplayFilterText);
+        if (!string.Equals(current, pending, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        RememberDisplayFilterUsage(current);
+    }
+
+    private void ApplyDisplayFilterText()
+    {
+        var text = (DisplayFilterText ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            StopPendingRecentDisplayFilterCommit();
+            _displayFilterPredicate = null;
+            _hasValidDisplayFilter = false;
+            DisplayFilterError = "";
+            RefreshPacketsFilteringUi();
+            _saveCurrentDisplayFilterCommand.RaiseCanExecuteChanged();
+            return;
+        }
+
+        if (_packetFilterService.TryCompileDisplayFilter(text, out var predicate, out var error))
+        {
+            _displayFilterPredicate = predicate;
+            _hasValidDisplayFilter = predicate is not null;
+            DisplayFilterError = "";
+            QueuePendingRecentDisplayFilter(text);
+        }
+        else
+        {
+            StopPendingRecentDisplayFilterCommit();
+            _displayFilterPredicate = null;
+            _hasValidDisplayFilter = false;
+            DisplayFilterError = error ?? "Invalid display filter.";
+        }
+
+        RefreshPacketsFilteringUi();
+        _saveCurrentDisplayFilterCommand.RaiseCanExecuteChanged();
+    }
+
+    private void ToggleDisplayFilterExamples()
+    {
+        IsDisplayFilterExamplesOpen = !IsDisplayFilterExamplesOpen;
+    }
+
+    private void CopyHexToClipboard()
+    {
+        if (string.IsNullOrWhiteSpace(HexDump))
+        {
+            StatusText = "No hex dump available to copy.";
+            return;
+        }
+
+        try
+        {
+            Clipboard.SetText(HexDump);
+            StatusText = "Hex copied to clipboard.";
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Copy failed: {ex.Message}";
+        }
+    }
+
     // Відповідає за перевірку, чи пакет проходить через критерії UI-фільтра (op + value).
 
     private void ShowPackets()
     {
-        LeftTabIndex = 0;
+        LeftTabIndex = PacketsTabIndex;
     }
     private void ShowFlows()
     {
-        LeftTabIndex = 1;
+        LeftTabIndex = FlowsTabIndex;
     }
 
-    private void OpenStatisticsWindow()
+    private void ShowEndpoints()
     {
-        var win = new Presentation.Views.StatsWindow
-        {
-            Owner = System.Windows.Application.Current.MainWindow,
-            DataContext = Stats
-        };
+        LeftTabIndex = EndpointsTabIndex;
+    }
 
-        win.Show();
-        win.Activate();
+    private void ShowHistory()
+    {
+        LeftTabIndex = HistoryTabIndex;
+    }
+
+    private void ShowStatistics()
+    {
+        LeftTabIndex = StatisticsTabIndex;
     }
 
     private void ShowProcessPackets()
     {
-        LeftTabIndex = 2;
+        LeftTabIndex = ProcessPacketsTabIndex;
     }
 
-    private void TryAddProcessFilter(PacketInfo packet)
+    private void ApplyProcessPacketFilter(int pid)
     {
-        if (packet.Pid is not int pid || string.IsNullOrWhiteSpace(packet.ProcessName))
+        if (pid <= 0)
             return;
 
-        if (!_knownProcessIds.Add(pid))
-            return;
-
-        ProcessFilters.Add(new ProcessFilterOption(pid, packet.ProcessName));
-    }
-
-    private void FocusOnPid(object? param)
-    {
-        if (param is not int pid) return;
-
-        // find first packet with this pid and select it in PacketsView
-        var first = Packets.FirstOrDefault(p => p.Pid == pid);
-        if (first is null) return;
-
-        SelectedPacket = first;
-        LeftTabIndex = 0; // switch to Packets tab
-    }
-
-    private void UpdateProcessStats(PacketInfo p)
-    {
-        if (p.Pid is not int pid || string.IsNullOrWhiteSpace(p.ProcessName))
-            return;
-        if (!_processStatsMap.TryGetValue(pid, out var row))
+        _flowFilterService.Clear();
+        _uiFilter = new PacketFilterModel
         {
-            row = new ProcessStatRow(pid, p.ProcessName, 0, 0);
-            _processStatsMap[pid] = row;
-            ProcessStats.Add(row);
+            PidOp = NumberMatchOp.Equals,
+            PidValue = pid
+        };
+
+        DisplayFilterText = "";
+        RefreshPacketsFilteringUi();
+        LeftTabIndex = PacketsTabIndex;
+    }
+
+    private void ShowPacketsForHost(string ip)
+    {
+        string normalizedIp = (ip ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(normalizedIp))
+            return;
+
+        _flowFilterService.Clear();
+        _uiFilter = new PacketFilterModel
+        {
+            AnyIpOp = TextMatchOp.Equals,
+            AnyIpValue = normalizedIp
+        };
+
+        DisplayFilterText = "";
+        RefreshPacketsFilteringUi();
+        LeftTabIndex = PacketsTabIndex;
+
+        var packet = Packets.FirstOrDefault(p =>
+            string.Equals(p.SrcIp, normalizedIp, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(p.DstIp, normalizedIp, StringComparison.OrdinalIgnoreCase));
+
+        if (packet is not null && IsPacketVisibleInView(packet))
+            SelectedPacket = packet;
+
+        StatusText = $"Filtered packets for host {normalizedIp}.";
+    }
+
+    private void BlockHost(EndpointHostRow host)
+    {
+        string? status = _trafficControlManager.BlockHost(host.Ip, HostQuickBlockPreset.UntilAppExit);
+        if (!string.IsNullOrWhiteSpace(status))
+            StatusText = status;
+    }
+
+    private void BlockHostFor15Minutes(EndpointHostRow host)
+    {
+        string? status = _trafficControlManager.BlockHost(host.Ip, HostQuickBlockPreset.FifteenMinutes);
+        if (!string.IsNullOrWhiteSpace(status))
+            StatusText = status;
+    }
+
+    private void ThrottleHost(EndpointHostRow host, int throttleMbps)
+    {
+        string? status = _trafficControlManager.ThrottleHost(host.Ip, throttleMbps);
+        if (!string.IsNullOrWhiteSpace(status))
+            StatusText = status;
+    }
+
+    private void CreateRuleFromHost(EndpointHostRow host)
+    {
+        TrafficControlRule draftRule = _trafficControlManager.BuildHostRuleDraft(host.Ip, host.DisplayHost);
+        OpenTrafficControlRulesDialog(draftRule);
+        StatusText = $"Opened traffic control rules for host {host.Ip}.";
+    }
+
+    private void FocusPacketForTimelineEvent(ProcessStatRow.InvestigationTimelineEvent timelineEvent)
+    {
+        if (timelineEvent.Pid <= 0 || !timelineEvent.CanFocusPacket)
+            return;
+
+        var packet = FindPacketForTimelineEvent(timelineEvent);
+        if (packet is null)
+        {
+            StatusText = $"Timeline packet not found for {timelineEvent.Title.ToLowerInvariant()}.";
+            LeftTabIndex = PacketsTabIndex;
+            return;
         }
 
-        row.PacketCount++;
-        row.TotalBytes += p.Length;
+        LeftTabIndex = PacketsTabIndex;
 
+        if (!IsPacketVisibleInView(packet))
+        {
+            _flowFilterService.Clear();
+            _uiFilter = new PacketFilterModel
+            {
+                PidOp = NumberMatchOp.Equals,
+                PidValue = timelineEvent.Pid
+            };
 
-        // Sampling for sparklines is batched in FlushPending() to avoid rebuilding geometry per packet.
-        if (_processPacketsSinceLastSample.TryGetValue(pid, out var count))
-            _processPacketsSinceLastSample[pid] = count + 1;
-        else
-            _processPacketsSinceLastSample[pid] = 1;
+            DisplayFilterText = "";
+            RefreshPacketsFilteringUi();
+            StatusText = $"Focused {timelineEvent.Title.ToLowerInvariant()} and applied PID filter to make the packet visible.";
+        }
+
+        SelectedPacket = packet;
     }
 
-    private void ShowPacketsForPid(object? param)
+    private void ShowPacketsForConversation(ProcessConversationRow conversation)
     {
-        if (param is not int pid) return;
+        if (conversation.Pid <= 0)
+            return;
 
-        _uiFilter.PidOp = NumberMatchOp.Equals;
-        _uiFilter.PidValue = pid;
+        var filter = new PacketFilterModel
+        {
+            PidOp = NumberMatchOp.Equals,
+            PidValue = conversation.Pid,
+            AnyIpOp = TextMatchOp.Equals,
+            AnyIpValue = conversation.RemoteIp
+        };
+
+        if (conversation.RemotePort > 0)
+        {
+            filter.AnyPortOp = NumberMatchOp.Equals;
+            filter.AnyPortValue = conversation.RemotePort;
+        }
+
+        if (!string.IsNullOrWhiteSpace(conversation.Protocol))
+        {
+            filter.ProtocolOp = TextMatchOp.Equals;
+            filter.ProtocolValue = conversation.Protocol;
+        }
+
+        var packet = FindFirstPacketForConversation(conversation);
+
+        ApplyPacketDrillDown(
+            filter,
+            $"Filtered packets for {conversation.ConversationLabel}.",
+            packet);
+    }
+
+    private void ShowPacketsForSessionCluster(ProcessSessionClusterRow sessionCluster)
+    {
+        if (sessionCluster.Pid <= 0)
+            return;
+
+        var filter = new PacketFilterModel
+        {
+            PidOp = NumberMatchOp.Equals,
+            PidValue = sessionCluster.Pid,
+            TimeFromUtc = sessionCluster.FirstSeen == default ? null : sessionCluster.FirstSeen.ToUniversalTime(),
+            TimeToUtc = sessionCluster.LastSeen == default ? null : sessionCluster.LastSeen.ToUniversalTime()
+        };
+
+        var packet = FindFirstPacketForSessionCluster(sessionCluster);
+
+        ApplyPacketDrillDown(
+            filter,
+            $"Filtered packets for {sessionCluster.Title.ToLowerInvariant()}.",
+            packet);
+    }
+
+    private void ApplyPacketDrillDown(PacketFilterModel filter, string successStatus, PacketInfo? packet)
+    {
+        _flowFilterService.Clear();
+        _uiFilter = filter;
+        DisplayFilterText = "";
         RefreshPacketsFilteringUi();
-        LeftTabIndex = 0;
+        LeftTabIndex = PacketsTabIndex;
+
+        if (packet is null || !IsPacketVisibleInView(packet))
+        {
+            StatusText = "No packets matched the selected investigation slice.";
+            return;
+        }
+
+        SelectedPacket = packet;
+        StatusText = successStatus;
     }
 
-    public sealed record ProcessFilterOption(int? Pid, string ProcessName)
+    private PacketInfo? FindPacketForTimelineEvent(ProcessStatRow.InvestigationTimelineEvent timelineEvent)
     {
-        public static ProcessFilterOption All { get; } = new(null, "All processes");
+        if (!TryGetOrderedPacketsForPid(timelineEvent.Pid, out var packetsForProcess))
+            return null;
 
-        public string DisplayName => Pid is null ? ProcessName : $"{ProcessName} (PID: {Pid})";
+        return timelineEvent.Target?.Kind switch
+        {
+            "first-packet" => packetsForProcess.FirstOrDefault(),
+            "first-domain" => FindPacketForFirstDomain(timelineEvent, packetsForProcess),
+            "first-outbound-connection" => FindPacketNearTimestamp(timelineEvent.Timestamp, packetsForProcess),
+            "first-secure-handshake" => FindPacketNearTimestamp(timelineEvent.Timestamp, packetsForProcess),
+            "first-suspicious-domain" => FindPacketForFirstDomain(timelineEvent, packetsForProcess),
+            "beacon-detected" => FindPacketNearTimestamp(timelineEvent.Timestamp, packetsForProcess),
+            "traffic-peak" => FindPacketNearTimestamp(timelineEvent.Timestamp, packetsForProcess),
+            _ => null
+        };
     }
+
+    private PacketInfo? FindPacketForFirstDomain(ProcessStatRow.InvestigationTimelineEvent timelineEvent, IReadOnlyList<PacketInfo> packetsForProcess)
+    {
+        PacketInfo? match = null;
+        if (_packetsByPid.TryGetValue(timelineEvent.Pid, out var index))
+            match = index.GetFirstPacketForDomain(timelineEvent.Target?.Value);
+
+        return match ?? FindPacketNearTimestamp(timelineEvent.Timestamp, packetsForProcess);
+    }
+
+    private static PacketInfo? FindPacketNearTimestamp(DateTime timestamp, IReadOnlyList<PacketInfo> packetsForProcess)
+    {
+        if (packetsForProcess.Count == 0)
+            return null;
+
+        int low = 0;
+        int high = packetsForProcess.Count - 1;
+
+        while (low <= high)
+        {
+            int mid = low + ((high - low) / 2);
+            var packet = packetsForProcess[mid];
+            int comparison = packet.Timestamp.CompareTo(timestamp);
+
+            if (comparison < 0)
+            {
+                low = mid + 1;
+            }
+            else if (comparison > 0)
+            {
+                high = mid - 1;
+            }
+            else
+            {
+                while (mid > 0 && packetsForProcess[mid - 1].Timestamp == timestamp)
+                    mid--;
+
+                return packetsForProcess[mid];
+            }
+        }
+
+        if (low >= packetsForProcess.Count)
+            return packetsForProcess[^1];
+
+        if (high < 0)
+            return packetsForProcess[0];
+
+        var before = packetsForProcess[high];
+        var after = packetsForProcess[low];
+        long beforeDistance = Math.Abs((before.Timestamp - timestamp).Ticks);
+        long afterDistance = Math.Abs((after.Timestamp - timestamp).Ticks);
+
+        return beforeDistance <= afterDistance ? before : after;
+    }
+
+    private PacketInfo? FindFirstPacketForConversation(ProcessConversationRow conversation)
+    {
+        if (!TryGetOrderedPacketsForPid(conversation.Pid, out var packetsForProcess))
+            return null;
+
+        for (int i = 0; i < packetsForProcess.Count; i++)
+        {
+            var packet = packetsForProcess[i];
+            if (!string.Equals(packet.SrcIp, conversation.RemoteIp, StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(packet.DstIp, conversation.RemoteIp, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (conversation.RemotePort > 0
+                && packet.SrcPort != conversation.RemotePort
+                && packet.DstPort != conversation.RemotePort)
+            {
+                continue;
+            }
+
+            if (!string.IsNullOrWhiteSpace(conversation.Protocol)
+                && !string.Equals(packet.Protocol, conversation.Protocol, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            return packet;
+        }
+
+        return null;
+    }
+
+    private PacketInfo? FindFirstPacketForSessionCluster(ProcessSessionClusterRow sessionCluster)
+    {
+        if (!TryGetOrderedPacketsForPid(sessionCluster.Pid, out var packetsForProcess))
+            return null;
+
+        for (int i = 0; i < packetsForProcess.Count; i++)
+        {
+            var packet = packetsForProcess[i];
+            if (packet.Timestamp < sessionCluster.FirstSeen)
+                continue;
+
+            if (packet.Timestamp > sessionCluster.LastSeen)
+                break;
+
+            return packet;
+        }
+
+        return null;
+    }
+
+    private static string? TryExtractTimelineDomain(PacketInfo packet)
+    {
+        if (!string.IsNullOrWhiteSpace(packet.DnsQueryName))
+            return packet.DnsQueryName;
+
+        if (!string.Equals(packet.Protocol, "DNS", StringComparison.OrdinalIgnoreCase)
+            && packet.SrcPort != 53
+            && packet.DstPort != 53)
+        {
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(packet.Info))
+            return null;
+
+        string info = packet.Info.Trim();
+        const string queryPrefix = "Query ";
+        const string responsePrefix = "Response ";
+
+        if (info.StartsWith(queryPrefix, StringComparison.OrdinalIgnoreCase))
+            info = info[queryPrefix.Length..];
+        else if (info.StartsWith(responsePrefix, StringComparison.OrdinalIgnoreCase))
+            info = info[responsePrefix.Length..];
+        else
+            return null;
+
+        int typeSeparator = info.IndexOf(' ');
+        string candidate = typeSeparator > 0 ? info[..typeSeparator] : info;
+        if (string.IsNullOrWhiteSpace(candidate) || !candidate.Contains('.'))
+            return null;
+
+        return candidate;
+    }
+
     private void SelectPacketByOffset(int offset)
     {
         if (offset == 0)
             return;
 
-        var visiblePackets = PacketsView.Cast<PacketInfo>().ToList();
-        if (visiblePackets.Count == 0)
+        int direction = Math.Sign(offset);
+        int remaining = Math.Abs(offset);
+        int startIndex;
+
+        if (SelectedPacket is not null && TryGetPacketStorageIndex(SelectedPacket, out var selectedStorageIndex))
+            startIndex = selectedStorageIndex;
+        else
+            startIndex = direction > 0 ? -1 : Packets.Count;
+
+        var packet = FindVisiblePacketFromIndex(startIndex, direction, remaining);
+        if (packet is null)
             return;
 
-        var currentIndex = SelectedPacket is null
-            ? (offset > 0 ? -1 : visiblePackets.Count)
-            : visiblePackets.IndexOf(SelectedPacket);
-
-        if (currentIndex < 0)
-            currentIndex = offset > 0 ? -1 : visiblePackets.Count;
-
-        var nextIndex = Math.Clamp(currentIndex + offset, 0, visiblePackets.Count - 1);
-        SelectedPacket = visiblePackets[nextIndex];
-        LeftTabIndex = 0;
+        SelectedPacket = packet;
+        LeftTabIndex = PacketsTabIndex;
     }
 
     private void SelectFirstPacket()
     {
-        var visiblePackets = PacketsView.Cast<PacketInfo>().ToList();
-        if (visiblePackets.Count == 0)
+        var packet = FindVisiblePacketFromIndex(-1, 1, 1);
+        if (packet is null)
             return;
 
-        SelectedPacket = visiblePackets[0];
-        LeftTabIndex = 0;
+        SelectedPacket = packet;
+        LeftTabIndex = PacketsTabIndex;
     }
 
     private void SelectLastPacket()
     {
-        var visiblePackets = PacketsView.Cast<PacketInfo>().ToList();
-        if (visiblePackets.Count == 0)
+        var packet = FindVisiblePacketFromIndex(Packets.Count, -1, 1);
+        if (packet is null)
             return;
 
-        SelectedPacket = visiblePackets[^1];
-        LeftTabIndex = 0;
+        SelectedPacket = packet;
+        LeftTabIndex = PacketsTabIndex;
+    }
+
+    private PacketInfo? FindVisiblePacketFromIndex(int startIndex, int direction, int visibleOffset)
+    {
+        if (Packets.Count == 0 || direction == 0 || visibleOffset <= 0)
+            return null;
+
+        for (int index = startIndex + direction; index >= 0 && index < Packets.Count; index += direction)
+        {
+            var packet = Packets[index];
+            if (!IsPacketVisibleInView(packet))
+                continue;
+
+            visibleOffset--;
+            if (visibleOffset == 0)
+                return packet;
+        }
+
+        return null;
     }
 
     private void ZoomPackets(int direction)

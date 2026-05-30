@@ -1,0 +1,398 @@
+<UserControl x:Class="Presentation.Views.EndpointsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:helpers="clr-namespace:Presentation.Helpers"
+             xmlns:models="clr-namespace:Presentation.Models"
+             x:Name="EndpointsLayout">
+
+    <UserControl.Resources>
+        <helpers:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter"/>
+        <helpers:NullToVisibilityConverter x:Key="NullToVisibilityConverter"/>
+
+        <Style x:Key="HostSummaryChipStyle" TargetType="Border">
+            <Setter Property="Background" Value="{StaticResource CardAltBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrushSoft}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="Padding" Value="10,6"/>
+            <Setter Property="Margin" Value="0,0,8,8"/>
+        </Style>
+
+        <Style x:Key="HostDetailSectionTitleStyle" TargetType="TextBlock">
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+            <Setter Property="FontSize" Value="12"/>
+        </Style>
+
+        <Style x:Key="HostDetailSubtitleStyle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+        </Style>
+
+        <DataTemplate x:Key="EndpointDetailTemplate" DataType="{x:Type models:EndpointDetailRow}">
+            <Border Margin="0,0,0,8"
+                    Padding="10,8"
+                    Background="{StaticResource SurfaceBrush}"
+                    BorderBrush="{StaticResource BorderBrushSoft}"
+                    BorderThickness="1"
+                    CornerRadius="8">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel>
+                        <TextBlock Text="{Binding Title}"
+                                   FontWeight="SemiBold"
+                                   Foreground="{StaticResource TextPrimaryBrush}"
+                                   TextWrapping="Wrap"/>
+                        <TextBlock Margin="0,4,0,0"
+                                   Text="{Binding Subtitle}"
+                                   Style="{StaticResource HostDetailSubtitleStyle}"/>
+                    </StackPanel>
+
+                    <Border Grid.Column="1"
+                            Margin="10,0,0,0"
+                            Padding="8,2"
+                            Background="{StaticResource CardAltBrush}"
+                            BorderBrush="{StaticResource BorderBrushSoft}"
+                            BorderThickness="1"
+                            CornerRadius="10"
+                            VerticalAlignment="Top">
+                        <TextBlock Text="{Binding BadgeText}"
+                                   FontSize="10"
+                                   FontWeight="SemiBold"
+                                   Foreground="{StaticResource TextSecondaryBrush}"/>
+                    </Border>
+                </Grid>
+            </Border>
+        </DataTemplate>
+    </UserControl.Resources>
+
+    <Grid Background="{StaticResource AppBackgroundBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0"
+                Margin="0,0,0,8"
+                Padding="10,8"
+                Background="{StaticResource FilterToolbarBackgroundBrush}"
+                BorderBrush="{StaticResource FilterToolbarBorderBrush}"
+                BorderThickness="1"
+                CornerRadius="12">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel>
+                    <TextBlock Text="Hosts registry"
+                               FontWeight="SemiBold"
+                               Foreground="{StaticResource TextPrimaryBrush}"/>
+                    <TextBlock Margin="0,2,0,0"
+                               Style="{StaticResource SectionCaptionTextStyle}"
+                               Text="Search by IP, hostname, process, DNS, TLS or port."/>
+                    <TextBox Margin="0,10,0,0"
+                             MinHeight="28"
+                             Padding="8,3"
+                             VerticalContentAlignment="Center"
+                             Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged, Delay=250}"/>
+                    <WrapPanel Margin="0,10,0,0">
+                        <CheckBox Content="Hide local / private"
+                                  IsChecked="{Binding HideLocalPrivate}"
+                                  Margin="0,0,14,4"/>
+                        <CheckBox Content="Hide multicast / broadcast"
+                                  IsChecked="{Binding HideMulticastBroadcast}"
+                                  Margin="0,0,14,4"/>
+                    </WrapPanel>
+                </StackPanel>
+
+                <WrapPanel Grid.Column="1"
+                           Margin="16,0,0,0"
+                           HorizontalAlignment="Right"
+                           VerticalAlignment="Top">
+                    <Border Style="{StaticResource HostSummaryChipStyle}">
+                        <StackPanel>
+                            <TextBlock Text="Hosts" Style="{StaticResource HostDetailSubtitleStyle}"/>
+                            <TextBlock Text="{Binding TotalHostCount, StringFormat={}{0:N0}}" FontWeight="SemiBold"/>
+                        </StackPanel>
+                    </Border>
+                    <Border Style="{StaticResource HostSummaryChipStyle}">
+                        <StackPanel>
+                            <TextBlock Text="Visible" Style="{StaticResource HostDetailSubtitleStyle}"/>
+                            <TextBlock Text="{Binding VisibleHostCount, StringFormat={}{0:N0}}" FontWeight="SemiBold"/>
+                        </StackPanel>
+                    </Border>
+                    <Border Style="{StaticResource HostSummaryChipStyle}">
+                        <StackPanel>
+                            <TextBlock Text="Resolved" Style="{StaticResource HostDetailSubtitleStyle}"/>
+                            <TextBlock Text="{Binding ResolvedHostCount, StringFormat={}{0:N0}}" FontWeight="SemiBold"/>
+                        </StackPanel>
+                    </Border>
+                    <Border Style="{StaticResource HostSummaryChipStyle}">
+                        <StackPanel>
+                            <TextBlock Text="Public" Style="{StaticResource HostDetailSubtitleStyle}"/>
+                            <TextBlock Text="{Binding PublicHostCount, StringFormat={}{0:N0}}" FontWeight="SemiBold"/>
+                        </StackPanel>
+                    </Border>
+                </WrapPanel>
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="6"/>
+                <ColumnDefinition Width="420"/>
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0" Style="{StaticResource SectionCardStyle}">
+                <DataGrid ItemsSource="{Binding HostsView}"
+                          SelectedItem="{Binding SelectedEndpoint}"
+                          Style="{StaticResource AppTableDataGridStyle}"
+                          IsReadOnly="True"
+                          AutoGenerateColumns="False">
+                    <DataGrid.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="Show packets"
+                                      Command="{Binding PlacementTarget.DataContext.ShowPacketsForSelectedHostCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                      CommandParameter="{Binding PlacementTarget.DataContext.SelectedEndpoint, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                            <Separator/>
+                            <MenuItem Header="Block host"
+                                      Command="{Binding PlacementTarget.DataContext.BlockSelectedHostCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                      CommandParameter="{Binding PlacementTarget.DataContext.SelectedEndpoint, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                            <MenuItem Header="Block host for 15 min"
+                                      Command="{Binding PlacementTarget.DataContext.BlockSelectedHostFor15MinutesCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                      CommandParameter="{Binding PlacementTarget.DataContext.SelectedEndpoint, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                            <MenuItem Header="Throttle host">
+                                <MenuItem Header="1 Mbps"
+                                          Command="{Binding PlacementTarget.DataContext.ThrottleSelectedHostTo1MbpsCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                          CommandParameter="{Binding PlacementTarget.DataContext.SelectedEndpoint, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                                <MenuItem Header="5 Mbps"
+                                          Command="{Binding PlacementTarget.DataContext.ThrottleSelectedHostTo5MbpsCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                          CommandParameter="{Binding PlacementTarget.DataContext.SelectedEndpoint, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                                <MenuItem Header="25 Mbps"
+                                          Command="{Binding PlacementTarget.DataContext.ThrottleSelectedHostTo25MbpsCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                          CommandParameter="{Binding PlacementTarget.DataContext.SelectedEndpoint, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                            </MenuItem>
+                            <Separator/>
+                            <MenuItem Header="Create rule from host"
+                                      Command="{Binding PlacementTarget.DataContext.CreateRuleFromSelectedHostCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                      CommandParameter="{Binding PlacementTarget.DataContext.SelectedEndpoint, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                        </ContextMenu>
+                    </DataGrid.ContextMenu>
+
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Host" Binding="{Binding DisplayHost}" Width="200"/>
+                        <DataGridTextColumn Header="IP" Binding="{Binding Ip}" Width="150"/>
+                        <DataGridTextColumn Header="Scope" Binding="{Binding Scope}" Width="100"/>
+                        <DataGridTextColumn Header="Packets" Binding="{Binding Packets, StringFormat={}{0:N0}}" Width="90"/>
+                        <DataGridTextColumn Header="Bytes" Binding="{Binding Bytes, StringFormat={}{0:N0}}" Width="110"/>
+                        <DataGridTextColumn Header="Processes" Binding="{Binding ProcessesSummary}" Width="180"/>
+                        <DataGridTextColumn Header="TLS" Binding="{Binding TlsSummary}" Width="180"/>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </Border>
+
+            <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
+
+            <Border Grid.Column="2" Margin="12,0,0,0" Style="{StaticResource SectionCardStyle}">
+                <Grid Margin="14">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0"
+                               Text="Host details"
+                               FontWeight="SemiBold"
+                               Foreground="{StaticResource TextPrimaryBrush}"/>
+
+                    <ScrollViewer Grid.Row="1"
+                                  VerticalScrollBarVisibility="Hidden"
+                                  HorizontalScrollBarVisibility="Disabled"
+                                  Margin="0,10,0,0">
+                        <Grid>
+                            <StackPanel Visibility="{Binding DataContext.SelectedEndpoint, ElementName=EndpointsLayout, Converter={StaticResource NullToVisibilityConverter}}">
+                                <TextBlock Foreground="{StaticResource TextMutedBrush}" Text="No host selected."/>
+                                <TextBlock Foreground="{StaticResource TextMutedBrush}" Margin="0,4,0,0" Text="Select a row in the registry to inspect DNS, TLS, process ownership and traffic timing."/>
+                            </StackPanel>
+
+                            <StackPanel Visibility="{Binding DataContext.SelectedEndpoint, ElementName=EndpointsLayout, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}">
+                                <StackPanel>
+                                    <TextBlock Text="{Binding DataContext.SelectedEndpoint.DisplayHost, ElementName=EndpointsLayout}"
+                                               FontSize="16"
+                                               FontWeight="SemiBold"
+                                               Foreground="{StaticResource TextPrimaryBrush}"
+                                               TextWrapping="Wrap"/>
+                                    <TextBlock Margin="0,4,0,0"
+                                               Text="{Binding DataContext.SelectedEndpoint.Ip, ElementName=EndpointsLayout}"
+                                               Style="{StaticResource HostDetailSubtitleStyle}"/>
+                                    <TextBlock Margin="0,4,0,0"
+                                               Text="{Binding DataContext.SelectedEndpoint.HostnameSourceSummary, ElementName=EndpointsLayout}"
+                                               Style="{StaticResource HostDetailSubtitleStyle}"
+                                               Visibility="{Binding DataContext.SelectedEndpoint.HasHostname, ElementName=EndpointsLayout, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                </StackPanel>
+
+                                <WrapPanel Margin="0,12,0,0">
+                                    <Border Style="{StaticResource HostSummaryChipStyle}">
+                                        <StackPanel>
+                                            <TextBlock Text="Scope" Style="{StaticResource HostDetailSubtitleStyle}"/>
+                                            <TextBlock Text="{Binding DataContext.SelectedEndpoint.Scope, ElementName=EndpointsLayout}" FontWeight="SemiBold"/>
+                                        </StackPanel>
+                                    </Border>
+                                </WrapPanel>
+
+                                <Grid Margin="0,6,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+
+                                    <StackPanel Grid.Row="0" Grid.Column="0" Margin="0,0,8,8">
+                                        <TextBlock Text="Traffic" Style="{StaticResource HostDetailSectionTitleStyle}"/>
+                                        <TextBlock Text="{Binding DataContext.SelectedEndpoint.BytesLabel, ElementName=EndpointsLayout}" Margin="0,4,0,0"/>
+                                        <TextBlock Text="{Binding DataContext.SelectedEndpoint.PacketsLabel, ElementName=EndpointsLayout}" Style="{StaticResource HostDetailSubtitleStyle}"/>
+                                    </StackPanel>
+
+                                    <StackPanel Grid.Row="0" Grid.Column="1" Margin="8,0,0,8">
+                                        <TextBlock Text="Direction split" Style="{StaticResource HostDetailSectionTitleStyle}"/>
+                                        <TextBlock Text="{Binding DataContext.SelectedEndpoint.SentRecvLabel, ElementName=EndpointsLayout}" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                                    </StackPanel>
+
+                                    <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,0,8,8">
+                                        <TextBlock Text="First seen" Style="{StaticResource HostDetailSectionTitleStyle}"/>
+                                        <TextBlock Text="{Binding DataContext.SelectedEndpoint.FirstSeenLabel, ElementName=EndpointsLayout}" Margin="0,4,0,0"/>
+                                    </StackPanel>
+
+                                    <StackPanel Grid.Row="1" Grid.Column="1" Margin="8,0,0,8">
+                                        <TextBlock Text="Last seen" Style="{StaticResource HostDetailSectionTitleStyle}"/>
+                                        <TextBlock Text="{Binding DataContext.SelectedEndpoint.LastSeenLabel, ElementName=EndpointsLayout}" Margin="0,4,0,0"/>
+                                    </StackPanel>
+
+                                    <StackPanel Grid.Row="2" Grid.Column="0" Margin="0,0,8,0">
+                                        <TextBlock Text="Protocols" Style="{StaticResource HostDetailSectionTitleStyle}"/>
+                                        <TextBlock Text="{Binding DataContext.SelectedEndpoint.ProtocolSummary, ElementName=EndpointsLayout}" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                                    </StackPanel>
+
+                                    <StackPanel Grid.Row="2" Grid.Column="1" Margin="8,0,0,0">
+                                        <TextBlock Text="Ports" Style="{StaticResource HostDetailSectionTitleStyle}"/>
+                                        <TextBlock Text="{Binding DataContext.SelectedEndpoint.PortSummary, ElementName=EndpointsLayout}" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </Grid>
+
+                                <Button Margin="0,14,0,0"
+                                        Content="Show packets for this host"
+                                        Command="{Binding DataContext.ShowPacketsForSelectedHostCommand, ElementName=EndpointsLayout}"
+                                        CommandParameter="{Binding DataContext.SelectedEndpoint, ElementName=EndpointsLayout}"
+                                        Style="{StaticResource ChipButtonStyle}"
+                                        HorizontalAlignment="Left"/>
+
+                                <StackPanel Margin="0,14,0,0">
+                                    <TextBlock Text="Quick actions" Style="{StaticResource HostDetailSectionTitleStyle}"/>
+                                    <TextBlock Margin="0,4,0,8"
+                                               Text="Apply a temporary firewall block, throttle this remote host, or open a prefilled traffic-control rule."
+                                               Style="{StaticResource HostDetailSubtitleStyle}"/>
+                                    <WrapPanel>
+                                        <Button Content="Block host"
+                                                Margin="0,0,8,8"
+                                                Style="{StaticResource ChipButtonStyle}"
+                                                Command="{Binding DataContext.BlockSelectedHostCommand, ElementName=EndpointsLayout}"
+                                                CommandParameter="{Binding DataContext.SelectedEndpoint, ElementName=EndpointsLayout}"/>
+                                        <Button Content="Block 15 min"
+                                                Margin="0,0,8,8"
+                                                Style="{StaticResource ChipButtonStyle}"
+                                                Command="{Binding DataContext.BlockSelectedHostFor15MinutesCommand, ElementName=EndpointsLayout}"
+                                                CommandParameter="{Binding DataContext.SelectedEndpoint, ElementName=EndpointsLayout}"/>
+                                        <Button Content="Create rule"
+                                                Margin="0,0,8,8"
+                                                Style="{StaticResource ChipButtonStyle}"
+                                                Command="{Binding DataContext.CreateRuleFromSelectedHostCommand, ElementName=EndpointsLayout}"
+                                                CommandParameter="{Binding DataContext.SelectedEndpoint, ElementName=EndpointsLayout}"/>
+                                    </WrapPanel>
+                                    <WrapPanel>
+                                        <Button Content="Throttle 1 Mbps"
+                                                Margin="0,0,8,8"
+                                                Style="{StaticResource ChipButtonStyle}"
+                                                Command="{Binding DataContext.ThrottleSelectedHostTo1MbpsCommand, ElementName=EndpointsLayout}"
+                                                CommandParameter="{Binding DataContext.SelectedEndpoint, ElementName=EndpointsLayout}"/>
+                                        <Button Content="Throttle 5 Mbps"
+                                                Margin="0,0,8,8"
+                                                Style="{StaticResource ChipButtonStyle}"
+                                                Command="{Binding DataContext.ThrottleSelectedHostTo5MbpsCommand, ElementName=EndpointsLayout}"
+                                                CommandParameter="{Binding DataContext.SelectedEndpoint, ElementName=EndpointsLayout}"/>
+                                        <Button Content="Throttle 25 Mbps"
+                                                Margin="0,0,8,8"
+                                                Style="{StaticResource ChipButtonStyle}"
+                                                Command="{Binding DataContext.ThrottleSelectedHostTo25MbpsCommand, ElementName=EndpointsLayout}"
+                                                CommandParameter="{Binding DataContext.SelectedEndpoint, ElementName=EndpointsLayout}"/>
+                                    </WrapPanel>
+                                </StackPanel>
+
+                                <StackPanel Margin="0,18,0,0"
+                                            Visibility="{Binding DataContext.SelectedEndpoint.HasResolutionHints, ElementName=EndpointsLayout, Converter={StaticResource BoolToVisibilityConverter}}">
+                                    <TextBlock Text="Resolution hints" Style="{StaticResource HostDetailSectionTitleStyle}"/>
+                                    <TextBlock Margin="0,4,0,8"
+                                               Text="Best-effort hostname candidates observed through DNS answers, TLS SNI and certificate names."
+                                               Style="{StaticResource HostDetailSubtitleStyle}"/>
+                                    <ItemsControl ItemsSource="{Binding DataContext.SelectedEndpoint.ResolutionHints, ElementName=EndpointsLayout}"
+                                                  ItemTemplate="{StaticResource EndpointDetailTemplate}"/>
+                                </StackPanel>
+
+                                <StackPanel Margin="0,14,0,0"
+                                            Visibility="{Binding DataContext.SelectedEndpoint.HasOwningProcesses, ElementName=EndpointsLayout, Converter={StaticResource BoolToVisibilityConverter}}">
+                                    <TextBlock Text="Owning processes" Style="{StaticResource HostDetailSectionTitleStyle}"/>
+                                    <TextBlock Margin="0,4,0,8"
+                                               Text="Local processes that communicated with this host during the current session or loaded capture."
+                                               Style="{StaticResource HostDetailSubtitleStyle}"/>
+                                    <ItemsControl ItemsSource="{Binding DataContext.SelectedEndpoint.OwningProcesses, ElementName=EndpointsLayout}"
+                                                  ItemTemplate="{StaticResource EndpointDetailTemplate}"/>
+                                </StackPanel>
+
+                                <StackPanel Margin="0,14,0,0"
+                                            Visibility="{Binding DataContext.SelectedEndpoint.HasDnsHistory, ElementName=EndpointsLayout, Converter={StaticResource BoolToVisibilityConverter}}">
+                                    <TextBlock Text="DNS history" Style="{StaticResource HostDetailSectionTitleStyle}"/>
+                                    <TextBlock Margin="0,4,0,8"
+                                               Text="Domains that resolved to this IP during observed DNS answers."
+                                               Style="{StaticResource HostDetailSubtitleStyle}"/>
+                                    <ItemsControl ItemsSource="{Binding DataContext.SelectedEndpoint.DnsHistory, ElementName=EndpointsLayout}"
+                                                  ItemTemplate="{StaticResource EndpointDetailTemplate}"/>
+                                </StackPanel>
+
+                                <StackPanel Margin="0,14,0,0"
+                                            Visibility="{Binding DataContext.SelectedEndpoint.HasTlsHistory, ElementName=EndpointsLayout, Converter={StaticResource BoolToVisibilityConverter}}">
+                                    <TextBlock Text="TLS server names" Style="{StaticResource HostDetailSectionTitleStyle}"/>
+                                    <TextBlock Margin="0,4,0,8"
+                                               Text="SNI values observed while this endpoint participated in TLS or QUIC sessions."
+                                               Style="{StaticResource HostDetailSubtitleStyle}"/>
+                                    <ItemsControl ItemsSource="{Binding DataContext.SelectedEndpoint.TlsHistory, ElementName=EndpointsLayout}"
+                                                  ItemTemplate="{StaticResource EndpointDetailTemplate}"/>
+                                </StackPanel>
+
+                                <StackPanel Margin="0,14,0,0"
+                                            Visibility="{Binding DataContext.SelectedEndpoint.HasCertificateHistory, ElementName=EndpointsLayout, Converter={StaticResource BoolToVisibilityConverter}}">
+                                    <TextBlock Text="Certificate history" Style="{StaticResource HostDetailSectionTitleStyle}"/>
+                                    <TextBlock Margin="0,4,0,8"
+                                               Text="Certificate names and subjects observed for this destination."
+                                               Style="{StaticResource HostDetailSubtitleStyle}"/>
+                                    <ItemsControl ItemsSource="{Binding DataContext.SelectedEndpoint.CertificateHistory, ElementName=EndpointsLayout}"
+                                                  ItemTemplate="{StaticResource EndpointDetailTemplate}"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </Grid>
+                    </ScrollViewer>
+                </Grid>
+            </Border>
+        </Grid>
+    </Grid>
+</UserControl>

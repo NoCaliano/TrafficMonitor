@@ -8,7 +8,14 @@ namespace Presentation.Helpers;
 public sealed class BoolToVisibilityConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
-        => value is bool isVisible && isVisible ? Visibility.Visible : Visibility.Collapsed;
+    {
+        bool isVisible = value is bool visible && visible;
+        bool invert = parameter is string s && s.Equals("Invert", StringComparison.OrdinalIgnoreCase);
+        if (invert)
+            isVisible = !isVisible;
+
+        return isVisible ? Visibility.Visible : Visibility.Collapsed;
+    }
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
         => value is Visibility visibility && visibility == Visibility.Visible;

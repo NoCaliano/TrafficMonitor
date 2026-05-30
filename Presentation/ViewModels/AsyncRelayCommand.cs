@@ -6,21 +6,27 @@ namespace Presentation.ViewModels;
 public sealed class AsyncRelayCommand : ICommand
 {
     private readonly Func<CancellationToken, Task> _execute;
+    private readonly Func<bool>? _canExecute;
     private CancellationTokenSource? _cts;
     private bool _isExecuting;
 
     public event EventHandler? CanExecuteChanged;
 
-    public AsyncRelayCommand(Func<CancellationToken, Task> execute) => _execute = execute;
+    public AsyncRelayCommand(Func<CancellationToken, Task> execute, Func<bool>? canExecute = null)
+    {
+        _execute = execute;
+        _canExecute = canExecute;
+    }
 
-    public bool CanExecute(object? parameter) => !_isExecuting;
+    public bool CanExecute(object? parameter) => !_isExecuting && (_canExecute?.Invoke() ?? true);
 
     public async void Execute(object? parameter)
     {
-        if (_isExecuting) return;
+        if (!CanExecute(parameter))
+            return;
 
         _isExecuting = true;
-        CanExecuteChanged?.Invoke(this, EventArgs.Empty);
+        RaiseCanExecuteChanged();
 
         _cts = new CancellationTokenSource();
 
@@ -30,9 +36,11 @@ public sealed class AsyncRelayCommand : ICommand
             _cts.Dispose();
             _cts = null;
             _isExecuting = false;
-            CanExecuteChanged?.Invoke(this, EventArgs.Empty);
+            RaiseCanExecuteChanged();
         }
     }
 
     public void Cancel() => _cts?.Cancel();
+
+    public void RaiseCanExecuteChanged() => CanExecuteChanged?.Invoke(this, EventArgs.Empty);
 }

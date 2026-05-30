@@ -1,4 +1,5 @@
-﻿using Presentation.ViewModels;
+using Presentation.ViewModels;
+using System.Diagnostics;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
@@ -8,7 +9,6 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Navigation;
-using System.Windows.Shapes;
 
 namespace Presentation
 {
@@ -17,9 +17,42 @@ namespace Presentation
     /// </summary>
     public partial class MainWindow : Window
     {
+        private static readonly string GuideFilePath =
+            System.IO.Path.Combine(AppContext.BaseDirectory, "Docs", "TrafficMonitor-Guide.html");
+
         public MainWindow()
         {
             InitializeComponent();
+        }
+
+        private void GuideMenuItem_Click(object sender, RoutedEventArgs e)
+        {
+            if (!System.IO.File.Exists(GuideFilePath))
+            {
+                MessageBox.Show(
+                    $"Guide file was not found:{Environment.NewLine}{GuideFilePath}",
+                    "TrafficMonitor",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+                return;
+            }
+
+            try
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = GuideFilePath,
+                    UseShellExecute = true
+                });
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    ex.Message,
+                    "Unable to open guide",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
         }
 
         private void ProtocolTreeItem_MouseEnter(object sender, MouseEventArgs e)

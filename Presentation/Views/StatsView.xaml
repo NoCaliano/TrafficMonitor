@@ -1,0 +1,347 @@
+<UserControl x:Class="Presentation.Views.StatsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:helpers="clr-namespace:Presentation.Helpers"
+             xmlns:models="clr-namespace:Presentation.Models"
+             mc:Ignorable="d">
+    <UserControl.Resources>
+        <helpers:ProcessIconConverter x:Key="ProcessIconConverter"/>
+
+        <Style x:Key="StatsSectionTitleStyle" TargetType="TextBlock" BasedOn="{StaticResource ViewTitleTextStyle}">
+            <Setter Property="FontSize" Value="15"/>
+        </Style>
+
+        <Style x:Key="StatsItemPrimaryTextStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+        </Style>
+
+        <Style x:Key="StatsItemSecondaryTextStyle" TargetType="TextBlock" BasedOn="{StaticResource MutedTextBlockStyle}">
+            <Setter Property="FontSize" Value="10"/>
+            <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+        </Style>
+
+        <Style x:Key="StatsValueTextStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="VerticalAlignment" Value="Top"/>
+            <Setter Property="Margin" Value="8,0,0,0"/>
+        </Style>
+
+        <Style x:Key="StatsBadgeContainerStyle" TargetType="Border">
+            <Setter Property="Width" Value="28"/>
+            <Setter Property="Height" Value="28"/>
+            <Setter Property="Margin" Value="0,0,8,0"/>
+            <Setter Property="CornerRadius" Value="7"/>
+            <Setter Property="Background" Value="{StaticResource CardAltBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrushSoft}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+
+        <Style x:Key="StatsItemContainerStyle" TargetType="Border">
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrushSoft}"/>
+            <Setter Property="BorderThickness" Value="0,0,0,1"/>
+            <Setter Property="Padding" Value="0,0,0,6"/>
+            <Setter Property="Margin" Value="0,0,0,6"/>
+        </Style>
+
+        <Style x:Key="ThinProgressBarStyle" TargetType="ProgressBar">
+            <Setter Property="Height" Value="4"/>
+            <Setter Property="Margin" Value="0,5,0,0"/>
+            <Setter Property="Maximum" Value="100"/>
+            <Setter Property="Foreground" Value="{StaticResource HighlightBrush}"/>
+            <Setter Property="Background" Value="{StaticResource AccentBrushSoft}"/>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid Margin="8" Background="{StaticResource AppBackgroundBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="8"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <Grid Grid.Row="0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="8"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="8"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="8"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0" Style="{StaticResource SectionCardStyle}">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="8"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <StackPanel>
+                        <TextBlock Text="Top Processes" Style="{StaticResource StatsSectionTitleStyle}"/>
+                        <TextBlock Text="Applications ranked by total traffic usage" Style="{StaticResource SectionCaptionTextStyle}" Margin="0,2,0,0"/>
+                    </StackPanel>
+
+                    <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Disabled">
+                        <ItemsControl ItemsSource="{Binding TopProcesses}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type models:ProcessTrafficRow}">
+                                    <Border Style="{StaticResource StatsItemContainerStyle}">
+                                        <Grid>
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto"/>
+                                                <RowDefinition Height="Auto"/>
+                                            </Grid.RowDefinitions>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+
+                                            <Border Grid.RowSpan="2" Style="{StaticResource StatsBadgeContainerStyle}">
+                                                <Image Width="14" Height="14" VerticalAlignment="Center" HorizontalAlignment="Center">
+                                                    <Image.Source>
+                                                        <Binding Path="Pid" Converter="{StaticResource ProcessIconConverter}"/>
+                                                    </Image.Source>
+                                                </Image>
+                                            </Border>
+
+                                            <StackPanel Grid.Column="1">
+                                                <TextBlock Text="{Binding Title}" Style="{StaticResource StatsItemPrimaryTextStyle}"/>
+                                                <TextBlock Text="{Binding Subtitle}" Style="{StaticResource StatsItemSecondaryTextStyle}"/>
+                                            </StackPanel>
+
+                                            <TextBlock Grid.Column="2" Text="{Binding BytesLabel}" Style="{StaticResource StatsValueTextStyle}"/>
+
+                                            <ProgressBar Grid.Row="1"
+                                                         Grid.Column="1"
+                                                         Grid.ColumnSpan="2"
+                                                         Style="{StaticResource ThinProgressBarStyle}"
+                                                         Value="{Binding RelativePercent}"/>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </Grid>
+            </Border>
+
+            <Border Grid.Column="2" Style="{StaticResource SectionCardStyle}">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="8"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <StackPanel>
+                        <TextBlock Text="Top Hosts" Style="{StaticResource StatsSectionTitleStyle}"/>
+                        <TextBlock Text="Remote hosts sorted by consumed traffic" Style="{StaticResource SectionCaptionTextStyle}" Margin="0,2,0,0"/>
+                    </StackPanel>
+
+                    <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Disabled">
+                        <ItemsControl ItemsSource="{Binding TopHosts}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type models:HostStatRow}">
+                                    <Border Style="{StaticResource StatsItemContainerStyle}">
+                                        <Grid>
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto"/>
+                                                <RowDefinition Height="Auto"/>
+                                            </Grid.RowDefinitions>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+
+                                            <Border Grid.RowSpan="2" Style="{StaticResource StatsBadgeContainerStyle}">
+                                                <TextBlock Text="{Binding BadgeText}"
+                                                           FontWeight="SemiBold"
+                                                           FontSize="9"
+                                                           VerticalAlignment="Center"
+                                                           HorizontalAlignment="Center"
+                                                           Foreground="{StaticResource TextSecondaryBrush}"/>
+                                            </Border>
+
+                                            <StackPanel Grid.Column="1">
+                                                <TextBlock Text="{Binding Title}" Style="{StaticResource StatsItemPrimaryTextStyle}"/>
+                                                <TextBlock Text="{Binding Subtitle}" Style="{StaticResource StatsItemSecondaryTextStyle}"/>
+                                            </StackPanel>
+
+                                            <TextBlock Grid.Column="2" Text="{Binding BytesLabel}" Style="{StaticResource StatsValueTextStyle}"/>
+
+                                            <ProgressBar Grid.Row="1"
+                                                         Grid.Column="1"
+                                                         Grid.ColumnSpan="2"
+                                                         Style="{StaticResource ThinProgressBarStyle}"
+                                                         Value="{Binding RelativePercent}"/>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </Grid>
+            </Border>
+
+            <Border Grid.Column="4" Style="{StaticResource SectionCardStyle}">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="8"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <StackPanel>
+                        <TextBlock Text="Top Traffic Types" Style="{StaticResource StatsSectionTitleStyle}"/>
+                        <TextBlock Text="Protocol and service buckets by traffic volume" Style="{StaticResource SectionCaptionTextStyle}" Margin="0,2,0,0"/>
+                    </StackPanel>
+
+                    <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Disabled">
+                        <ItemsControl ItemsSource="{Binding TopTrafficTypes}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type models:TrafficTypeStatRow}">
+                                    <Border Style="{StaticResource StatsItemContainerStyle}">
+                                        <Grid>
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto"/>
+                                                <RowDefinition Height="Auto"/>
+                                            </Grid.RowDefinitions>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+
+                                            <Border Grid.RowSpan="2" Style="{StaticResource StatsBadgeContainerStyle}">
+                                                <TextBlock Text="{Binding BadgeText}"
+                                                           FontWeight="SemiBold"
+                                                           FontSize="9"
+                                                           VerticalAlignment="Center"
+                                                           HorizontalAlignment="Center"
+                                                           Foreground="{StaticResource TextSecondaryBrush}"/>
+                                            </Border>
+
+                                            <StackPanel Grid.Column="1">
+                                                <TextBlock Text="{Binding Title}" Style="{StaticResource StatsItemPrimaryTextStyle}"/>
+                                                <TextBlock Text="{Binding Subtitle}" Style="{StaticResource StatsItemSecondaryTextStyle}"/>
+                                            </StackPanel>
+
+                                            <TextBlock Grid.Column="2" Text="{Binding BytesLabel}" Style="{StaticResource StatsValueTextStyle}"/>
+
+                                            <ProgressBar Grid.Row="1"
+                                                         Grid.Column="1"
+                                                         Grid.ColumnSpan="2"
+                                                         Style="{StaticResource ThinProgressBarStyle}"
+                                                         Value="{Binding RelativePercent}"/>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </Grid>
+            </Border>
+
+            <Border Grid.Column="6" Style="{StaticResource SectionCardStyle}">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="8"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <StackPanel>
+                        <TextBlock Text="Top Conversations" Style="{StaticResource StatsSectionTitleStyle}"/>
+                        <TextBlock Text="Largest process-to-remote conversations by traffic volume" Style="{StaticResource SectionCaptionTextStyle}" Margin="0,2,0,0"/>
+                    </StackPanel>
+
+                    <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Disabled">
+                        <ItemsControl ItemsSource="{Binding TopConversations}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type models:ConversationTrafficRow}">
+                                    <Border Style="{StaticResource StatsItemContainerStyle}">
+                                        <Grid>
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto"/>
+                                                <RowDefinition Height="Auto"/>
+                                                <RowDefinition Height="Auto"/>
+                                            </Grid.RowDefinitions>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+
+                                            <Border Grid.RowSpan="3" Style="{StaticResource StatsBadgeContainerStyle}">
+                                                <Image Width="14" Height="14" VerticalAlignment="Center" HorizontalAlignment="Center">
+                                                    <Image.Source>
+                                                        <Binding Path="Pid" Converter="{StaticResource ProcessIconConverter}"/>
+                                                    </Image.Source>
+                                                </Image>
+                                            </Border>
+
+                                            <StackPanel Grid.Column="1">
+                                                <TextBlock Text="{Binding Title}" Style="{StaticResource StatsItemPrimaryTextStyle}"/>
+                                                <TextBlock Text="{Binding Subtitle}" Style="{StaticResource StatsItemSecondaryTextStyle}"/>
+                                                <TextBlock Grid.Row="2" Text="{Binding PacketCountLabel}" Style="{StaticResource StatsItemSecondaryTextStyle}"/>
+                                            </StackPanel>
+
+                                            <TextBlock Grid.Column="2" Text="{Binding BytesLabel}" Style="{StaticResource StatsValueTextStyle}"/>
+
+                                            <ProgressBar Grid.Row="2"
+                                                         Grid.Column="1"
+                                                         Grid.ColumnSpan="2"
+                                                         Style="{StaticResource ThinProgressBarStyle}"
+                                                         Value="{Binding RelativePercent}"/>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <Border Grid.Row="2" Style="{StaticResource SectionCardStyle}" Padding="12,10">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0">
+                    <TextBlock Text="Capture Summary" Style="{StaticResource StatsSectionTitleStyle}"/>
+                    <TextBlock Text="Overall traffic snapshot for the current capture" Style="{StaticResource SectionCaptionTextStyle}" Margin="0,2,0,0"/>
+                </StackPanel>
+
+                <StackPanel Grid.Column="1">
+                    <TextBlock Text="{Binding SummaryTotalBytesHuman}" FontSize="18" FontWeight="SemiBold"/>
+                    <TextBlock Text="{Binding SummaryTotalPackets, StringFormat={}{0:N0} packets}" Style="{StaticResource StatsItemSecondaryTextStyle}"/>
+                </StackPanel>
+
+                <StackPanel Grid.Column="2">
+                    <TextBlock Text="{Binding SummaryBytesPerSec}" FontSize="18" FontWeight="SemiBold"/>
+                    <TextBlock Text="{Binding SummaryPacketsPerSec}" Style="{StaticResource StatsItemSecondaryTextStyle}"/>
+                </StackPanel>
+
+                <CheckBox Grid.Column="3"
+                          Content="Hide multicast / broadcast"
+                          IsChecked="{Binding HideMulticastBroadcast}"
+                          VerticalAlignment="Center"
+                          Margin="18,0,0,0"/>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

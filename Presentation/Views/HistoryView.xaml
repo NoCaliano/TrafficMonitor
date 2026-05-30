@@ -1,0 +1,442 @@
+<UserControl x:Class="Presentation.Views.HistoryView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:helpers="clr-namespace:Presentation.Helpers"
+             xmlns:models="clr-namespace:Presentation.Models"
+             x:Name="HistoryLayout">
+
+    <UserControl.Resources>
+        <helpers:NullToVisibilityConverter x:Key="NullToVisibilityConverter"/>
+        <helpers:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter"/>
+
+        <Style x:Key="HistoryTabControlStyle" TargetType="TabControl" BasedOn="{StaticResource {x:Type TabControl}}">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabControl">
+                        <Grid KeyboardNavigation.TabNavigation="Local"
+                              SnapsToDevicePixels="True">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+
+                            <TabPanel Grid.Row="0"
+                                      Margin="0,0,0,0"
+                                      Background="Transparent"
+                                      IsItemsHost="True"
+                                      KeyboardNavigation.TabIndex="1"/>
+
+                            <ContentPresenter x:Name="PART_SelectedContentHost"
+                                              Grid.Row="1"
+                                              Margin="0,14,0,0"
+                                              ContentSource="SelectedContent"/>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="HistoryTabItemStyle" TargetType="TabItem">
+            <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+            <Setter Property="Background" Value="{StaticResource CardAltBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrushSoft}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="16,8"/>
+            <Setter Property="Margin" Value="0,0,10,0"/>
+            <Setter Property="FontFamily" Value="{StaticResource DisplayFontFamily}"/>
+            <Setter Property="FontSize" Value="12.5"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabItem">
+                        <Border x:Name="TabChrome"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="13"
+                                Padding="{TemplateBinding Padding}"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"
+                                              ContentSource="Header"
+                                              RecognizesAccessKey="True"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="TabChrome" Property="BorderBrush" Value="{StaticResource BorderBrushStrong}"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="TabChrome" Property="Background" Value="{StaticResource AccentBrushSoft}"/>
+                                <Setter TargetName="TabChrome" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                                <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+                                <Setter Property="Panel.ZIndex" Value="5"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="TabChrome" Property="Opacity" Value="0.55"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="HistorySummaryChipStyle" TargetType="Border">
+            <Setter Property="Background" Value="{StaticResource CardAltBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrushSoft}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="Padding" Value="10,6"/>
+            <Setter Property="Margin" Value="0,0,8,8"/>
+        </Style>
+
+        <Style x:Key="HistorySectionTitleStyle" TargetType="TextBlock">
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+        </Style>
+
+        <DataTemplate x:Key="HistoryDetailTemplate" DataType="{x:Type models:TrafficHistoryDetailRow}">
+            <Border Margin="0,0,0,8"
+                    Padding="10,8"
+                    Background="{StaticResource SurfaceBrush}"
+                    BorderBrush="{StaticResource BorderBrushSoft}"
+                    BorderThickness="1"
+                    CornerRadius="8">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel>
+                        <TextBlock Text="{Binding Title}"
+                                   FontWeight="SemiBold"
+                                   Foreground="{StaticResource TextPrimaryBrush}"
+                                   TextWrapping="Wrap"/>
+                        <TextBlock Margin="0,4,0,0"
+                                   Text="{Binding Subtitle}"
+                                   FontSize="11"
+                                   Foreground="{StaticResource TextMutedBrush}"
+                                   TextWrapping="Wrap"/>
+                    </StackPanel>
+
+                    <Border Grid.Column="1"
+                            Margin="10,0,0,0"
+                            Padding="8,2"
+                            Background="{StaticResource CardAltBrush}"
+                            BorderBrush="{StaticResource BorderBrushSoft}"
+                            BorderThickness="1"
+                            CornerRadius="10"
+                            VerticalAlignment="Top">
+                        <TextBlock Text="{Binding BadgeText}"
+                                   FontSize="10"
+                                   FontWeight="SemiBold"
+                                   Foreground="{StaticResource TextSecondaryBrush}"/>
+                    </Border>
+                </Grid>
+            </Border>
+        </DataTemplate>
+    </UserControl.Resources>
+
+    <Grid Background="{StaticResource AppBackgroundBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0"
+                Margin="0,0,0,8"
+                Padding="10,8"
+                Background="{StaticResource FilterToolbarBackgroundBrush}"
+                BorderBrush="{StaticResource FilterToolbarBorderBrush}"
+                BorderThickness="1"
+                CornerRadius="12">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel>
+                    <TextBlock Text="Traffic history"
+                               FontWeight="SemiBold"
+                               Foreground="{StaticResource TextPrimaryBrush}"/>
+                    <TextBlock Margin="0,2,0,0"
+                               Style="{StaticResource SectionCaptionTextStyle}"
+                               Text="Search prior sessions, see when a process first spoke to the network and which hosts appeared for the first time."/>
+                </StackPanel>
+
+                <WrapPanel Grid.Column="1"
+                           Margin="16,0,0,0"
+                           HorizontalAlignment="Right"
+                           VerticalAlignment="Top">
+                    <Border Style="{StaticResource HistorySummaryChipStyle}">
+                        <StackPanel>
+                            <TextBlock Text="Sessions" FontSize="11" Foreground="{StaticResource TextMutedBrush}"/>
+                            <TextBlock Text="{Binding SessionCount, StringFormat={}{0:N0}}" FontWeight="SemiBold"/>
+                        </StackPanel>
+                    </Border>
+                    <Border Style="{StaticResource HistorySummaryChipStyle}">
+                        <StackPanel>
+                            <TextBlock Text="Processes" FontSize="11" Foreground="{StaticResource TextMutedBrush}"/>
+                            <TextBlock Text="{Binding ProcessCount, StringFormat={}{0:N0}}" FontWeight="SemiBold"/>
+                        </StackPanel>
+                    </Border>
+                    <Border Style="{StaticResource HistorySummaryChipStyle}">
+                        <StackPanel>
+                            <TextBlock Text="Hosts" FontSize="11" Foreground="{StaticResource TextMutedBrush}"/>
+                            <TextBlock Text="{Binding HostCount, StringFormat={}{0:N0}}" FontWeight="SemiBold"/>
+                        </StackPanel>
+                    </Border>
+                </WrapPanel>
+            </Grid>
+        </Border>
+
+        <TabControl Grid.Row="1"
+                    Style="{StaticResource HistoryTabControlStyle}"
+                    ItemContainerStyle="{StaticResource HistoryTabItemStyle}">
+            <TabItem Header="Sessions">
+                <Grid Margin="0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="6"/>
+                        <ColumnDefinition Width="420"/>
+                    </Grid.ColumnDefinitions>
+
+                    <Grid Grid.Column="0">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+
+                        <TextBox Margin="0,0,0,8"
+                                 MinHeight="28"
+                                 Padding="8,3"
+                                 VerticalContentAlignment="Center"
+                                 Text="{Binding SessionSearchText, UpdateSourceTrigger=PropertyChanged, Delay=250}"/>
+
+                        <Border Grid.Row="1" Style="{StaticResource SectionCardStyle}">
+                            <DataGrid ItemsSource="{Binding SessionsView}"
+                                      SelectedItem="{Binding SelectedSession}"
+                                      Style="{StaticResource AppTableDataGridStyle}"
+                                      AutoGenerateColumns="False"
+                                      IsReadOnly="True">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="Started" Binding="{Binding StartedLabel}" Width="150"/>
+                                    <DataGridTextColumn Header="Duration" Binding="{Binding DurationLabel}" Width="90"/>
+                                    <DataGridTextColumn Header="Device" Binding="{Binding DeviceName}" Width="140"/>
+                                    <DataGridTextColumn Header="Packets" Binding="{Binding TotalPackets, StringFormat={}{0:N0}}" Width="90"/>
+                                    <DataGridTextColumn Header="Bytes" Binding="{Binding TotalBytesLabel}" Width="90"/>
+                                    <DataGridTextColumn Header="New Hosts" Binding="{Binding NewHostsSummary}" Width="180"/>
+                                    <DataGridTextColumn Header="New Processes" Binding="{Binding NewProcessesSummary}" Width="180"/>
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </Border>
+                    </Grid>
+
+                    <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch"/>
+
+                    <Border Grid.Column="2" Margin="12,0,0,0" Style="{StaticResource SectionCardStyle}">
+                        <ScrollViewer VerticalScrollBarVisibility="Hidden" Margin="14">
+                            <Grid>
+                                <StackPanel Visibility="{Binding SelectedSession, Converter={StaticResource NullToVisibilityConverter}}">
+                                    <TextBlock Foreground="{StaticResource TextMutedBrush}" Text="No session selected."/>
+                                </StackPanel>
+
+                                <StackPanel Visibility="{Binding SelectedSession, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}">
+                                    <TextBlock Text="{Binding SelectedSession.SessionLabel}" FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}"/>
+                                    <TextBlock Margin="0,4,0,0" Text="{Binding SelectedSession.SourceLabel}" Foreground="{StaticResource TextMutedBrush}"/>
+                                    <TextBlock Margin="0,8,0,0" Text="{Binding SelectedSession.DeviceName}" Foreground="{StaticResource TextMutedBrush}"/>
+                                    <TextBlock Margin="0,4,0,0" Text="{Binding SelectedSession.TotalPacketsLabel}" Foreground="{StaticResource TextMutedBrush}"/>
+                                    <TextBlock Margin="0,2,0,0" Text="{Binding SelectedSession.TotalBytesLabel}" Foreground="{StaticResource TextMutedBrush}"/>
+                                    <TextBlock Margin="0,2,0,0" Text="{Binding SelectedSession.DurationLabel, StringFormat=Duration: {0}}" Foreground="{StaticResource TextMutedBrush}"/>
+                                    <TextBlock Margin="0,2,0,0"
+                                               Text="{Binding SelectedSession.BpfFilter, StringFormat=Filter: {0}}"
+                                               Foreground="{StaticResource TextMutedBrush}"
+                                               Visibility="{Binding SelectedSession.HasBpfFilter, Converter={StaticResource BoolToVisibilityConverter}}"/>
+
+                                    <StackPanel Margin="0,16,0,0" Visibility="{Binding SelectedSession.HasNewHosts, Converter={StaticResource BoolToVisibilityConverter}}">
+                                        <TextBlock Text="New hosts in this session" Style="{StaticResource HistorySectionTitleStyle}"/>
+                                        <ItemsControl Margin="0,8,0,0" ItemsSource="{Binding SelectedSession.NewHostDetails}" ItemTemplate="{StaticResource HistoryDetailTemplate}"/>
+                                    </StackPanel>
+
+                                    <StackPanel Margin="0,16,0,0" Visibility="{Binding SelectedSession.HasNewProcesses, Converter={StaticResource BoolToVisibilityConverter}}">
+                                        <TextBlock Text="New processes in this session" Style="{StaticResource HistorySectionTitleStyle}"/>
+                                        <ItemsControl Margin="0,8,0,0" ItemsSource="{Binding SelectedSession.NewProcessDetails}" ItemTemplate="{StaticResource HistoryDetailTemplate}"/>
+                                    </StackPanel>
+
+                                    <StackPanel Margin="0,16,0,0" Visibility="{Binding SelectedSession.HasTopProcesses, Converter={StaticResource BoolToVisibilityConverter}}">
+                                        <TextBlock Text="Top processes" Style="{StaticResource HistorySectionTitleStyle}"/>
+                                        <ItemsControl Margin="0,8,0,0" ItemsSource="{Binding SelectedSession.TopProcessDetails}" ItemTemplate="{StaticResource HistoryDetailTemplate}"/>
+                                    </StackPanel>
+
+                                    <StackPanel Margin="0,16,0,0" Visibility="{Binding SelectedSession.HasTopHosts, Converter={StaticResource BoolToVisibilityConverter}}">
+                                        <TextBlock Text="Top hosts" Style="{StaticResource HistorySectionTitleStyle}"/>
+                                        <ItemsControl Margin="0,8,0,0" ItemsSource="{Binding SelectedSession.TopHostDetails}" ItemTemplate="{StaticResource HistoryDetailTemplate}"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Grid>
+                        </ScrollViewer>
+                    </Border>
+                </Grid>
+            </TabItem>
+
+            <TabItem Header="Processes">
+                <Grid Margin="0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="6"/>
+                        <ColumnDefinition Width="420"/>
+                    </Grid.ColumnDefinitions>
+
+                    <Grid Grid.Column="0">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+
+                        <TextBox Margin="0,0,0,8"
+                                 MinHeight="28"
+                                 Padding="8,3"
+                                 VerticalContentAlignment="Center"
+                                 Text="{Binding ProcessSearchText, UpdateSourceTrigger=PropertyChanged, Delay=250}"/>
+
+                        <Border Grid.Row="1" Style="{StaticResource SectionCardStyle}">
+                            <DataGrid ItemsSource="{Binding ProcessesView}"
+                                      SelectedItem="{Binding SelectedProcess}"
+                                      Style="{StaticResource AppTableDataGridStyle}"
+                                      AutoGenerateColumns="False"
+                                      IsReadOnly="True">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="Process" Binding="{Binding DisplayName}" Width="180"/>
+                                    <DataGridTextColumn Header="First Seen" Binding="{Binding FirstSeenLabel}" Width="150"/>
+                                    <DataGridTextColumn Header="Last Seen" Binding="{Binding LastSeenLabel}" Width="150"/>
+                                    <DataGridTextColumn Header="Sessions" Binding="{Binding SessionsCount}" Width="80"/>
+                                    <DataGridTextColumn Header="Bytes" Binding="{Binding TotalBytesLabel}" Width="90"/>
+                                    <DataGridTextColumn Header="Top Remote" Binding="{Binding TopRemoteEndpoint}" Width="180"/>
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </Border>
+                    </Grid>
+
+                    <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch"/>
+
+                    <Border Grid.Column="2" Margin="12,0,0,0" Style="{StaticResource SectionCardStyle}">
+                        <ScrollViewer VerticalScrollBarVisibility="Hidden" Margin="14">
+                            <Grid>
+                                <StackPanel Visibility="{Binding SelectedProcess, Converter={StaticResource NullToVisibilityConverter}}">
+                                    <TextBlock Foreground="{StaticResource TextMutedBrush}" Text="No process selected."/>
+                                </StackPanel>
+
+                                <StackPanel Visibility="{Binding SelectedProcess, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}">
+                                    <TextBlock Text="{Binding SelectedProcess.DisplayName}" FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}"/>
+                                    <TextBlock Margin="0,4,0,0" Text="{Binding SelectedProcess.SignatureLabel}" Foreground="{StaticResource TextMutedBrush}"/>
+                                    <TextBlock Margin="0,4,0,0" Text="{Binding SelectedProcess.ExePath}" Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap"/>
+                                    <TextBlock Margin="0,4,0,0" Text="{Binding SelectedProcess.Publisher}" Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap"/>
+                                    <TextBlock Margin="0,8,0,0" Text="{Binding SelectedProcess.TotalPacketsLabel}" Foreground="{StaticResource TextMutedBrush}"/>
+                                    <TextBlock Margin="0,2,0,0" Text="{Binding SelectedProcess.TotalBytesLabel}" Foreground="{StaticResource TextMutedBrush}"/>
+                                    <TextBlock Margin="0,2,0,0" Text="{Binding SelectedProcess.FirstSeenLabel, StringFormat=First seen: {0}}" Foreground="{StaticResource TextMutedBrush}"/>
+                                    <TextBlock Margin="0,2,0,0" Text="{Binding SelectedProcess.LastSeenLabel, StringFormat=Last seen: {0}}" Foreground="{StaticResource TextMutedBrush}"/>
+                                    <TextBlock Margin="0,6,0,0" Text="{Binding SelectedProcess.RiskSummary}" Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap"/>
+
+                                    <StackPanel Margin="0,16,0,0" Visibility="{Binding SelectedProcess.HasKnownHosts, Converter={StaticResource BoolToVisibilityConverter}}">
+                                        <TextBlock Text="Known hosts" Style="{StaticResource HistorySectionTitleStyle}"/>
+                                        <ItemsControl Margin="0,8,0,0" ItemsSource="{Binding SelectedProcess.KnownHosts}" ItemTemplate="{StaticResource HistoryDetailTemplate}"/>
+                                    </StackPanel>
+
+                                    <StackPanel Margin="0,16,0,0" Visibility="{Binding SelectedProcess.HasSessionAppearances, Converter={StaticResource BoolToVisibilityConverter}}">
+                                        <TextBlock Text="Session appearances" Style="{StaticResource HistorySectionTitleStyle}"/>
+                                        <ItemsControl Margin="0,8,0,0" ItemsSource="{Binding SelectedProcess.SessionAppearances}" ItemTemplate="{StaticResource HistoryDetailTemplate}"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Grid>
+                        </ScrollViewer>
+                    </Border>
+                </Grid>
+            </TabItem>
+
+            <TabItem Header="Hosts">
+                <Grid Margin="0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="6"/>
+                        <ColumnDefinition Width="420"/>
+                    </Grid.ColumnDefinitions>
+
+                    <Grid Grid.Column="0">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+
+                        <TextBox Margin="0,0,0,8"
+                                 MinHeight="28"
+                                 Padding="8,3"
+                                 VerticalContentAlignment="Center"
+                                 Text="{Binding HostSearchText, UpdateSourceTrigger=PropertyChanged, Delay=250}"/>
+
+                        <Border Grid.Row="1" Style="{StaticResource SectionCardStyle}">
+                            <DataGrid ItemsSource="{Binding HostsView}"
+                                      SelectedItem="{Binding SelectedHost}"
+                                      Style="{StaticResource AppTableDataGridStyle}"
+                                      AutoGenerateColumns="False"
+                                      IsReadOnly="True">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="Host" Binding="{Binding DisplayHost}" Width="190"/>
+                                    <DataGridTextColumn Header="IP" Binding="{Binding Ip}" Width="150"/>
+                                    <DataGridTextColumn Header="Last Seen" Binding="{Binding LastSeenLabel}" Width="150"/>
+                                    <DataGridTextColumn Header="Sessions" Binding="{Binding SessionsCount}" Width="80"/>
+                                    <DataGridTextColumn Header="Bytes" Binding="{Binding TotalBytesLabel}" Width="90"/>
+                                    <DataGridTextColumn Header="Processes" Binding="{Binding ProcessSummary}" Width="180"/>
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </Border>
+                    </Grid>
+
+                    <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch"/>
+
+                    <Border Grid.Column="2" Margin="12,0,0,0" Style="{StaticResource SectionCardStyle}">
+                        <ScrollViewer VerticalScrollBarVisibility="Hidden" Margin="14">
+                            <Grid>
+                                <StackPanel Visibility="{Binding SelectedHost, Converter={StaticResource NullToVisibilityConverter}}">
+                                    <TextBlock Foreground="{StaticResource TextMutedBrush}" Text="No host selected."/>
+                                </StackPanel>
+
+                                <StackPanel Visibility="{Binding SelectedHost, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}">
+                                    <TextBlock Text="{Binding SelectedHost.DisplayHost}" FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}"/>
+                                    <TextBlock Margin="0,4,0,0" Text="{Binding SelectedHost.Ip}" Foreground="{StaticResource TextMutedBrush}"/>
+                                    <TextBlock Margin="0,4,0,0" Text="{Binding SelectedHost.Scope}" Foreground="{StaticResource TextMutedBrush}"/>
+                                    <TextBlock Margin="0,8,0,0" Text="{Binding SelectedHost.TotalPacketsLabel}" Foreground="{StaticResource TextMutedBrush}"/>
+                                    <TextBlock Margin="0,2,0,0" Text="{Binding SelectedHost.TotalBytesLabel}" Foreground="{StaticResource TextMutedBrush}"/>
+                                    <TextBlock Margin="0,2,0,0" Text="{Binding SelectedHost.FirstSeenLabel, StringFormat=First seen: {0}}" Foreground="{StaticResource TextMutedBrush}"/>
+                                    <TextBlock Margin="0,2,0,0" Text="{Binding SelectedHost.LastSeenLabel, StringFormat=Last seen: {0}}" Foreground="{StaticResource TextMutedBrush}"/>
+
+                                    <StackPanel Margin="0,16,0,0" Visibility="{Binding SelectedHost.HasProcesses, Converter={StaticResource BoolToVisibilityConverter}}">
+                                        <TextBlock Text="Processes" Style="{StaticResource HistorySectionTitleStyle}"/>
+                                        <ItemsControl Margin="0,8,0,0" ItemsSource="{Binding SelectedHost.Processes}" ItemTemplate="{StaticResource HistoryDetailTemplate}"/>
+                                    </StackPanel>
+
+                                    <StackPanel Margin="0,16,0,0" Visibility="{Binding SelectedHost.HasDnsNames, Converter={StaticResource BoolToVisibilityConverter}}">
+                                        <TextBlock Text="DNS names" Style="{StaticResource HistorySectionTitleStyle}"/>
+                                        <ItemsControl Margin="0,8,0,0" ItemsSource="{Binding SelectedHost.DnsNames}" ItemTemplate="{StaticResource HistoryDetailTemplate}"/>
+                                    </StackPanel>
+
+                                    <StackPanel Margin="0,16,0,0" Visibility="{Binding SelectedHost.HasTlsNames, Converter={StaticResource BoolToVisibilityConverter}}">
+                                        <TextBlock Text="TLS / names" Style="{StaticResource HistorySectionTitleStyle}"/>
+                                        <ItemsControl Margin="0,8,0,0" ItemsSource="{Binding SelectedHost.TlsNames}" ItemTemplate="{StaticResource HistoryDetailTemplate}"/>
+                                    </StackPanel>
+
+                                    <StackPanel Margin="0,16,0,0" Visibility="{Binding SelectedHost.HasSessionAppearances, Converter={StaticResource BoolToVisibilityConverter}}">
+                                        <TextBlock Text="Session appearances" Style="{StaticResource HistorySectionTitleStyle}"/>
+                                        <ItemsControl Margin="0,8,0,0" ItemsSource="{Binding SelectedHost.SessionAppearances}" ItemTemplate="{StaticResource HistoryDetailTemplate}"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Grid>
+                        </ScrollViewer>
+                    </Border>
+                </Grid>
+            </TabItem>
+        </TabControl>
+    </Grid>
+</UserControl>

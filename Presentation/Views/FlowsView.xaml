@@ -5,70 +5,17 @@
              xmlns:helpers="clr-namespace:Presentation.Helpers">
 
     <UserControl.Resources>
-        <SolidColorBrush x:Key="PageBg" Color="#FFF3F4F6"/>
-        <SolidColorBrush x:Key="CardBg" Color="#FFFFFFFF"/>
-        <SolidColorBrush x:Key="CardBorder" Color="#FFE5E7EB"/>
-        <SolidColorBrush x:Key="MutedText" Color="#FF6B7280"/>
-        <SolidColorBrush x:Key="Accent" Color="#FF007ACC"/>
-
         <helpers:NullToVisibilityConverter x:Key="NullToVisibilityConverter"/>
-
-        <Style x:Key="CardBorderStyle" TargetType="Border">
-            <Setter Property="Background" Value="{StaticResource CardBg}"/>
-            <Setter Property="BorderBrush" Value="{StaticResource CardBorder}"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="CornerRadius" Value="10"/>
-            <Setter Property="SnapsToDevicePixels" Value="True"/>
-            <Setter Property="Effect">
-                <Setter.Value>
-                    <DropShadowEffect Color="#11000000" BlurRadius="12" ShadowDepth="2" Opacity="1"/>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <Style x:Key="ChipButtonStyle" TargetType="Button">
-            <Setter Property="Padding" Value="10,3"/>
-            <Setter Property="Background" Value="#FFF8FAFC"/>
-            <Setter Property="BorderBrush" Value="#FFD1D5DB"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Foreground" Value="#FF111827"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border Background="{TemplateBinding Background}"
-                                BorderBrush="{TemplateBinding BorderBrush}"
-                                BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="8"
-                                Padding="{TemplateBinding Padding}">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter Property="Background" Value="#FFEEF6FF"/>
-                                <Setter Property="BorderBrush" Value="#FF9CC7F3"/>
-                            </Trigger>
-                            <Trigger Property="IsPressed" Value="True">
-                                <Setter Property="Background" Value="#FFE3F0FF"/>
-                            </Trigger>
-                            <Trigger Property="IsEnabled" Value="False">
-                                <Setter Property="Opacity" Value="0.55"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
 
         <DataTemplate x:Key="FlowDetailsTemplate" DataType="{x:Type domain:FlowInfo}">
             <StackPanel>
-                <TextBlock FontWeight="SemiBold" FontSize="13" Foreground="#FF111827"
+                <TextBlock FontWeight="SemiBold" FontSize="13" Foreground="{StaticResource TextPrimaryBrush}"
                            Text="{Binding Protocol, StringFormat={}{0} flow}" />
 
-                <TextBlock Margin="0,6,0,0" Foreground="{StaticResource MutedText}" Text="Local" FontSize="11" />
+                <TextBlock Margin="0,6,0,0" Foreground="{StaticResource TextMutedBrush}" Text="Local" FontSize="11" />
                 <TextBlock Text="{Binding LocalEndpoint}" TextWrapping="Wrap"/>
 
-                <TextBlock Margin="0,10,0,0" Foreground="{StaticResource MutedText}" Text="Remote" FontSize="11" />
+                <TextBlock Margin="0,10,0,0" Foreground="{StaticResource TextMutedBrush}" Text="Remote" FontSize="11" />
                 <TextBlock Text="{Binding RemoteEndpoint}" TextWrapping="Wrap"/>
 
                 <Separator Margin="0,12,0,12"/>
@@ -85,77 +32,77 @@
                     </Grid.RowDefinitions>
 
                     <StackPanel Grid.Row="0" Grid.Column="0">
-                        <TextBlock Foreground="{StaticResource MutedText}" FontSize="11" Text="Direction"/>
+                        <TextBlock Foreground="{StaticResource TextMutedBrush}" FontSize="11" Text="Direction"/>
                         <TextBlock FontWeight="SemiBold" Text="{Binding Dir}"/>
                     </StackPanel>
                     <StackPanel Grid.Row="0" Grid.Column="1">
-                        <TextBlock Foreground="{StaticResource MutedText}" FontSize="11" Text="Duration"/>
+                        <TextBlock Foreground="{StaticResource TextMutedBrush}" FontSize="11" Text="Duration"/>
                         <TextBlock FontWeight="SemiBold" Text="{Binding Duration}"/>
                     </StackPanel>
 
                     <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,10,0,0">
-                        <TextBlock Foreground="{StaticResource MutedText}" FontSize="11" Text="Packets"/>
+                        <TextBlock Foreground="{StaticResource TextMutedBrush}" FontSize="11" Text="Packets"/>
                         <TextBlock FontWeight="SemiBold" Text="{Binding Packets, StringFormat={}{0:N0}}"/>
                     </StackPanel>
                     <StackPanel Grid.Row="1" Grid.Column="1" Margin="0,10,0,0">
-                        <TextBlock Foreground="{StaticResource MutedText}" FontSize="11" Text="Bytes"/>
+                        <TextBlock Foreground="{StaticResource TextMutedBrush}" FontSize="11" Text="Bytes"/>
                         <TextBlock FontWeight="SemiBold" Text="{Binding Bytes, StringFormat={}{0:N0}}"/>
                     </StackPanel>
 
                     <StackPanel Grid.Row="2" Grid.Column="0" Margin="0,10,0,0">
-                        <TextBlock Foreground="{StaticResource MutedText}" FontSize="11" Text="First"/>
+                        <TextBlock Foreground="{StaticResource TextMutedBrush}" FontSize="11" Text="First"/>
                         <TextBlock Text="{Binding FirstSeen, StringFormat={}{0:HH:mm:ss}}"/>
                     </StackPanel>
                     <StackPanel Grid.Row="2" Grid.Column="1" Margin="0,10,0,0">
-                        <TextBlock Foreground="{StaticResource MutedText}" FontSize="11" Text="Last"/>
+                        <TextBlock Foreground="{StaticResource TextMutedBrush}" FontSize="11" Text="Last"/>
                         <TextBlock Text="{Binding LastSeen, StringFormat={}{0:HH:mm:ss}}"/>
                     </StackPanel>
                 </Grid>
 
                 <Separator Margin="0,12,0,12"/>
 
-                <TextBlock FontWeight="SemiBold" Foreground="#FF111827" Text="Traffic split"/>
+                <TextBlock FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}" Text="Traffic split"/>
                 <Grid Margin="0,8,0,0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
                     <StackPanel Grid.Column="0">
-                        <TextBlock Foreground="{StaticResource MutedText}" FontSize="11" Text="A → B"/>
+                        <TextBlock Foreground="{StaticResource TextMutedBrush}" FontSize="11" Text="A → B"/>
                         <TextBlock Text="{Binding PacketsAToB, StringFormat={}{0:N0} pkts}"/>
-                        <TextBlock Foreground="{StaticResource MutedText}" FontSize="11" Text="{Binding BytesAToB, StringFormat={}{0:N0} bytes}"/>
+                        <TextBlock Foreground="{StaticResource TextMutedBrush}" FontSize="11" Text="{Binding BytesAToB, StringFormat={}{0:N0} bytes}"/>
                     </StackPanel>
                     <StackPanel Grid.Column="1">
-                        <TextBlock Foreground="{StaticResource MutedText}" FontSize="11" Text="B → A"/>
+                        <TextBlock Foreground="{StaticResource TextMutedBrush}" FontSize="11" Text="B → A"/>
                         <TextBlock Text="{Binding PacketsBToA, StringFormat={}{0:N0} pkts}"/>
-                        <TextBlock Foreground="{StaticResource MutedText}" FontSize="11" Text="{Binding BytesBToA, StringFormat={}{0:N0} bytes}"/>
+                        <TextBlock Foreground="{StaticResource TextMutedBrush}" FontSize="11" Text="{Binding BytesBToA, StringFormat={}{0:N0} bytes}"/>
                     </StackPanel>
                 </Grid>
 
                 <Separator Margin="0,12,0,12"/>
 
-                <TextBlock FontWeight="SemiBold" Foreground="#FF111827" Text="Local (sent / recv)"/>
+                <TextBlock FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}" Text="Local (sent / recv)"/>
                 <Grid Margin="0,8,0,0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
                     <StackPanel Grid.Column="0">
-                        <TextBlock Foreground="{StaticResource MutedText}" FontSize="11" Text="Sent"/>
+                        <TextBlock Foreground="{StaticResource TextMutedBrush}" FontSize="11" Text="Sent"/>
                         <TextBlock Text="{Binding SentPackets, StringFormat={}{0:N0} pkts}"/>
-                        <TextBlock Foreground="{StaticResource MutedText}" FontSize="11" Text="{Binding SentBytes, StringFormat={}{0:N0} bytes}"/>
+                        <TextBlock Foreground="{StaticResource TextMutedBrush}" FontSize="11" Text="{Binding SentBytes, StringFormat={}{0:N0} bytes}"/>
                     </StackPanel>
                     <StackPanel Grid.Column="1">
-                        <TextBlock Foreground="{StaticResource MutedText}" FontSize="11" Text="Recv"/>
+                        <TextBlock Foreground="{StaticResource TextMutedBrush}" FontSize="11" Text="Recv"/>
                         <TextBlock Text="{Binding RecvPackets, StringFormat={}{0:N0} pkts}"/>
-                        <TextBlock Foreground="{StaticResource MutedText}" FontSize="11" Text="{Binding RecvBytes, StringFormat={}{0:N0} bytes}"/>
+                        <TextBlock Foreground="{StaticResource TextMutedBrush}" FontSize="11" Text="{Binding RecvBytes, StringFormat={}{0:N0} bytes}"/>
                     </StackPanel>
                 </Grid>
             </StackPanel>
         </DataTemplate>
     </UserControl.Resources>
 
-    <Grid Background="{StaticResource PageBg}">
+    <Grid x:Name="FlowsLayout" Background="{StaticResource AppBackgroundBrush}">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*"/>
             <ColumnDefinition Width="6"/>
@@ -163,19 +110,13 @@
         </Grid.ColumnDefinitions>
 
         <Border Grid.Column="0"
-                Margin="10"
-                Background="White"
-                BorderBrush="#FFD0D0D0"
-                BorderThickness="1"
-                CornerRadius="0">
+                Margin="0"
+                Style="{StaticResource SectionCardStyle}">
             <DataGrid ItemsSource="{Binding Flows}"
                       SelectedItem="{Binding SelectedFlow}"
+                      Style="{StaticResource AppTableDataGridStyle}"
                       IsReadOnly="True"
-                      AutoGenerateColumns="False"
-                      EnableRowVirtualization="True"
-                      EnableColumnVirtualization="True"
-                      VirtualizingPanel.IsVirtualizing="True"
-                      VirtualizingPanel.VirtualizationMode="Recycling">
+                      AutoGenerateColumns="False">
 
                 <DataGrid.ContextMenu>
                     <ContextMenu>
@@ -204,26 +145,26 @@
 
         <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
 
-        <Border Grid.Column="2" Margin="0,10,10,10" Style="{StaticResource CardBorderStyle}">
+        <Border Grid.Column="2" Margin="12,0,0,0" Style="{StaticResource SectionCardStyle}">
             <Grid Margin="14">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
                 </Grid.RowDefinitions>
 
-                <TextBlock Grid.Row="0" Text="Flow details" FontWeight="SemiBold" Foreground="#FF111827"/>
+                <TextBlock Grid.Row="0" Text="Flow details" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}"/>
 
                 <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,10,0,0">
                     <Grid>
                         <StackPanel x:Name="NoFlowPlaceholder"
-                                    Visibility="{Binding SelectedFlow, Converter={StaticResource NullToVisibilityConverter}}">
-                            <TextBlock Foreground="{StaticResource MutedText}" Text="No flow selected." />
-                            <TextBlock Foreground="{StaticResource MutedText}" Margin="0,4,0,0" Text="Select a row in the table to see details." />
+                                    Visibility="{Binding DataContext.SelectedFlow, ElementName=FlowsLayout, Converter={StaticResource NullToVisibilityConverter}}">
+                            <TextBlock Foreground="{StaticResource TextMutedBrush}" Text="No flow selected." />
+                            <TextBlock Foreground="{StaticResource TextMutedBrush}" Margin="0,4,0,0" Text="Select a row in the table to see details." />
                         </StackPanel>
 
-                        <ContentPresenter Content="{Binding SelectedFlow}"
+                        <ContentPresenter Content="{Binding DataContext.SelectedFlow, ElementName=FlowsLayout}"
                                           ContentTemplate="{StaticResource FlowDetailsTemplate}"
-                                          Visibility="{Binding SelectedFlow, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}" />
+                                          Visibility="{Binding DataContext.SelectedFlow, ElementName=FlowsLayout, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}" />
                     </Grid>
                 </ScrollViewer>
             </Grid>

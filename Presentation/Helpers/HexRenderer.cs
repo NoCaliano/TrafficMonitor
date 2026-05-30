@@ -9,9 +9,15 @@ public static class HexRenderer
 {
     public static FlowDocument Render(byte[] bytes, (int start, int length)? highlight)
     {
+        Brush offsetBrush = ResolveBrush("HexOffsetBrush", Brushes.Gray);
+        Brush selectionBackgroundBrush = ResolveBrush("HexSelectionBackgroundBrush", Brushes.LightGoldenrodYellow);
+        Brush selectionForegroundBrush = ResolveBrush("HexSelectionForegroundBrush", Brushes.Black);
+        Brush documentForegroundBrush = ResolveBrush("TextPrimaryBrush", Brushes.Black);
+
         var doc = new FlowDocument
         {
-            PagePadding = new Thickness(0)
+            PagePadding = new Thickness(0),
+            Foreground = documentForegroundBrush
         };
 
         if (bytes == null || bytes.Length == 0)
@@ -26,7 +32,7 @@ public static class HexRenderer
         for (int i = 0; i < bytes.Length; i += bytesPerLine)
         {
             // offset
-            para.Inlines.Add(new Run(i.ToString("X8") + "  "));
+            para.Inlines.Add(new Run(i.ToString("X8") + "  ") { Foreground = offsetBrush });
 
             int lineLen = Math.Min(bytesPerLine, bytes.Length - i);
 
@@ -39,7 +45,10 @@ public static class HexRenderer
                     var run = new Run(bytes[idx].ToString("X2") + " ");
 
                     if (highlight.HasValue && idx >= start && idx < end)
-                        run.Background = Brushes.LightGoldenrodYellow;
+                    {
+                        run.Background = selectionBackgroundBrush;
+                        run.Foreground = selectionForegroundBrush;
+                    }
 
                     para.Inlines.Add(run);
                 }
@@ -51,7 +60,7 @@ public static class HexRenderer
                 if (j == 7) para.Inlines.Add(new Run(" "));
             }
 
-            para.Inlines.Add(new Run(" |"));
+            para.Inlines.Add(new Run(" |") { Foreground = offsetBrush });
 
             // ascii
             for (int j = 0; j < lineLen; j++)
@@ -62,16 +71,25 @@ public static class HexRenderer
 
                 var run = new Run(c.ToString());
                 if (highlight.HasValue && idx >= start && idx < end)
-                    run.Background = Brushes.LightGoldenrodYellow;
+                {
+                    run.Background = selectionBackgroundBrush;
+                    run.Foreground = selectionForegroundBrush;
+                }
 
                 para.Inlines.Add(run);
             }
 
-            para.Inlines.Add(new Run("|"));
+            para.Inlines.Add(new Run("|") { Foreground = offsetBrush });
             para.Inlines.Add(new LineBreak());
         }
 
         doc.Blocks.Add(para);
         return doc;
+    }
+
+    private static Brush ResolveBrush(string resourceKey, Brush fallback)
+    {
+        object? resource = System.Windows.Application.Current?.TryFindResource(resourceKey);
+        return resource as Brush ?? fallback;
     }
 }

@@ -4,6 +4,7 @@ using Presentation.Helpers;
 using System.Linq;
 using System;
 using System.Windows.Input;
+using Application.Abstractions;
 
 namespace Presentation.ViewModels;
 

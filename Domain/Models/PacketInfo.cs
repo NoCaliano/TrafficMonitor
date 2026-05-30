@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Net;
 
 // Відповідає за модель відображення пакета в системі (дані для UI/агрегації/експорту).
@@ -20,7 +21,8 @@ public sealed class PacketInfo
     public IPAddress? SrcIpAddress { get; init; }
     public IPAddress? DstIpAddress { get; init; }
 
-    public string Protocol { get; init; } = "";   // "TCP", "UDP", "ICMP", "ARP", ...
+    public string Protocol { get; init; } = "";   // "TCP", "DNS", "TLSv1.2", "QUIC", ...
+    public string TransportProtocol { get; init; } = "";   // "TCP", "UDP", "IGMP", ...
     public int? SrcPort { get; init; }
     public int? DstPort { get; init; }
     public int? Pid { get; init; }
@@ -30,6 +32,15 @@ public sealed class PacketInfo
 
     public string TcpFlags { get; init; } = "";   // "SYN, ACK" ...
     public string Info { get; init; } = "";       // короткий опис (DNS query / TCP handshake / etc.)
+    public string DnsQueryName { get; init; } = "";
+    public IReadOnlyList<string> DnsAnswerIps { get; init; } = Array.Empty<string>();
+    public string ServerNameHint { get; init; } = "";
+    public string TlsClientFingerprintKind { get; init; } = "";
+    public string TlsClientFingerprint { get; init; } = "";
+    public string TlsHandshakeType { get; init; } = "";
+    public string TlsCertificateFingerprint { get; init; } = "";
+    public IReadOnlyList<string> TlsCertificateNames { get; init; } = Array.Empty<string>();
+    public string TlsCertificateSubject { get; init; } = "";
     // Відповідає за збереження сирих даних пакета: зберігаємо лише id у RawBytesStore
     public int? RawBytesId { get; init; }
 

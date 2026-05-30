@@ -1,0 +1,284 @@
+<Window x:Class="Presentation.Views.NotificationSettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Notification Settings"
+        SizeToContent="WidthAndHeight"
+        MinWidth="520"
+        MaxHeight="780"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        WindowStyle="ToolWindow"
+        ShowInTaskbar="False">
+
+    <Border Padding="18" Background="{StaticResource WindowBackgroundBrush}">
+        <ScrollViewer VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="14"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <StackPanel>
+                    <TextBlock Text="Windows Notifications" Style="{StaticResource ViewTitleTextStyle}"/>
+                    <TextBlock Margin="0,4,0,0"
+                               Style="{StaticResource SectionCaptionTextStyle}"
+                               Text="Shell notifications stay visible even when the main window is minimized."/>
+                </StackPanel>
+
+                <Grid Grid.Row="2">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="12"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="12"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="14"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="14"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <CheckBox Grid.Row="0"
+                              Content="Enable Windows notifications"
+                              IsChecked="{Binding NotificationsEnabled, Mode=TwoWay}"/>
+
+                    <Border Grid.Row="2"
+                            Padding="14,12"
+                            Background="{StaticResource CardAltBrush}"
+                            BorderBrush="{StaticResource BorderBrushSoft}"
+                            BorderThickness="1"
+                            CornerRadius="10">
+                        <StackPanel>
+                            <TextBlock Text="Quick mute"
+                                       FontWeight="SemiBold"
+                                       Foreground="{StaticResource TextPrimaryBrush}"/>
+                            <TextBlock Margin="0,4,0,0"
+                                       Foreground="{StaticResource TextMutedBrush}"
+                                       FontSize="11"
+                                       Text="These actions apply immediately and suppress Windows tray notifications, including rule alerts."/>
+                            <Border Margin="0,10,0,0"
+                                    Padding="10,8"
+                                    Background="{StaticResource SurfaceBrush}"
+                                    BorderBrush="{StaticResource BorderBrushSoft}"
+                                    BorderThickness="1"
+                                    CornerRadius="8">
+                                <TextBlock Text="{Binding NotificationSnoozeStatus}"
+                                           FontWeight="SemiBold"
+                                           Foreground="{StaticResource TextPrimaryBrush}"/>
+                            </Border>
+                            <StackPanel Margin="0,10,0,0"
+                                        Orientation="Horizontal">
+                                <Button Content="Mute 1 hour"
+                                        MinWidth="96"
+                                        Margin="0,0,8,0"
+                                        Command="{Binding SnoozeForOneHourCommand}"/>
+                                <Button Content="Mute 24 hours"
+                                        MinWidth="110"
+                                        Margin="0,0,8,0"
+                                        Command="{Binding SnoozeForTwentyFourHoursCommand}"/>
+                                <Button Content="Unmute"
+                                        MinWidth="90"
+                                        Command="{Binding ClearNotificationSnoozeCommand}"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Grid.Row="4"
+                            Padding="14,12"
+                            Background="{StaticResource SurfaceBrush}"
+                            BorderBrush="{StaticResource BorderBrushSoft}"
+                            BorderThickness="1"
+                            CornerRadius="10">
+                        <StackPanel>
+                            <CheckBox Content="Notify when a new process first shows network activity"
+                                      IsChecked="{Binding NewProcessNotificationsEnabled, Mode=TwoWay}"
+                                      IsEnabled="{Binding NotificationsEnabled}"/>
+                            <TextBlock Margin="24,4,0,10"
+                                       Foreground="{StaticResource TextMutedBrush}"
+                                       FontSize="11"
+                                       Text="Repeated instances of the same executable are suppressed for the current live capture session."/>
+
+                            <CheckBox Content="Notify when a process crosses the risk score threshold"
+                                      IsChecked="{Binding RiskScoreNotificationsEnabled, Mode=TwoWay}"
+                                      IsEnabled="{Binding NotificationsEnabled}"/>
+
+                            <StackPanel Margin="24,6,0,10"
+                                        IsEnabled="{Binding RiskScoreNotificationsEnabled}">
+                                <TextBlock Foreground="{StaticResource TextMutedBrush}"
+                                           FontSize="11"
+                                           Text="Risk score threshold"/>
+                                <DockPanel Margin="0,6,0,0" LastChildFill="False">
+                                    <Slider Minimum="1"
+                                            Maximum="100"
+                                            Value="{Binding RiskScoreThreshold, Mode=TwoWay}"
+                                            TickFrequency="5"
+                                            IsSnapToTickEnabled="False"
+                                            Width="260"/>
+                                    <Border Margin="12,0,0,0"
+                                            Padding="10,4"
+                                            Background="{StaticResource CardAltBrush}"
+                                            BorderBrush="{StaticResource BorderBrushSoft}"
+                                            BorderThickness="1"
+                                            CornerRadius="8">
+                                        <TextBlock Text="{Binding RiskScoreThresholdLabel}"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="{StaticResource TextPrimaryBrush}"/>
+                                    </Border>
+                                </DockPanel>
+                            </StackPanel>
+
+                            <CheckBox Content="Notify when beaconing is detected"
+                                      IsChecked="{Binding BeaconNotificationsEnabled, Mode=TwoWay}"
+                                      IsEnabled="{Binding NotificationsEnabled}"/>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Grid.Row="6"
+                            Padding="14,12"
+                            Background="{StaticResource SurfaceBrush}"
+                            BorderBrush="{StaticResource BorderBrushSoft}"
+                            BorderThickness="1"
+                            CornerRadius="10"
+                            IsEnabled="{Binding NotificationsEnabled}">
+                        <StackPanel>
+                            <CheckBox Content="Notify when soft traffic quotas are exceeded"
+                                      IsChecked="{Binding QuotaNotificationsEnabled, Mode=TwoWay}"/>
+                            <TextBlock Margin="24,4,0,10"
+                                       Foreground="{StaticResource TextMutedBrush}"
+                                       FontSize="11"
+                                       Text="Quota alerts are informational only for now. They notify and write timeline events, but do not auto-block traffic."/>
+
+                            <Border Padding="12"
+                                    Background="{StaticResource CardAltBrush}"
+                                    BorderBrush="{StaticResource BorderBrushSoft}"
+                                    BorderThickness="1"
+                                    CornerRadius="8"
+                                    IsEnabled="{Binding QuotaNotificationsEnabled}">
+                                <StackPanel>
+                                    <CheckBox Content="Daily process traffic quota"
+                                              IsChecked="{Binding DailyProcessTrafficQuotaEnabled, Mode=TwoWay}"/>
+                                    <TextBlock Margin="24,4,0,0"
+                                               Foreground="{StaticResource TextMutedBrush}"
+                                               FontSize="11"
+                                               Text="Optional process filter. Leave blank to monitor any process, or enter names like chrome, firefox.exe, powershell."/>
+                                    <TextBox Margin="24,6,0,10"
+                                             MinHeight="28"
+                                             Padding="8,3"
+                                             Text="{Binding DailyProcessTrafficProcessFilter, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                             IsEnabled="{Binding DailyProcessTrafficQuotaEnabled}"/>
+                                    <TextBlock Margin="24,0,0,0"
+                                               Foreground="{StaticResource TextMutedBrush}"
+                                               FontSize="11"
+                                               Text="Daily traffic threshold"/>
+                                    <DockPanel Margin="24,6,0,12" LastChildFill="False" IsEnabled="{Binding DailyProcessTrafficQuotaEnabled}">
+                                        <Slider Minimum="10"
+                                                Maximum="5000"
+                                                Value="{Binding DailyProcessTrafficQuotaMb, Mode=TwoWay}"
+                                                TickFrequency="50"
+                                                IsSnapToTickEnabled="False"
+                                                Width="260"/>
+                                        <Border Margin="12,0,0,0"
+                                                Padding="10,4"
+                                                Background="{StaticResource SurfaceBrush}"
+                                                BorderBrush="{StaticResource BorderBrushSoft}"
+                                                BorderThickness="1"
+                                                CornerRadius="8">
+                                            <TextBlock Text="{Binding DailyProcessTrafficQuotaMbLabel}"
+                                                       FontWeight="SemiBold"
+                                                       Foreground="{StaticResource TextPrimaryBrush}"/>
+                                        </Border>
+                                    </DockPanel>
+
+                                    <CheckBox Content="Unknown-host traffic quota"
+                                              IsChecked="{Binding UnknownHostTrafficQuotaEnabled, Mode=TwoWay}"/>
+                                    <TextBlock Margin="24,4,0,0"
+                                               Foreground="{StaticResource TextMutedBrush}"
+                                               FontSize="11"
+                                               Text="Triggers when a process sends or receives too much traffic with a public IP that still has no DNS, SNI or certificate hostname hints."/>
+                                    <DockPanel Margin="24,6,0,12" LastChildFill="False" IsEnabled="{Binding UnknownHostTrafficQuotaEnabled}">
+                                        <Slider Minimum="1"
+                                                Maximum="1024"
+                                                Value="{Binding UnknownHostTrafficQuotaMb, Mode=TwoWay}"
+                                                TickFrequency="5"
+                                                IsSnapToTickEnabled="False"
+                                                Width="260"/>
+                                        <Border Margin="12,0,0,0"
+                                                Padding="10,4"
+                                                Background="{StaticResource SurfaceBrush}"
+                                                BorderBrush="{StaticResource BorderBrushSoft}"
+                                                BorderThickness="1"
+                                                CornerRadius="8">
+                                            <TextBlock Text="{Binding UnknownHostTrafficQuotaMbLabel}"
+                                                       FontWeight="SemiBold"
+                                                       Foreground="{StaticResource TextPrimaryBrush}"/>
+                                        </Border>
+                                    </DockPanel>
+
+                                    <CheckBox Content="DNS burst quota"
+                                              IsChecked="{Binding DnsBurstQuotaEnabled, Mode=TwoWay}"/>
+                                    <TextBlock Margin="24,4,0,0"
+                                               Foreground="{StaticResource TextMutedBrush}"
+                                               FontSize="11"
+                                               Text="Triggers when one process sends too many DNS queries inside a sliding time window."/>
+                                    <DockPanel Margin="24,6,0,0" LastChildFill="False" IsEnabled="{Binding DnsBurstQuotaEnabled}">
+                                        <Slider Minimum="5"
+                                                Maximum="1000"
+                                                Value="{Binding DnsBurstQueryThreshold, Mode=TwoWay}"
+                                                TickFrequency="25"
+                                                IsSnapToTickEnabled="False"
+                                                Width="260"/>
+                                        <Border Margin="12,0,0,0"
+                                                Padding="10,4"
+                                                Background="{StaticResource SurfaceBrush}"
+                                                BorderBrush="{StaticResource BorderBrushSoft}"
+                                                BorderThickness="1"
+                                                CornerRadius="8">
+                                            <TextBlock Text="{Binding DnsBurstQueryThresholdLabel}"
+                                                       FontWeight="SemiBold"
+                                                       Foreground="{StaticResource TextPrimaryBrush}"/>
+                                        </Border>
+                                    </DockPanel>
+                                    <DockPanel Margin="24,6,0,0" LastChildFill="False" IsEnabled="{Binding DnsBurstQuotaEnabled}">
+                                        <Slider Minimum="1"
+                                                Maximum="60"
+                                                Value="{Binding DnsBurstWindowMinutes, Mode=TwoWay}"
+                                                TickFrequency="1"
+                                                IsSnapToTickEnabled="False"
+                                                Width="260"/>
+                                        <Border Margin="12,0,0,0"
+                                                Padding="10,4"
+                                                Background="{StaticResource SurfaceBrush}"
+                                                BorderBrush="{StaticResource BorderBrushSoft}"
+                                                BorderThickness="1"
+                                                CornerRadius="8">
+                                            <TextBlock Text="{Binding DnsBurstWindowMinutesLabel}"
+                                                       FontWeight="SemiBold"
+                                                       Foreground="{StaticResource TextPrimaryBrush}"/>
+                                        </Border>
+                                    </DockPanel>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </Border>
+
+                    <StackPanel Grid.Row="8"
+                                Orientation="Horizontal"
+                                HorizontalAlignment="Right">
+                        <Button Content="Cancel"
+                                MinWidth="90"
+                                Margin="0,0,8,0"
+                                Command="{Binding CancelCommand}"
+                                CommandParameter="{Binding RelativeSource={RelativeSource AncestorType=Window}}"/>
+                        <Button Content="Save"
+                                MinWidth="90"
+                                Style="{StaticResource PrimaryButtonStyle}"
+                                Command="{Binding SaveCommand}"
+                                CommandParameter="{Binding RelativeSource={RelativeSource AncestorType=Window}}"/>
+                    </StackPanel>
+                </Grid>
+            </Grid>
+        </ScrollViewer>
+    </Border>
+</Window>

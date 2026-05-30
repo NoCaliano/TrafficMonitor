@@ -6,85 +6,459 @@
     
     <UserControl.Resources>
         <helpers:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter"/>
+        <helpers:ProtocolBrushConverter x:Key="ProtocolBrushConverter"/>
         <!-- Freezable proxy to allow DataGridColumn (not in visual tree) to bind to the UserControl DataContext -->
         <helpers:BindingProxy x:Key="ViewModelProxy" Data="{Binding}" />
+        <Style x:Key="PacketsFilterButtonStyle" TargetType="Button" BasedOn="{StaticResource ToolbarButtonStyle}">
+            <Setter Property="Padding" Value="8,3"/>
+            <Setter Property="MinHeight" Value="26"/>
+        </Style>
+        <Style x:Key="DisplayFilterToggleButtonStyle" TargetType="Button" BasedOn="{StaticResource ToolbarButtonStyle}">
+            <Setter Property="Padding" Value="6,3"/>
+            <Setter Property="MinHeight" Value="26"/>
+            <Setter Property="MinWidth" Value="28"/>
+        </Style>
+        <Style x:Key="DisplayFilterActionButtonStyle" TargetType="Button" BasedOn="{StaticResource ToolbarButtonStyle}">
+            <Setter Property="Padding" Value="8,3"/>
+            <Setter Property="MinHeight" Value="26"/>
+        </Style>
+        <Style x:Key="HexHeaderButtonStyle" TargetType="Button" BasedOn="{StaticResource ToolbarButtonStyle}">
+            <Setter Property="Padding" Value="4,2"/>
+            <Setter Property="MinHeight" Value="22"/>
+            <Setter Property="MinWidth" Value="24"/>
+            <Setter Property="Margin" Value="8,0,0,0"/>
+            <Setter Property="FontFamily" Value="Segoe UI Emoji"/>
+            <Setter Property="FontSize" Value="13"/>
+        </Style>
+        <Style x:Key="DisplayFilterTextBoxStyle" TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+            <Setter Property="MinHeight" Value="26"/>
+            <Setter Property="Padding" Value="8,3"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="ToolTip" Value="{Binding DisplayFilterHint}"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding HasDisplayFilterError}" Value="True">
+                    <Setter Property="BorderBrush" Value="{StaticResource ValidationErrorBorderBrush}"/>
+                    <Setter Property="BorderThickness" Value="1.5"/>
+                    <Setter Property="Background" Value="{StaticResource ValidationErrorBackgroundBrush}"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="DisplayFilterExampleListBoxStyle" TargetType="ListBox">
+            <Setter Property="Background" Value="{StaticResource CardBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrushSoft}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+            <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Auto"/>
+            <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled"/>
+        </Style>
+        <Style x:Key="DisplayFilterExampleItemStyle" TargetType="ListBoxItem">
+            <Setter Property="Padding" Value="10,8"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="ItemBorder"
+                                Background="{TemplateBinding Background}"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ItemBorder" Property="Background" Value="{StaticResource AccentBrushSoft}"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="ItemBorder" Property="Background" Value="{StaticResource SelectionBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="DisplayFilterPickerItemButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="10,8"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="ButtonBorder"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="8"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ButtonBorder" Property="Background" Value="{StaticResource AccentBrushSoft}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="ButtonBorder" Property="Background" Value="{StaticResource SelectionBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.55"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="DisplayFilterPickerIconButtonStyle" TargetType="Button" BasedOn="{StaticResource DisplayFilterPickerItemButtonStyle}">
+            <Setter Property="MinWidth" Value="30"/>
+            <Setter Property="Padding" Value="6,6"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+        </Style>
     </UserControl.Resources>
     
-    <Grid>
+    <Grid Background="{StaticResource AppBackgroundBrush}">
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="6"/>
-            <RowDefinition Height="260"/>
+            <RowDefinition Height="210"/>
         </Grid.RowDefinitions>
 
+        <Border Grid.Row="0"
+                Margin="0,0,0,8"
+                Padding="5,3"
+                Background="{StaticResource FilterToolbarBackgroundBrush}"
+                BorderBrush="{StaticResource FilterToolbarBorderBrush}"
+                BorderThickness="1"
+                CornerRadius="12">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="8"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="8"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="8"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Grid.Row="0" Grid.Column="0"
+                           VerticalAlignment="Center"
+                           Style="{StaticResource SectionCaptionTextStyle}"
+                           Text="Display filter"/>
+
+                <Button Grid.Row="0" Grid.Column="2"
+                        Content="Filters..."
+                        Command="{Binding OpenFiltersCommand}"
+                        Style="{StaticResource PacketsFilterButtonStyle}"/>
+
+                <Grid x:Name="DisplayFilterInputHost"
+                      Grid.Row="0"
+                      Grid.Column="4"
+                      Grid.ColumnSpan="3">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="8"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="8"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <TextBox x:Name="DisplayFilterInput"
+                             Grid.Column="0"
+                             Style="{StaticResource DisplayFilterTextBoxStyle}"
+                             Text="{Binding DisplayFilterText, UpdateSourceTrigger=PropertyChanged, Delay=350}"
+                             ToolTip="{Binding DisplayFilterHint}"/>
+
+                    <Button Grid.Column="2"
+                            Content="Save"
+                            Command="{Binding SaveCurrentDisplayFilterCommand}"
+                            Style="{StaticResource DisplayFilterActionButtonStyle}"/>
+
+                    <Button Grid.Column="4"
+                            Content="🔽"
+                            Command="{Binding ToggleDisplayFilterExamplesCommand}"
+                            Style="{StaticResource DisplayFilterToggleButtonStyle}"/>
+                </Grid>
+
+                <Popup Grid.Row="1"
+                       Grid.Column="4"
+                       Grid.ColumnSpan="3"
+                       PlacementTarget="{Binding ElementName=DisplayFilterInputHost}"
+                       Placement="Bottom"
+                       HorizontalOffset="0"
+                       VerticalOffset="6"
+                       AllowsTransparency="True"
+                       PopupAnimation="Fade"
+                       StaysOpen="False"
+                       IsOpen="{Binding IsDisplayFilterExamplesOpen, Mode=TwoWay}">
+                    <Border Width="{Binding ActualWidth, ElementName=DisplayFilterInputHost}"
+                            MaxWidth="520"
+                            Background="{StaticResource CardBrush}"
+                            BorderBrush="{StaticResource BorderBrushSoft}"
+                            BorderThickness="1"
+                            CornerRadius="10"
+                            SnapsToDevicePixels="True">
+                        <ScrollViewer MaxHeight="300"
+                                      VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Disabled">
+                            <StackPanel Margin="10">
+                                <DockPanel Margin="0,0,0,8" LastChildFill="False">
+                                    <Button DockPanel.Dock="Left"
+                                            Content="Save current"
+                                            Command="{Binding SaveCurrentDisplayFilterCommand}"
+                                            Style="{StaticResource DisplayFilterActionButtonStyle}"/>
+                                    <Button DockPanel.Dock="Right"
+                                            Content="Clear recent"
+                                            Command="{Binding ClearRecentDisplayFiltersCommand}"
+                                            Style="{StaticResource DisplayFilterActionButtonStyle}"
+                                            Visibility="{Binding HasRecentDisplayFilters, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                </DockPanel>
+
+                                <TextBlock Text="Saved"
+                                           Margin="0,0,0,6"
+                                           Style="{StaticResource SectionCaptionTextStyle}"/>
+                                <TextBlock Text="No saved display filters yet."
+                                           Margin="10,0,0,10"
+                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                           Visibility="{Binding HasSavedDisplayFilters, Converter={StaticResource BoolToVisibilityConverter}, ConverterParameter=Invert}"/>
+                                <ItemsControl ItemsSource="{Binding SavedDisplayFilters}"
+                                              Visibility="{Binding HasSavedDisplayFilters, Converter={StaticResource BoolToVisibilityConverter}}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid Margin="0,0,0,4">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="6"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+                                                <Button Grid.Column="0"
+                                                        Command="{Binding ElementName=PacketsRoot, Path=DataContext.ApplyDisplayFilterSuggestionCommand}"
+                                                        CommandParameter="{Binding}"
+                                                        Style="{StaticResource DisplayFilterPickerItemButtonStyle}">
+                                                    <TextBlock Text="{Binding}"
+                                                               TextWrapping="Wrap"
+                                                               Foreground="{StaticResource TextPrimaryBrush}"/>
+                                                </Button>
+                                                <Button Grid.Column="2"
+                                                        Content="✕"
+                                                        Command="{Binding ElementName=PacketsRoot, Path=DataContext.RemoveSavedDisplayFilterCommand}"
+                                                        CommandParameter="{Binding}"
+                                                        Style="{StaticResource DisplayFilterPickerIconButtonStyle}"
+                                                        ToolTip="Remove saved filter"/>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
+                                <Separator Margin="0,4,0,10"/>
+
+                                <TextBlock Text="Recent"
+                                           Margin="0,0,0,6"
+                                           Style="{StaticResource SectionCaptionTextStyle}"/>
+                                <TextBlock Text="Recent filters appear automatically after you use a valid display filter."
+                                           Margin="10,0,0,10"
+                                           TextWrapping="Wrap"
+                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                           Visibility="{Binding HasRecentDisplayFilters, Converter={StaticResource BoolToVisibilityConverter}, ConverterParameter=Invert}"/>
+                                <ItemsControl ItemsSource="{Binding RecentDisplayFilters}"
+                                              Visibility="{Binding HasRecentDisplayFilters, Converter={StaticResource BoolToVisibilityConverter}}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Button Margin="0,0,0,4"
+                                                    Command="{Binding ElementName=PacketsRoot, Path=DataContext.ApplyDisplayFilterSuggestionCommand}"
+                                                    CommandParameter="{Binding}"
+                                                    Style="{StaticResource DisplayFilterPickerItemButtonStyle}">
+                                                <TextBlock Text="{Binding}"
+                                                           TextWrapping="Wrap"
+                                                           Foreground="{StaticResource TextPrimaryBrush}"/>
+                                            </Button>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
+                                <Separator Margin="0,4,0,10"/>
+
+                                <TextBlock Text="Examples"
+                                           Margin="0,0,0,6"
+                                           Style="{StaticResource SectionCaptionTextStyle}"/>
+                                <ItemsControl ItemsSource="{Binding DisplayFilterExamples}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Button Margin="0,0,0,4"
+                                                    Command="{Binding ElementName=PacketsRoot, Path=DataContext.ApplyDisplayFilterSuggestionCommand}"
+                                                    CommandParameter="{Binding}"
+                                                    Style="{StaticResource DisplayFilterPickerItemButtonStyle}">
+                                                <TextBlock Text="{Binding}"
+                                                           TextWrapping="Wrap"
+                                                           Foreground="{StaticResource TextPrimaryBrush}"/>
+                                            </Button>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </Border>
+                </Popup>
+            </Grid>
+        </Border>
+
         <!-- Packets table -->
-        <DataGrid x:Name="PacketsDataGrid" Grid.Row="0"
-                  ItemsSource="{Binding PacketsView}"
-                  SelectedItem="{Binding SelectedPacket}"
-                  IsReadOnly="True"
-                  AutoGenerateColumns="False"
-                  FontSize="{Binding PacketsTableFontSize}"
-                  EnableRowVirtualization="True"
-                  EnableColumnVirtualization="True"
-                  VirtualizingPanel.IsVirtualizing="True"
-                  VirtualizingPanel.VirtualizationMode="Recycling">
+        <Border Grid.Row="1" Style="{StaticResource SectionCardStyle}">
+            <DataGrid x:Name="PacketsDataGrid"
+                      ItemsSource="{Binding PacketsView}"
+                      SelectedItem="{Binding SelectedPacket}"
+                      IsReadOnly="True"
+                      AutoGenerateColumns="False"
+                      HeadersVisibility="Column"
+                      RowDetailsVisibilityMode="Collapsed"
+                      RowHeaderWidth="0"
+                      ColumnHeaderStyle="{StaticResource AppDataGridColumnHeaderStyle}"
+                      CellStyle="{StaticResource AppDataGridCellStyle}"
+                      RowStyle="{StaticResource AppDataGridRowStyle}"
+                      RowHeaderStyle="{StaticResource AppDataGridRowHeaderHiddenStyle}"
+                      FontSize="{Binding PacketsTableFontSize}"
+                      ScrollViewer.CanContentScroll="True"
+                      ScrollViewer.IsDeferredScrollingEnabled="True"
+                      EnableRowVirtualization="True"
+                      EnableColumnVirtualization="True"
+                      VirtualizingPanel.IsVirtualizing="True"
+                      VirtualizingPanel.VirtualizationMode="Recycling"
+                      VirtualizingPanel.CacheLength="1"
+                      VirtualizingPanel.CacheLengthUnit="Page">
 
-            <DataGrid.Columns>
-                <DataGridTextColumn Header="No" Binding="{Binding No}" Width="60" Visibility="{Binding Data.IsNoColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                <DataGridTextColumn Header="Time" Binding="{Binding Timestamp, StringFormat=HH:mm:ss.fff}" Width="110" Visibility="{Binding Data.IsTimeColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                <DataGridTextColumn Header="Src" Binding="{Binding SrcIp}" Width="140" Visibility="{Binding Data.IsSrcColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                <DataGridTextColumn Header="Dst" Binding="{Binding DstIp}" Width="140" Visibility="{Binding Data.IsDstColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                <DataGridTextColumn Header="Proto" Binding="{Binding Protocol}" Width="60" Visibility="{Binding Data.IsProtoColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                <DataGridTextColumn Header="SPort" Binding="{Binding SrcPort}" Width="60" Visibility="{Binding Data.IsSPortColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                <DataGridTextColumn Header="DPort" Binding="{Binding DstPort}" Width="60" Visibility="{Binding Data.IsDPortColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                <DataGridTextColumn Header="Len" Binding="{Binding Length}" Width="70" Visibility="{Binding Data.IsLenColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                <DataGridTextColumn Header="Flags" Binding="{Binding TcpFlags}" Width="110" Visibility="{Binding Data.IsFlagsColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                <DataGridTextColumn Header="PID" Binding="{Binding Pid}" Width="70" Visibility="{Binding Data.IsPidColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                <DataGridTextColumn Header="Process" Binding="{Binding ProcessName}" Width="130" Visibility="{Binding Data.IsProcessColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                <DataGridTextColumn Header="Info" Binding="{Binding Info}" Width="*" Visibility="{Binding Data.IsInfoColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
-            </DataGrid.Columns>
-        </DataGrid>
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="No" Binding="{Binding No}" Width="60" Visibility="{Binding Data.IsNoColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                    <DataGridTextColumn Header="Time" Binding="{Binding Timestamp, StringFormat=HH:mm:ss.fff}" Width="110" Visibility="{Binding Data.IsTimeColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                    <DataGridTextColumn Header="Src" Binding="{Binding SrcIp}" Width="140" Visibility="{Binding Data.IsSrcColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                    <DataGridTextColumn Header="Dst" Binding="{Binding DstIp}" Width="140" Visibility="{Binding Data.IsDstColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                    <DataGridTemplateColumn Header="Proto" Width="84" Visibility="{Binding Data.IsProtoColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <Border Background="{Binding Protocol, Converter={StaticResource ProtocolBrushConverter}}"
+                                        BorderBrush="{Binding Protocol, Converter={StaticResource ProtocolBrushConverter}, ConverterParameter=Border}"
+                                        BorderThickness="1"
+                                        CornerRadius="8"
+                                        Padding="6,2"
+                                        HorizontalAlignment="Left">
+                                    <TextBlock Text="{Binding Protocol}"
+                                               FontSize="11"
+                                               FontWeight="SemiBold"
+                                               Foreground="{StaticResource ProtocolChipTextBrush}"/>
+                                </Border>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                    <DataGridTextColumn Header="SPort" Binding="{Binding SrcPort}" Width="60" Visibility="{Binding Data.IsSPortColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                    <DataGridTextColumn Header="DPort" Binding="{Binding DstPort}" Width="60" Visibility="{Binding Data.IsDPortColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                    <DataGridTextColumn Header="Len" Binding="{Binding Length}" Width="70" Visibility="{Binding Data.IsLenColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                    <DataGridTextColumn Header="Flags" Binding="{Binding TcpFlags}" Width="110" Visibility="{Binding Data.IsFlagsColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                    <DataGridTextColumn Header="PID" Binding="{Binding Pid}" Width="70" Visibility="{Binding Data.IsPidColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                    <DataGridTextColumn Header="Process" Binding="{Binding ProcessName}" Width="130" Visibility="{Binding Data.IsProcessColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                    <DataGridTextColumn Header="Info" Binding="{Binding Info}" Width="*" Visibility="{Binding Data.IsInfoColumnVisible, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                </DataGrid.Columns>
+            </DataGrid>
+        </Border>
 
-        <GridSplitter Grid.Row="1" Height="6" HorizontalAlignment="Stretch"/>
+        <GridSplitter Grid.Row="2" Height="6" HorizontalAlignment="Stretch"/>
 
-        <!-- Details + Hex -->
-        <Grid Grid.Row="2">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="6"/>
-                <ColumnDefinition Width="*"/>
-            </Grid.ColumnDefinitions>
+        <!-- Packet Details -->
+        <Grid Grid.Row="3">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="1.1*"/>
+                    <ColumnDefinition Width="10"/>
+                    <ColumnDefinition Width="1.35*"/>
+                </Grid.ColumnDefinitions>
 
-            <GroupBox Grid.Column="0" Header="Packet Details" Margin="0">
-                <TreeView ItemsSource="{Binding ProtocolRoots}"
-                          PreviewMouseMove="ProtocolTree_PreviewMouseMove"
-                          MouseLeave="ProtocolTree_MouseLeave">
-                    <TreeView.Resources>
-                        <HierarchicalDataTemplate DataType="{x:Type helpers:ProtocolNode}" ItemsSource="{Binding Items}">
-                            <TextBlock Text="{Binding Header}" />
-                        </HierarchicalDataTemplate>
+                <Border Grid.Column="0"
+                        Style="{StaticResource SectionCardStyle}"
+                        Padding="10"
+                        Background="{StaticResource CardAltBrush}">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
 
-                        <Style TargetType="{x:Type TreeViewItem}">
-                            <EventSetter Event="MouseEnter" Handler="ProtocolTreeItem_MouseEnter"/>
-                            <EventSetter Event="Selected" Handler="ProtocolTreeItem_Selected"/>
-                            <!-- ensure DataContext is used for Tag when generated containers are created -->
-                            <Setter Property="Tag" Value="{Binding Tag, Mode=OneWay}" />
-                        </Style>
-                    </TreeView.Resources>
-                </TreeView>
-            </GroupBox>
+                        <TextBlock Text="Protocol"
+                                   FontWeight="SemiBold"
+                                   Foreground="{StaticResource TextPrimaryBrush}"/>
 
-            <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch"/>
+                        <TreeView Grid.Row="1"
+                                  Margin="0,8,0,0"
+                                  ItemsSource="{Binding ProtocolRoots}"
+                                  HorizontalContentAlignment="Stretch"
+                                  VerticalContentAlignment="Center"
+                                  ScrollViewer.CanContentScroll="True"
+                                  VirtualizingPanel.IsVirtualizing="True"
+                                  VirtualizingPanel.VirtualizationMode="Recycling">
+                            <TreeView.ItemContainerStyle>
+                                <Style TargetType="{x:Type TreeViewItem}">
+                                    <EventSetter Event="PreviewMouseLeftButtonUp" Handler="ProtocolTreeItem_PreviewMouseLeftButtonUp"/>
+                                    <Setter Property="Tag" Value="{Binding Tag, Mode=OneWay}" />
+                                    <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+                                    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                    <Setter Property="VerticalContentAlignment" Value="Center"/>
+                                    <Style.Triggers>
+                                        <Trigger Property="IsSelected" Value="True">
+                                            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+                                        </Trigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TreeView.ItemContainerStyle>
+                            <TreeView.Resources>
+                                <StaticResource x:Key="{x:Static SystemColors.HighlightBrushKey}" ResourceKey="SelectionBrush"/>
+                                <StaticResource x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}" ResourceKey="SelectionInactiveBrush"/>
+                                <StaticResource x:Key="{x:Static SystemColors.HighlightTextBrushKey}" ResourceKey="TextPrimaryBrush"/>
+                                <HierarchicalDataTemplate DataType="{x:Type helpers:ProtocolNode}" ItemsSource="{Binding Items}">
+                                    <TextBlock Text="{Binding Header}" />
+                                </HierarchicalDataTemplate>
+                            </TreeView.Resources>
+                        </TreeView>
+                    </Grid>
+                </Border>
 
-            <GroupBox Grid.Column="2" Header="Hex" Margin="0">
-                <RichTextBox helpers:RichTextBoxAssist.BindableDocument="{Binding HexDocument}"
-                             IsReadOnly="True"
-                             FontFamily="Consolas"
-                             FontSize="12"
-                             VerticalScrollBarVisibility="Auto"
-                             HorizontalScrollBarVisibility="Auto"
-                             Margin="0"/>
-            </GroupBox>
+                <Border Grid.Column="2"
+                        Style="{StaticResource SectionCardStyle}"
+                        Padding="10"
+                        Background="{StaticResource CardAltBrush}">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+
+                        <DockPanel Grid.Row="0" LastChildFill="True">
+                            <Button DockPanel.Dock="Right"
+                                    Content="💾"
+                                    Command="{Binding CopyHexCommand}"
+                                    Style="{StaticResource HexHeaderButtonStyle}"
+                                    ToolTip="Copy hex to clipboard"/>
+                            <TextBlock Text="Hex"
+                                       VerticalAlignment="Center"
+                                       FontWeight="SemiBold"
+                                       Foreground="{StaticResource TextPrimaryBrush}"/>
+                        </DockPanel>
+
+                        <RichTextBox Grid.Row="1"
+                                     Margin="0,8,0,0"
+                                     helpers:RichTextBoxAssist.BindableDocument="{Binding HexDocument}"
+                                     IsReadOnly="True"
+                                     FontFamily="Consolas"
+                                     FontSize="12"
+                                     VerticalScrollBarVisibility="Auto"
+                                     HorizontalScrollBarVisibility="Hidden"/>
+                    </Grid>
+                </Border>
+            </Grid>
         </Grid>
     </Grid>
 </UserControl>
