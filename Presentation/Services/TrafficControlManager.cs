@@ -73,7 +73,7 @@ public sealed class TrafficControlManager : IDisposable
         _historyStore.HistoryChanged += OnHistoryChanged;
         _refreshTimer = new Timer(OnRefreshTimer, null, RefreshInterval, RefreshInterval);
 
-        RefreshAppliedQosPolicies();
+        _ = RefreshAppliedQosPolicies();
     }
 
     public IReadOnlyList<TrafficControlRule> GetRulesSnapshot()
@@ -96,7 +96,6 @@ public sealed class TrafficControlManager : IDisposable
 
         string warning = string.Empty;
 
-        RemoveAllAppliedQosPolicies(ref warning);
         RemoveAllQuotaBlocks(ref warning);
 
         lock (_gate)
@@ -109,7 +108,7 @@ public sealed class TrafficControlManager : IDisposable
             _suppressedQuotaEntryKeys.Clear();
         }
 
-        RefreshAppliedQosPolicies();
+        warning = AppendWarning(warning, RefreshAppliedQosPolicies());
 
         int activeRuleCount = normalizedRules.Count(static rule => rule.Enabled);
         string message = activeRuleCount == 0
@@ -392,13 +391,14 @@ public sealed class TrafficControlManager : IDisposable
     }
 
     private void OnRefreshTimer(object? state)
-        => RefreshAppliedQosPolicies();
+        => _ = RefreshAppliedQosPolicies();
 
-    private void RefreshAppliedQosPolicies()
+    private string RefreshAppliedQosPolicies()
     {
         if (_disposed || Interlocked.Exchange(ref _refreshInProgress, 1) == 1)
-            return;
+            return string.Empty;
 
+        string warning = string.Empty;
         try
         {
             List<TrafficControlRule> rules;
@@ -417,27 +417,64 @@ public sealed class TrafficControlManager : IDisposable
             foreach (var existing in currentPolicies)
             {
                 if (desiredPolicies.ContainsKey(existing.Key))
-                    continue;
-
-                if (_remediationService.TryRemoveQosPolicy(existing.Value.PolicyName, out _))
                 {
                     lock (_gate)
+                        _suppressedQosEntryKeys.Remove(existing.Key);
+
+                    continue;
+                }
+
+                if (suppressedEntries.Contains(existing.Key))
+                    continue;
+
+                if (_remediationService.TryRemoveQosPolicy(existing.Value.PolicyName, out string error))
+                {
+                    lock (_gate)
+                    {
                         _appliedQosPolicies.Remove(existing.Key);
+                        _suppressedQosEntryKeys.Remove(existing.Key);
+                    }
+                }
+                else
+                {
+                    warning = AppendWarning(warning, error);
+                    lock (_gate)
+                        _suppressedQosEntryKeys.Add(existing.Key);
                 }
             }
 
             foreach (var desired in desiredPolicies)
             {
-                if (currentPolicies.ContainsKey(desired.Key) || suppressedEntries.Contains(desired.Key))
+                if (currentPolicies.TryGetValue(desired.Key, out var current))
+                {
+                    if (Equals(current.Spec, desired.Value.Spec))
+                    {
+                        if (!Equals(current, desired.Value))
+                        {
+                            lock (_gate)
+                                _appliedQosPolicies[desired.Key] = desired.Value;
+                        }
+
+                        continue;
+                    }
+                }
+
+                if (suppressedEntries.Contains(desired.Key))
+                {
                     continue;
+                }
 
                 if (_remediationService.TryApplyQosPolicy(desired.Value.Spec, out string error))
                 {
                     lock (_gate)
+                    {
                         _appliedQosPolicies[desired.Key] = desired.Value;
+                        _suppressedQosEntryKeys.Remove(desired.Key);
+                    }
                 }
                 else
                 {
+                    warning = AppendWarning(warning, error);
                     lock (_gate)
                         _suppressedQosEntryKeys.Add(desired.Key);
 
@@ -452,6 +489,8 @@ public sealed class TrafficControlManager : IDisposable
         {
             Interlocked.Exchange(ref _refreshInProgress, 0);
         }
+
+        return warning;
     }
 
     private Dictionary<string, AppliedQosPolicyEntry> BuildDesiredQosPolicies(IReadOnlyList<TrafficControlRule> rules, DateTime nowLocal)

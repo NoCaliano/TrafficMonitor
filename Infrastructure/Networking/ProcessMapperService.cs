@@ -1,6 +1,7 @@
 ﻿using System.Diagnostics;
 using System.IO;
 using System.Net;
+using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading;
@@ -26,6 +27,9 @@ public sealed class ProcessMapperService : IDisposable
     private Dictionary<UdpKey, int> _udpMap = new();
 
     private readonly System.Timers.Timer _timer;
+    private long _lastUdpMissRefreshTick = Environment.TickCount64 - 1000;
+    private int _refreshInProgress;
+    private const int UdpMissRefreshCooldownMs = 250;
 
     public bool IsRunning => _timer.Enabled;
 
@@ -86,10 +90,14 @@ public sealed class ProcessMapperService : IDisposable
 
     public bool TryResolveUdp(IPAddress localIp, int localPort, out int pid)
     {
-        var k = new UdpKey(localIp, localPort);
-
         var map = Volatile.Read(ref _udpMap);
-        if (map.TryGetValue(k, out pid)) return true;
+        if (TryResolveUdpFromMap(map, localIp, localPort, out pid))
+            return true;
+
+        RefreshUdpSnapshotOnMiss();
+        map = Volatile.Read(ref _udpMap);
+        if (TryResolveUdpFromMap(map, localIp, localPort, out pid))
+            return true;
 
         pid = -1;
         return false;
@@ -271,6 +279,9 @@ public sealed class ProcessMapperService : IDisposable
 
     private void RefreshSafe()
     {
+        if (Interlocked.Exchange(ref _refreshInProgress, 1) != 0)
+            return;
+
         try
         {
             Refresh();
@@ -278,6 +289,10 @@ public sealed class ProcessMapperService : IDisposable
         catch
         {
             // не валимо UI
+        }
+        finally
+        {
+            Volatile.Write(ref _refreshInProgress, 0);
         }
     }
 
@@ -460,6 +475,45 @@ public sealed class ProcessMapperService : IDisposable
         {
             Marshal.FreeHGlobal(buff);
         }
+    }
+
+    private static bool TryResolveUdpFromMap(Dictionary<UdpKey, int> map, IPAddress localIp, int localPort, out int pid)
+    {
+        if (map.TryGetValue(new UdpKey(localIp, localPort), out pid))
+            return true;
+
+        // UDP sockets may be bound to wildcard addresses (0.0.0.0 / ::),
+        // which is common for QUIC clients and servers on Windows.
+        if (localIp.AddressFamily == AddressFamily.InterNetwork &&
+            map.TryGetValue(new UdpKey(IPAddress.Any, localPort), out pid))
+        {
+            return true;
+        }
+
+        if (localIp.AddressFamily == AddressFamily.InterNetworkV6 &&
+            map.TryGetValue(new UdpKey(IPAddress.IPv6Any, localPort), out pid))
+        {
+            return true;
+        }
+
+        pid = -1;
+        return false;
+    }
+
+    private void RefreshUdpSnapshotOnMiss()
+    {
+        if (!IsRunning)
+            return;
+
+        long now = Environment.TickCount64;
+        long last = Interlocked.Read(ref _lastUdpMissRefreshTick);
+        if (now - last < UdpMissRefreshCooldownMs)
+            return;
+
+        if (Interlocked.CompareExchange(ref _lastUdpMissRefreshTick, now, last) != last)
+            return;
+
+        RefreshSafe();
     }
 
     // ---------------- Keys ----------------
