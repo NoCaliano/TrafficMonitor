@@ -1360,7 +1360,7 @@
                                    AllowsTransparency="True"
                                    PopupAnimation="Fade"
                                    StaysOpen="False"
-                                   IsOpen="{Binding DataContext.IsBlockPresetMenuOpen, ElementName=ProcessPacketsLayout, Mode=TwoWay}">
+                                   IsOpen="False">
                                 <Border Width="220"
                                         Padding="8"
                                         Background="{StaticResource CardBrush}"
