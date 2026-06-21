@@ -158,7 +158,7 @@
 
                         <ToggleButton Grid.Column="1"
                                       Content="▾"
-                                      IsChecked="{Binding DataContext.IsBlockPresetMenuOpen, ElementName=ProcessPacketsLayout, Mode=TwoWay}"
+                                      IsChecked="{Binding DataContext.IsTimelineBlockPresetMenuOpen, ElementName=ProcessPacketsLayout, Mode=TwoWay}"
                                       Style="{StaticResource ProcessActionArrowToggleStyle}"
                                       Margin="0"/>
 
@@ -169,7 +169,7 @@
                                AllowsTransparency="True"
                                PopupAnimation="Fade"
                                StaysOpen="False"
-                               IsOpen="{Binding DataContext.IsBlockPresetMenuOpen, ElementName=ProcessPacketsLayout, Mode=TwoWay}">
+                               IsOpen="{Binding DataContext.IsTimelineBlockPresetMenuOpen, ElementName=ProcessPacketsLayout, Mode=TwoWay}">
                             <Border Width="220"
                                     Padding="8"
                                     Background="{StaticResource CardBrush}"
@@ -1349,7 +1349,7 @@
 
                             <ToggleButton Grid.Column="1"
                                           Content="▾"
-                                          IsChecked="{Binding IsBlockPresetMenuOpen, Mode=TwoWay}"
+                                          IsChecked="{Binding IsSelectedProcessBlockPresetMenuOpen, Mode=TwoWay}"
                                           Style="{StaticResource ProcessActionArrowToggleStyle}"
                                           Margin="0"/>
 
@@ -1360,7 +1360,7 @@
                                    AllowsTransparency="True"
                                    PopupAnimation="Fade"
                                    StaysOpen="False"
-                                   IsOpen="False">
+                                   IsOpen="{Binding DataContext.IsSelectedProcessBlockPresetMenuOpen, ElementName=ProcessPacketsLayout, Mode=TwoWay}">
                                 <Border Width="220"
                                         Padding="8"
                                         Background="{StaticResource CardBrush}"

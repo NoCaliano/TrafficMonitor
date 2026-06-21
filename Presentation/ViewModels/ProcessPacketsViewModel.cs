@@ -45,7 +45,8 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
     private readonly ThreatNotificationCoordinator _notificationCoordinator;
     private readonly TrafficControlManager _trafficControlManager;
     private bool _emitNotificationsForCurrentSession;
-    private bool _isBlockPresetMenuOpen;
+    private bool _isTimelineBlockPresetMenuOpen;
+    private bool _isSelectedProcessBlockPresetMenuOpen;
 
     public ObservableCollection<ProcessStatRow> ProcessStats { get; } = new();
     public ObservableCollection<ProcessStatCardRow> VisibleProcessRows { get; } = new();
@@ -79,10 +80,30 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
 
     public bool IsOverviewMode => !IsProcessDetailsOpen;
 
-    public bool IsBlockPresetMenuOpen
+    public bool IsTimelineBlockPresetMenuOpen
     {
-        get => _isBlockPresetMenuOpen;
-        set => Set(ref _isBlockPresetMenuOpen, value);
+        get => _isTimelineBlockPresetMenuOpen;
+        set
+        {
+            if (!Set(ref _isTimelineBlockPresetMenuOpen, value))
+                return;
+
+            if (value)
+                IsSelectedProcessBlockPresetMenuOpen = false;
+        }
+    }
+
+    public bool IsSelectedProcessBlockPresetMenuOpen
+    {
+        get => _isSelectedProcessBlockPresetMenuOpen;
+        set
+        {
+            if (!Set(ref _isSelectedProcessBlockPresetMenuOpen, value))
+                return;
+
+            if (value)
+                IsTimelineBlockPresetMenuOpen = false;
+        }
     }
 
     private ProcessStatRow? _selectedProcessStat;
@@ -104,7 +125,7 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
             if (value is not null)
                 value.IsSelectedInProcessGrid = true;
 
-            IsBlockPresetMenuOpen = false;
+            CloseBlockPresetMenus();
             RefreshSelectedProcessDetails();
         }
     }
@@ -337,7 +358,7 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
         SelectedProcessStat = null;
         SelectedIncidentGraph = ProcessIncidentGraph.Empty;
         IsProcessDetailsOpen = false;
-        IsBlockPresetMenuOpen = false;
+        CloseBlockPresetMenus();
         SearchText = "";
         ShowHighRiskOnly = false;
         ShowBeaconOnly = false;
@@ -548,7 +569,7 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
 
     private void BackToProcessGrid()
     {
-        IsBlockPresetMenuOpen = false;
+        CloseBlockPresetMenus();
         IsProcessDetailsOpen = false;
     }
 
@@ -608,7 +629,7 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
         if (pid <= 0)
             return;
 
-        IsBlockPresetMenuOpen = false;
+        CloseBlockPresetMenus();
         SelectProcess(pid);
         ReportStatus(_remediationCoordinator.BlockInFirewall(pid, preset));
     }
@@ -619,9 +640,15 @@ public sealed class ProcessPacketsViewModel : ViewModelBase
         if (pid <= 0)
             return;
 
-        IsBlockPresetMenuOpen = false;
+        CloseBlockPresetMenus();
         SelectProcess(pid);
         ReportStatus(_remediationCoordinator.UnblockInFirewall(pid));
+    }
+
+    private void CloseBlockPresetMenus()
+    {
+        IsTimelineBlockPresetMenuOpen = false;
+        IsSelectedProcessBlockPresetMenuOpen = false;
     }
 
     private void OnFirewallBlockStateChanged(ProcessRemediationCoordinator.FirewallBlockStateChange change)
